@@ -100,6 +100,10 @@ make check   # lint + tests
 
 `kit/` is the shared base every tool imports: theme, config and self-update.
 
+## Responsible use
+
+Rhythm tools are for securing **your own** systems, or systems you have explicit permission to test. You are responsible for using them lawfully. They are provided "as is", without warranty, as set out in the [license](LICENSE), and the authors are not liable for misuse or for any damage arising from their use.
+
 ## License
 
 [AGPL-3.0](LICENSE). Copyright 2026 Rhythm Shahriar.
