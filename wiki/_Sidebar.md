@@ -26,6 +26,25 @@
 - [CLI reference](Tuner-CLI-Reference)
 - [FAQ and troubleshooting](Tuner-FAQ)
 
+**Soundcheck**
+- [Overview](Soundcheck)
+- [Your first check](Soundcheck-First-Check)
+- [Reading results](Soundcheck-Reading-Results)
+- [Discovery](Soundcheck-Discovery)
+- [Page health](Soundcheck-Page-Health)
+- [Visual changes](Soundcheck-Visual)
+- [Interactions](Soundcheck-Interactions)
+- [Forms and flows](Soundcheck-Forms-And-Flows)
+- [Cache](Soundcheck-Cache)
+- [Speed](Soundcheck-Speed)
+
+**Soundcheck in depth**
+- [CI](Soundcheck-CI)
+- [Configuration](Soundcheck-Configuration)
+- [CLI reference](Soundcheck-CLI-Reference)
+- [FAQ and troubleshooting](Soundcheck-FAQ)
+- [Benchmark](Soundcheck-Benchmark)
+
 **Project**
 - [Responsible use](Responsible-Use)
 - [Security policy](Security-Policy)

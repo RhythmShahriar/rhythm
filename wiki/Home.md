@@ -5,7 +5,7 @@
   </picture>
 </p>
 
-Welcome to the documentation for **rhythm**, one CLI for every Rhythm tool, and for **Tuner**, the WordPress &amp; PHP security scanner that runs on it. Everything lives here; the tools' READMEs link back to these pages.
+Welcome to the documentation for **rhythm**, one CLI for every Rhythm tool, and for the two tools that run on it: **Tuner**, the WordPress &amp; PHP security scanner, and **Soundcheck**, which checks a whole site before and after a change and shows what broke. Everything lives here; the tools' READMEs link back to these pages.
 
 ## Start in one minute
 
@@ -14,16 +14,18 @@ Welcome to the documentation for **rhythm**, one CLI for every Rhythm tool, and 
 | `curl -fsSL https://rythm.sh/install \| sh` | `irm https://rythm.sh/install.ps1 \| iex` |
 
 ```sh
-rhythm tuner scan yoursite.com
+rhythm tuner scan yoursite.com                    # what's out of tune: leaks, CVEs, weak config
+rhythm soundcheck snapshot staging.yoursite.com   # before a change: record how every page works
+rhythm soundcheck compare                         # after it: what broke
 ```
 
-New here? Follow **[Your first scan](Tuner-First-Scan)**, then **[Reading results](Tuner-Reading-Results)**.
+New here? For security, follow **[Your first scan](Tuner-First-Scan)**. Before your next plugin update or deploy, follow **[Your first check](Soundcheck-First-Check)**.
 
 ## Find your way
 
 <table>
 <tr>
-<td width="33%" valign="top">
+<td width="25%" valign="top">
 
 ### Get started
 - [Install](Install)
@@ -32,7 +34,7 @@ New here? Follow **[Your first scan](Tuner-First-Scan)**, then **[Reading result
 - [Verifying releases](Verifying-Releases)
 
 </td>
-<td width="33%" valign="top">
+<td width="25%" valign="top">
 
 ### Use Tuner
 - [Overview](Tuner)
@@ -45,9 +47,9 @@ New here? Follow **[Your first scan](Tuner-First-Scan)**, then **[Reading result
 - [Local scans](Tuner-Local-Scans)
 
 </td>
-<td width="33%" valign="top">
+<td width="25%" valign="top">
 
-### Go deeper
+### Tuner in depth
 - [Known vulnerabilities](Tuner-Known-Vulnerabilities)
 - [PHP advisories](Tuner-PHP-Advisories)
 - [CI and code scanning](Tuner-CI)
@@ -56,6 +58,26 @@ New here? Follow **[Your first scan](Tuner-First-Scan)**, then **[Reading result
 - [Finding reference](Tuner-Finding-Reference)
 - [CLI reference](Tuner-CLI-Reference)
 - [FAQ and troubleshooting](Tuner-FAQ)
+
+</td>
+<td width="25%" valign="top">
+
+### Use Soundcheck
+- [Overview](Soundcheck)
+- [Your first check](Soundcheck-First-Check)
+- [Reading results](Soundcheck-Reading-Results)
+- [Discovery](Soundcheck-Discovery)
+- [Page health](Soundcheck-Page-Health)
+- [Visual changes](Soundcheck-Visual)
+- [Interactions](Soundcheck-Interactions)
+- [Forms and flows](Soundcheck-Forms-And-Flows)
+- [Cache](Soundcheck-Cache)
+- [Speed](Soundcheck-Speed)
+- [CI](Soundcheck-CI)
+- [Configuration](Soundcheck-Configuration)
+- [CLI reference](Soundcheck-CLI-Reference)
+- [FAQ and troubleshooting](Soundcheck-FAQ)
+- [Benchmark](Soundcheck-Benchmark)
 
 </td>
 </tr>
@@ -70,10 +92,10 @@ New here? Follow **[Your first scan](Tuner-First-Scan)**, then **[Reading result
 
 | | |
 |---|---|
-| [Responsible use](Responsible-Use) | scan only sites you own or may test; what Tuner never does |
-| [Security policy](Security-Policy) | report a vulnerability in Rhythm or Tuner privately |
+| [Responsible use](Responsible-Use) | check only sites you own or may test; what Tuner and Soundcheck never do |
+| [Security policy](Security-Policy) | report a vulnerability in Rhythm, Tuner or Soundcheck privately |
 | [Contributing](Contributing) | set up, commit conventions, pull requests |
 | [Release process](Release-Process) | how releases and check packs ship |
 | [Architecture](Architecture) | how rhythm, the kit and the tools fit together |
 
-Repositories: [rhythm](https://github.com/RhythmShahriar/rhythm) · [tuner](https://github.com/RhythmShahriar/tuner) · [community files](https://github.com/RhythmShahriar/.github)
+Repositories: [rhythm](https://github.com/RhythmShahriar/rhythm) · [tuner](https://github.com/RhythmShahriar/tuner) · [soundcheck](https://github.com/RhythmShahriar/soundcheck) · [community files](https://github.com/RhythmShahriar/.github)

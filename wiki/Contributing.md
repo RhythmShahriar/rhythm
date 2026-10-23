@@ -1,4 +1,4 @@
-Contributions are welcome, and new Tuner checks are the most welcome of all. This page covers setting up the code, the commit message rules the hooks enforce, how pull requests are reviewed and merged, and where to start with a check.
+Contributions are welcome, and new Tuner checks and Soundcheck testbed scenarios are the most welcome of all. This page covers setting up the code, the commit message rules the hooks enforce, how pull requests are reviewed and merged, and where to start with a check.
 
 For big changes, open an issue first so the approach can be agreed before you write the code. Keep each pull request focused on one thing.
 
@@ -8,6 +8,7 @@ For big changes, open an issue first so the approach can be agreed before you wr
 |---|---|
 | [`RhythmShahriar/rhythm`](https://github.com/RhythmShahriar/rhythm) | The `rhythm` CLI, the install scripts, and `kit/`, the shared base every tool imports |
 | [`RhythmShahriar/tuner`](https://github.com/RhythmShahriar/tuner) | Tuner (`rhythm-tuner`) and its checks in `checks/` |
+| [`RhythmShahriar/soundcheck`](https://github.com/RhythmShahriar/soundcheck) | Soundcheck (`rhythm-soundcheck`), its modules in `checks/`, the GitHub Action (`action.yml`) and the testbed in `testbed/` |
 | [`RhythmShahriar/.github`](https://github.com/RhythmShahriar/.github) | Shared community files and the reusable CI and release workflows |
 
 ## Set up
@@ -25,6 +26,17 @@ make check   # lint + tests, every check against its own fixtures
 make build   # bin/rhythm-tuner
 ```
 
+### Working on Soundcheck only
+
+Soundcheck builds on its own too. Its browser tests need Chrome or Chromium installed:
+
+```sh
+git clone https://github.com/RhythmShahriar/soundcheck && cd soundcheck
+make hooks   # enable the commit message check
+make check   # lint + tests (browser tests need Chrome or Chromium)
+make build   # bin/rhythm-soundcheck
+```
+
 ### Working on rhythm, or on the kit and a tool together
 
 Clone the repositories side by side and link them with a Go workspace, so a tool builds against your local copy of `kit/`:
@@ -33,13 +45,15 @@ Clone the repositories side by side and link them with a Go workspace, so a tool
 mkdir rhythmsh && cd rhythmsh
 git clone https://github.com/RhythmShahriar/rhythm
 git clone https://github.com/RhythmShahriar/tuner
-go work init ./rhythm ./tuner
+git clone https://github.com/RhythmShahriar/soundcheck
+go work init ./rhythm ./tuner ./soundcheck
 ```
 
 ```text
 rhythmsh/
-├── go.work      # use ( ./rhythm ./tuner )
+├── go.work      # use ( ./rhythm ./tuner ./soundcheck )
 ├── rhythm/
+├── soundcheck/
 └── tuner/
 ```
 
@@ -48,7 +62,10 @@ Keep `go.work` outside the repositories; it's local to your machine and isn't co
 ```sh
 go build -o bin/rhythm ./rhythm/cmd/rhythm
 go build -o bin/rhythm-tuner ./tuner/cmd/rhythm-tuner
+go build -o bin/rhythm-soundcheck ./soundcheck/cmd/rhythm-soundcheck
 ```
+
+To build a tool against the kit version in its `go.mod` instead of your local copy, set `GOWORK=off`.
 
 Then run `make hooks` and `make check` in each repository you change.
 
@@ -58,10 +75,10 @@ Then run `make hooks` and `make check` in each repository you change.
 |---|---|
 | `make hooks` | Points git at `.githooks/`, enabling the commit message check |
 | `make check` | `lint` + `test`, what you should run before every push |
-| `make test` | `go test -race ./...` |
+| `make test` | `go test -race ./...` (Soundcheck's browser tests need Chrome or Chromium) |
 | `make lint` | `golangci-lint` v2.15.0 |
 | `make fmt` | `gofmt -w .` |
-| `make build` | `bin/rhythm` or `bin/rhythm-tuner` |
+| `make build` | `bin/rhythm`, `bin/rhythm-tuner` or `bin/rhythm-soundcheck` |
 | `make pack` | Tuner only: builds the check pack into `dist/checks-pack`, byte for byte as CI publishes it |
 
 CI runs the same checks on every pull request, plus `gofmt`, `go vet`, a build, `shellcheck` on scripts and hooks, and `goreleaser check`.
@@ -148,6 +165,24 @@ The ground rules for every check:
 - **Every check needs positive and negative fixtures**, and good negatives cover the ways it could misfire: the file blocked, a soft-404 catch-all, a similar-looking page.
 
 Checks in `checks/` are MIT licensed so anyone can reuse them; the rest of Tuner is AGPL-3.0. Once a check lands on `master` it reaches users through the next [check pack](Tuner-Check-Packs), without waiting for a release.
+
+## Soundcheck and the testbed
+
+Soundcheck's modules are Go code in `checks/<module>/`, each implementing the hooks in `check/check.go` (see [Architecture](Architecture#inside-soundcheck)). A change to what Soundcheck reports needs a test with a page that shows the problem and one that doesn't, the same rule as Tuner's positive and negative fixtures; most module tests serve small HTML pages from `httptest` and drive a real browser.
+
+End to end, Soundcheck is tested against the **testbed**: a WordPress site and a plain-PHP site in Docker with 20 scenarios, each with a good and a broken state. It's also the [benchmark](Soundcheck-Benchmark).
+
+```sh
+make build                         # bin/rhythm-soundcheck
+make -C testbed up                 # WordPress on 127.0.0.1:18800, plain PHP on :18810
+cd testbed && ./toggle.sh s05 broken && ./toggle.sh status
+go run -tags testbed ./testbed/bench -only s05   # snapshot good, break, compare, judge
+make -C testbed down               # throw everything away
+```
+
+To add a scenario, add its broken state to the testbed site (a mu-plugin, theme or test plugin that checks `testbed-state/<id>`), describe it in `testbed/scenarios.yaml` with the change Soundcheck should report, and run it with `-only`. Keep scenarios to one problem each, and break things the way a real update does.
+
+Like Tuner's checks, Soundcheck must never exploit anything, must mask secrets, and must stay safe on real sites: new clicks and submits respect the destructive blocklist and the production guard. Soundcheck is MIT licensed.
 
 ## Code of conduct
 

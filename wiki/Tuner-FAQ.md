@@ -175,4 +175,4 @@ Want a new check, or have one ready? See [Writing checks](Tuner-Writing-Checks) 
 Don't open a public issue. Report it privately as described in the [Security policy](Security-Policy).
 
 ---
-<sub>← [CLI reference](Tuner-CLI-Reference) · [Home](Home) · [Responsible use](Responsible-Use) →</sub>
+<sub>← [CLI reference](Tuner-CLI-Reference) · [Home](Home) · [Soundcheck overview](Soundcheck) →</sub>

@@ -21,6 +21,7 @@ Download the archive, `checksums.txt` and `checksums.txt.sigstore.json` from the
 
 - https://github.com/RhythmShahriar/rhythm/releases/latest
 - https://github.com/RhythmShahriar/tuner/releases/latest
+- https://github.com/RhythmShahriar/soundcheck/releases/latest
 
 **Linux**
 
@@ -37,6 +38,8 @@ grep ' rhythm-tuner_darwin_arm64.tar.gz$' checksums.txt | shasum -a 256 -c
 ```text
 rhythm-tuner_linux_amd64.tar.gz: OK
 ```
+
+The same works for every tool: for Soundcheck, use `rhythm-soundcheck_linux_amd64.tar.gz` and the `checksums.txt` from the Soundcheck release.
 
 **Windows** (PowerShell)
 
@@ -59,7 +62,7 @@ cosign verify-blob --bundle checksums.txt.sigstore.json \
   checksums.txt
 ```
 
-`Verified OK` means `checksums.txt` was signed by Rhythm's release workflow (the shared `release-go.yml` in the `RhythmShahriar/.github` repository, run from its `master` branch) through GitHub Actions, and the signature is recorded in Sigstore's public transparency log. Together with step 1, that ties your archive to that workflow. Any other identity, even another workflow under `RhythmShahriar`, is rejected.
+Every repository (`rhythm`, `tuner`, `soundcheck`) releases through that same shared workflow, so the identity is the same for all of them. `Verified OK` means `checksums.txt` was signed by Rhythm's release workflow (the shared `release-go.yml` in the `RhythmShahriar/.github` repository, run from its `master` branch) through GitHub Actions, and the signature is recorded in Sigstore's public transparency log. Together with step 1, that ties your archive to that workflow. Any other identity, even another workflow under `RhythmShahriar`, is rejected.
 
 > [!NOTE]
 > There is no long-lived signing key to publish or rotate. Keyless signing uses a short-lived certificate that GitHub's OIDC token proves came from the release workflow.
@@ -69,7 +72,8 @@ cosign verify-blob --bundle checksums.txt.sigstore.json \
 | Item | Checksummed | Signed |
 |---|---|---|
 | `rhythm` release archives | Yes, `checksums.txt` | Yes, `checksums.txt` is signed with cosign |
-| Tool release archives (e.g. `rhythm-tuner`) | Yes, `checksums.txt` | Yes, the same way |
+| Tool release archives (`rhythm-tuner`, `rhythm-soundcheck`) | Yes, `checksums.txt` | Yes, the same way |
+| The Chromium Soundcheck downloads when no Chrome is installed | No: the go-rod library fetches a pinned Chromium snapshot over HTTPS from public mirrors (Google's Chromium snapshot storage and others) | No; it isn't a Rhythm artifact. Install Chrome or Chromium from your OS and pass `--browser` if you'd rather use a browser you've verified. |
 | Tuner [check packs](Tuner-Check-Packs) (`checks-latest` release) | Yes, `checks-sha256.txt` | **No** |
 | `install.sh` and `install.ps1` | No | No |
 

@@ -1,4 +1,4 @@
-One command keeps `rhythm`, every installed tool and their data current. This page explains what `rhythm update` does, how downloads are verified, the once-a-day release notice, and how Tuner refreshes its vulnerability data and checks on its own.
+One command keeps `rhythm`, every installed tool and their data current. This page explains what `rhythm update` does, how downloads are verified, the once-a-day release notice, how Tuner refreshes its vulnerability data and checks on its own, and how Soundcheck keeps its browser current.
 
 ## Update everything
 
@@ -9,8 +9,8 @@ rhythm update
 It works in this order:
 
 1. **`rhythm` itself.**
-2. **Every installed tool**, found as `rhythm-<tool>` on your `PATH` (today: `rhythm-tuner`).
-3. **Each tool's data**, by running `rhythm-<tool> update`. For Tuner that refreshes the [check pack](Tuner-Check-Packs) and the cached vulnerability data.
+2. **Every installed tool**, found as `rhythm-<tool>` on your `PATH` (today: `rhythm-tuner` and `rhythm-soundcheck`).
+3. **Each tool's data**, by running `rhythm-<tool> update`. For Tuner that refreshes the [check pack](Tuner-Check-Packs) and the cached vulnerability data; for Soundcheck, the browser it uses (see [Soundcheck's browser](#soundchecks-browser)).
 
 ```text
 rhythm         0.1.0 (up to date)
@@ -66,14 +66,14 @@ If the directory isn't writable, for example `/usr/local/bin` after a root insta
 
 ## The "new release" notice
 
-When a newer Tuner release is out, a scan ends with a line on stderr:
+When a newer Tuner or Soundcheck release is out, a scan or check ends with a line on stderr:
 
 ```text
 A new release of rhythm-tuner is available: 0.3.0 → 0.3.1
   run: rhythm update
 ```
 
-- Tuner asks GitHub at most **once a day**, in the background while the scan runs, and never delays the scan for it. The answer is remembered in `update-check/rhythm-tuner.json` under your config directory (`~/.config/rhythm` on Linux).
+- Each tool asks GitHub at most **once a day**, in the background while it runs, and never delays the run for it. The answer is remembered in `update-check/rhythm-tuner.json` (or `rhythm-soundcheck.json`) under your config directory (`~/.config/rhythm` on Linux).
 - The notice only appears with the terminal view, and not with `--quiet`.
 - It never installs anything. Rhythm doesn't update binaries silently; you run `rhythm update` when you choose to.
 
@@ -116,6 +116,32 @@ The next scan downloads what it needs again.
 New Tuner checks reach you without a new binary. Tuner looks for a newer check pack at most once a day during scans, verifies it against its checksums, and uses it when it's newer than the checks built into your binary. `rhythm tuner update` checks for one immediately. Any problem with a pack prints a warning and the scan carries on with cached or built-in checks.
 
 Use `--no-check-updates` to scan with the built-in checks only, or `--offline` to use only what's cached. How packs are built, verified and trusted is on [Check Packs](Tuner-Check-Packs).
+
+## Soundcheck's browser
+
+Soundcheck uses an installed Chrome or Chromium when there is one; those update with your system. Otherwise it downloads the Chromium build its version is pinned to, once, into your cache folder. `rhythm soundcheck update` (which `rhythm update` runs for you) makes sure that browser is there:
+
+- With Chrome installed, it reports what it found and changes nothing:
+
+  ```text
+  Browser: installed Chrome at /usr/bin/google-chrome (updated with your system)
+  ```
+
+- Otherwise it downloads the pinned Chromium if it's missing, deletes older Chromium revisions that earlier Soundcheck versions downloaded, prints `Removed older Chromium <folder>` for each, and ends with `Browser: Chromium at <path>`.
+
+A new Soundcheck release may pin a newer Chromium. `rhythm update` then downloads it and removes the old one in the same step; if a check downloads it first, the old revision stays until the next `update`.
+
+To delete the downloaded Chromium:
+
+```sh
+rhythm soundcheck update --clear
+```
+
+```text
+Cleared /home/you/.cache/rhythm/soundcheck/browser
+```
+
+The next run downloads it again if no Chrome is installed. Soundcheck has no other cached data: snapshots and reports live in your project's `.soundcheck/` folder and are never touched by `update`.
 
 ---
 <sub>← [Install](Install) · [Home](Home) · [Uninstall](Uninstall) →</sub>

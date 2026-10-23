@@ -1,4 +1,4 @@
-How `rhythm` and its tools are released, for maintainers. A release is a pushed `vX.Y.Z` tag; a shared workflow builds, checksums, signs and publishes it. Tuner's checks also publish on their own, as a check pack, on every push to `master`.
+How `rhythm` and its tools are released, and how a new tool is added, for maintainers. A release is a pushed `vX.Y.Z` tag; a shared workflow builds, checksums, signs and publishes it. Tuner's checks also publish on their own, as a check pack, on every push to `master`.
 
 ## Release a version
 
@@ -53,7 +53,7 @@ The shared `ci-go.yml` workflow runs on every push to `master` and every pull re
 
 ## When the kit changes
 
-Tools import the shared kit (`github.com/RhythmShahriar/rhythm/kit/...`) as a normal Go module, pinned in their `go.mod` (Tuner currently requires `github.com/RhythmShahriar/rhythm v0.1.0`). A tool release builds against that pinned version, not against `rhythm`'s `master`. So when a tool needs a kit change, release in this order:
+Tools import the shared kit (`github.com/RhythmShahriar/rhythm/kit/...`) as a normal Go module, pinned in their `go.mod` (Tuner currently requires `github.com/RhythmShahriar/rhythm v0.1.0`, Soundcheck `v0.2.0`). A tool release builds against that pinned version, not against `rhythm`'s `master`. So when a tool needs a kit change, release in this order:
 
 1. **Release `rhythm` first.** Merge the kit change and tag a new `rhythm` version, e.g. `v0.2.0`.
 2. **Bump the tool.** In the tool repository:
@@ -75,9 +75,53 @@ Releasing `rhythm` first also means users who run `rhythm update` get the new `k
 
 </details>
 
-### Adding a new tool
+## Adding a new tool
 
-The router only knows the tools listed in `rhythm/cmd/rhythm/main.go` (the `tools` map and its `aliases`). For `rhythm install <tool>` and `rhythm update` to find a new tool, add it there and release `rhythm`, after the tool has at least one published release.
+Soundcheck is the worked example: a new repository, `RhythmShahriar/soundcheck`, with the binary `rhythm-soundcheck`, reached as `rhythm soundcheck` and `rhythm sc`.
+
+### 1. Set up the repository
+
+- **Module and binary.** The module is `github.com/RhythmShahriar/<tool>` and the command lives in `cmd/rhythm-<tool>`. The binary must be `rhythm-<tool>`: the router runs `rhythm-<tool>` from the `PATH`.
+- **The kit.** Require a tagged `rhythm` for the kit (Soundcheck requires `v0.2.0`) and use it for the banner, theme, user folders, update notice and shared flags, so the tool looks and behaves like the others.
+- **The standard commands.** `version` (printing `rhythm-<tool> <version>`), `help`, the exit codes `0`, `1` (`--fail-on`), `2` (usage), `3` (couldn't run), `130` (interrupted), and `update`, which `rhythm update` calls after updating the binary to refresh the tool's data (for Soundcheck, its browser). An `update` with nothing to do should still exit `0`.
+- **Responsible use.** A one-time notice through `kit/config.FirstRun` (Soundcheck's marker is `soundcheck-authorised-use`), and the background release check through `kit/update.Notice` with the tool's repository and binary.
+- **Release config.** Copy `.goreleaser.yaml`, `.github/workflows/release.yml` and `ci.yml` from an existing tool. Set `project_name` to the binary name so archives are named `rhythm-<tool>_<os>_<arch>`; see [the naming contract](#the-naming-contract).
+- **Community files.** `make hooks` and the commit message hook, a README that links into this wiki, the license, and private vulnerability reporting turned on in the repository's security settings.
+
+### 2. Release the tool
+
+Tag and push `v1.0.0` (or whatever the first version is) as in [Release a version](#release-a-version), and [verify the release](#verify-a-release). The release must exist before the router points at it: `rhythm install` and `rhythm update` read `/releases/latest`.
+
+### 3. Register it in the router
+
+The router only knows the tools listed in [`cmd/rhythm/main.go`](https://github.com/RhythmShahriar/rhythm/blob/master/cmd/rhythm/main.go): the `tools` map (name → repository), its `aliases`, and the tools list in the help text. For Soundcheck:
+
+```go
+var tools = map[string]string{
+	"tuner":      "RhythmShahriar/tuner",
+	"soundcheck": "RhythmShahriar/soundcheck",
+}
+
+var aliases = map[string]string{"t": "tuner", "sc": "soundcheck"}
+```
+
+To install it by default, add it to the installers' default `RHYTHM_TOOLS` (`tuner soundcheck` in `scripts/install.sh` and `scripts/install.ps1`) and to their "Get started" line. Then add the tool to the wiki: its pages, the sidebar, Home, Install, Updating, Uninstall and this page.
+
+### 4. Release rhythm
+
+Release `rhythm` with the registration. Users get the tool with `rhythm install <tool>`, and new installs get it by default.
+
+### The order
+
+```text
+rhythm (kit the tool needs)  →  the tool's first release  →  rhythm (registers the tool)
+```
+
+1. **`rhythm` with the kit**, if the tool needs kit packages that aren't released yet. For Soundcheck that was `v0.2.0`, with `kit/crawl`, `kit/ratelimit`, `kit/cache` and `kit/cli`.
+2. **The tool**, requiring that `rhythm` version.
+3. **`rhythm` again**, registering the tool and installing it by default.
+
+Registering a tool before it has a release breaks the installer: `rhythm install` finds no release, and the installer stops (`installing <tool> failed`) for everyone using the default `RHYTHM_TOOLS`.
 
 ## Check packs
 

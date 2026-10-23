@@ -38,14 +38,14 @@ Remove-Item -Recurse -Force "$env:LOCALAPPDATA\rhythm", "$env:APPDATA\rhythm" -E
 ## Installed with Go
 
 ```sh
-rm "$(go env GOPATH)/bin/rhythm" "$(go env GOPATH)/bin/rhythm-tuner"
+rm "$(go env GOPATH)/bin/rhythm" "$(go env GOPATH)/bin/rhythm-tuner" "$(go env GOPATH)/bin/rhythm-soundcheck"
 ```
 
 Then remove the cache and settings folders for your platform as above.
 
 ## What's in the cache and settings folders
 
-Both are safe to delete at any time. Tuner downloads what it needs again on the next scan.
+Both are safe to delete at any time. Tuner downloads what it needs again on the next scan, and Soundcheck downloads Chromium again if it needs it.
 
 | Folder | Linux | macOS | Windows |
 |---|---|---|---|
@@ -56,10 +56,26 @@ Both are safe to delete at any time. Tuner downloads what it needs again on the 
 |---|---|
 | cache `tuner/vulns/` | Cached vulnerability data: WPVulnerability, wordpress.org, php.net and OSV.dev records |
 | cache `tuner/checks/` | The latest verified [check pack](Tuner-Check-Packs) |
+| cache `soundcheck/browser/` | The Chromium Soundcheck downloaded, when no Chrome is installed; often the largest item |
 | settings `update-check/` | When each tool last looked for a new release, for the [once-a-day notice](Updating#the-new-release-notice) |
-| settings `seen/` | Markers for notices shown once, such as Tuner's responsible-use note |
+| settings `seen/` | Markers for notices shown once, such as Tuner's and Soundcheck's responsible-use notes |
 
-To clear only Tuner's cache, run `rhythm tuner update --clear`.
+To clear only Tuner's cache, run `rhythm tuner update --clear`. To delete only Soundcheck's Chromium, run `rhythm soundcheck update --clear`.
+
+## Soundcheck folders in your projects
+
+Soundcheck keeps snapshots, runs and reports in a `.soundcheck/` folder in each project where you ran it. Uninstalling doesn't touch them. Delete them when you no longer need them:
+
+```sh
+rm -r .soundcheck/snapshots .soundcheck/runs .soundcheck/.incoming   # keeps config.yaml and flows/
+rm -r .soundcheck                                                    # everything
+```
+
+`config.yaml` and `flows/` are project files you may have committed; the rest is excluded from git through `.git/info/exclude`, where Soundcheck added a `# Soundcheck snapshots and reports` block you can delete too. To find the folders:
+
+```sh
+find ~ -type d -name .soundcheck 2>/dev/null
+```
 
 > [!TIP]
 > Deleting `seen/` brings back the one-time responsible-use note on your next scan.

@@ -1,22 +1,30 @@
-How Rhythm fits together: a small router CLI, a shared kit, and tools that live in their own repositories and release on their own. The second half walks through Tuner's internals, from the first request of a scan to the report.
+How Rhythm fits together: a small router CLI, a shared kit, and tools that live in their own repositories and release on their own. The second half walks through the internals of Tuner, from the first request of a scan to the report, and of Soundcheck, from discovery to a comparison.
 
 ## The big picture
 
 ```mermaid
 flowchart LR
-  user(["rhythm tuner scan yoursite.com"]) --> router["rhythm<br/>(router)"]
-  router -- "exec rhythm-tuner scan yoursite.com" --> tuner["rhythm-tuner"]
+  user(["rhythm tuner scan yoursite.com<br/>rhythm soundcheck compare"]) --> router["rhythm<br/>(router)"]
+  router -- "exec rhythm-tuner …" --> tuner["rhythm-tuner"]
+  router -- "exec rhythm-soundcheck …" --> sc["rhythm-soundcheck"]
   router -. "install / update" .-> gh[("GitHub Releases")]
   tuner -. "check packs, update notice" .-> gh
+  sc -. "update notice" .-> gh
+  sc --> chrome["headless Chrome"]
   subgraph kit ["rhythm/kit (Go module)"]
     ui["kit/ui<br/>theme"]
     config["kit/config<br/>user dirs"]
     update["kit/update<br/>verified installs"]
+    crawl["kit/crawl<br/>discovery"]
+    rl["kit/ratelimit<br/>polite pacing"]
+    cache["kit/cache<br/>disk cache"]
+    cli["kit/cli<br/>flag helpers"]
   end
   router --- update
   tuner --- ui
   tuner --- config
   tuner --- update
+  sc --- kit
 ```
 
 | Piece | Repository | Role |
@@ -24,6 +32,7 @@ flowchart LR
 | `rhythm` | [`RhythmShahriar/rhythm`](https://github.com/RhythmShahriar/rhythm) | Router CLI, `install`, `update`, install scripts |
 | `kit/` | same repository, module `github.com/RhythmShahriar/rhythm` | Shared base every tool imports |
 | `rhythm-tuner` | [`RhythmShahriar/tuner`](https://github.com/RhythmShahriar/tuner) | WordPress & PHP security scanner |
+| `rhythm-soundcheck` | [`RhythmShahriar/soundcheck`](https://github.com/RhythmShahriar/soundcheck) | Whole-site before/after checks in a real browser |
 | Shared workflows | [`RhythmShahriar/.github`](https://github.com/RhythmShahriar/.github) | Reusable CI, commit lint and release workflows, community files |
 
 ## The router
@@ -31,11 +40,11 @@ flowchart LR
 `rhythm` is deliberately thin. It follows the same extension model as `git` and `gh`:
 
 - `rhythm <tool> [args]` looks up `rhythm-<tool>` on your `PATH` and runs it with the remaining arguments, passing stdin, stdout and stderr straight through. The tool's exit code becomes `rhythm`'s exit code, so `rhythm tuner scan … --fail-on high` works in CI exactly like `rhythm-tuner scan … --fail-on high`.
-- **Aliases** are short names: `t` → `tuner`. They work for running and for `rhythm install`.
+- **Aliases** are short names: `t` → `tuner`, `sc` → `soundcheck`. They work for running and for `rhythm install`.
 - If the binary isn't found, a known tool gets `rhythm: tuner isn't installed` with the install command; an unknown name gets `rhythm: unknown tool "<name>"`.
 - `rhythm` handles four commands itself: `help`, `version`, `install <tool> [--dir]` and `update [--check]`. Anything else is treated as a tool name.
 
-The router knows which tools exist, and which GitHub repository each comes from, through a small table in [`cmd/rhythm/main.go`](https://github.com/RhythmShahriar/rhythm/blob/master/cmd/rhythm/main.go). `rhythm update` uses it to find installed tools on the `PATH`, update each binary, then run `rhythm-<tool> update` so each tool refreshes its own data. See [Updating](Updating).
+The router knows which tools exist (today `tuner` and `soundcheck`), and which GitHub repository each comes from, through a small table in [`cmd/rhythm/main.go`](https://github.com/RhythmShahriar/rhythm/blob/master/cmd/rhythm/main.go). `rhythm update` uses it to find installed tools on the `PATH`, update each binary, then run `rhythm-<tool> update` so each tool refreshes its own data. See [Updating](Updating).
 
 ## The kit
 
@@ -46,7 +55,13 @@ The router knows which tools exist, and which GitHub repository each comes from,
 | `kit` | `Banner`, the standard header line: `♪ rhythm tuner  0.3.1` |
 | `kit/ui` | The terminal theme, built from the Rhythm brand tokens: **Ink** `#100F0D`, **Paper** `#FFFFFF`, and one signal color, **Dot** `#FF7C52` (a deeper `#E8603A` on light backgrounds). Severities use conventional colors: critical red, high orange, medium yellow, low blue, ok green, muted gray. Built on Lip Gloss. |
 | `kit/config` | The per-user config directory (`~/.config/rhythm` or the OS equivalent), and `FirstRun`, which records one-time notices such as Tuner's responsible-use note |
-| `kit/update` | Finding the latest GitHub release, comparing semantic versions, downloading the `<binary>_<os>_<arch>` archive, verifying it against `checksums.txt`, and swapping the binary atomically. Also the once-a-day update check, which honors `RHYTHM_NO_UPDATE_CHECK` and `CI`. |
+| `kit/update` | Finding the latest GitHub release, comparing semantic versions, downloading the `<binary>_<os>_<arch>` archive, verifying it against `checksums.txt`, and swapping the binary atomically. Also the once-a-day update check, which honors `RHYTHM_NO_UPDATE_CHECK` and `CI`, and `Notice`, which runs it in the background during a command. |
+| `kit/crawl` | Site discovery: `robots.txt`, sitemaps (indexes, gzip) and links, URL normalization (tracking parameters, trailing slashes), same-site rules, the `DefaultExcludes` for admin, login, cart and logout URLs, and grouping pages by URL pattern (`/product/{slug}`) so a large site is checked through samples. Its `Frontier` takes more pages while a browser renders them. |
+| `kit/ratelimit` | An even request pace per host that halves after `429` or `503` (down to one request every two seconds), `Retry-After` handling up to 30 s, backoff, and `ParseTarget`, which turns `yoursite.com` or a URL into the site to check. |
+| `kit/cache` | A small on-disk JSON cache with a TTL and stale fallback when the network is down, plus atomic `WriteFile` and `WriteJSON`. |
+| `kit/cli` | Flag helpers shared by every tool: flags before or after positional arguments, comma-separated and repeatable list flags, usage errors that map to exit code 2, terminal detection. |
+
+`kit/ui` also has the shared report pieces: severity badges, section rules and the summary panel. Soundcheck uses `kit/crawl`, `kit/ratelimit`, `kit/cache` and `kit/cli`; Tuner can adopt them when it moves to a newer kit.
 
 `kit/update` relies on a naming contract with every repository's GoReleaser config; see [Release Process](Release-Process#the-naming-contract).
 
@@ -139,6 +154,77 @@ The `report` package renders one result model several ways:
 | Baseline | `--baseline`, which reads any earlier JSON report and hides findings already in it |
 
 See [Output](Tuner-Output) and [CI](Tuner-CI).
+
+## Inside Soundcheck
+
+```text
+soundcheck/
+├── cmd/rhythm-soundcheck   CLI: commands, flags, picker, init, update, output wiring
+├── config                  .soundcheck/config.yaml: defaults, strict loading, validation
+├── runner                  one run: resolve the site, discover, visit pages in tabs, call module hooks
+├── browser                 find, download and launch Chrome; private sessions
+├── capture                 one page visit: events, metrics, links, text, screenshots
+├── check                   the module interface: hooks and the run context
+├── checks/                 the five modules
+│   ├── health              status, PHP and JS errors, failed requests, links, indexing
+│   ├── visual              pixel diff, dynamic regions, bands, grouping
+│   ├── interact            inspect, click, submit, flows
+│   ├── cache               layers, double fetch, private pages, nonces, staleness, leak test
+│   └── speed               lab metrics, regressions, site-wide suggestions, plugin cost
+├── flow                    the YAML flow format, its runner and fake data
+├── login                   WordPress or flow login from SOUNDCHECK_USER/PASSWORD
+├── compare                 two runs → ranked changes (BROKE, NEW, CHANGED, SLOWER, FIXED)
+├── store                   the .soundcheck folder: snapshots, runs, LATEST, pruning, git exclude
+├── report                  terminal view, plain, JSON, Markdown, JUnit, standalone HTML
+├── lighthouse              hands a site to Unlighthouse for --lighthouse
+└── action.yml              the GitHub Action
+```
+
+### A run, step by step
+
+```mermaid
+flowchart TD
+  R["Resolve the site<br/>(follow redirects)"] --> D["Discover<br/>kit/crawl: robots, sitemaps, links"]
+  D --> L["Launch Chrome<br/>private session"]
+  L --> T["Tab pool (--tabs)<br/>paced by kit/ratelimit"]
+  subgraph page ["Each page, in its own tab"]
+    P["Prepare hooks<br/>(speed: JS/CSS coverage)"] --> V["capture.Visit<br/>desktop load, events, metrics, screenshot"]
+    V --> LV["Live hooks<br/>(interact: inspect, click, submit)"]
+    LV --> M["capture.Mobile<br/>reload at 390 px, screenshot"]
+    M --> C["CheckPage hooks<br/>(health, visual, speed)"]
+  end
+  T --> P
+  C -- "new links" --> T
+  C --> S["CheckSite hooks, once<br/>health: links · cache: double fetch, leak test<br/>speed: suggestions · interact: flows"]
+  S --> RUN[("run.json")]
+  RUN --> CMP["compare.Compare<br/>issue diff + Comparer hooks"]
+  CMP --> REP["report<br/>terminal, HTML, MD, JSON, JUnit"]
+```
+
+The runner knows nothing about what modules check. A module is a Go type with a `Name()` and any of these hooks, from [`check/check.go`](https://github.com/RhythmShahriar/soundcheck/blob/master/check/check.go):
+
+| Hook | When it runs | Used by |
+|---|---|---|
+| `Prepare` | on a fresh tab, before it navigates | speed (starts CSS and JS coverage) |
+| `Live` | while the page is open at desktop size, after the screenshot, before the mobile reload; may interact with the page | interact, speed |
+| `CheckPage` | after the visit, on the recorded page, without the browser | health, visual (learns dynamic regions in snapshots), speed |
+| `CheckSite` | once, after every page | health (links), cache, speed (suggestions), interact (flows) |
+| `Compare` | in a comparison, on both runs | health (titles, content, redirects), visual, cache, speed |
+| `OwnsIssues` | marks a module that diffs its own issues | speed, so lab noise doesn't flip issues between NEW and FIXED |
+
+Each issue gets a key from its check, title and source, so `compare` can match the same problem on the same page across runs: a new error is BROKE, a new warning or notice NEW, a missing one FIXED. Comparer hooks add CHANGED and SLOWER, and the result is sorted by class and size.
+
+### The browser layer
+
+`browser` drives Chrome through the DevTools protocol with [go-rod](https://github.com/go-rod/rod). It uses `--browser`, or an installed Chrome or Chromium, or downloads a pinned Chromium into `<cache>/rhythm/soundcheck/browser`. Chrome runs headless with GPU, audio and background networking off, and without its sandbox only when running as root. The crawl runs in one private (incognito) session; the leak test and each flow get their own, so a logged-in user never shares cookies with the anonymous crawl.
+
+`capture` records each visit from DevTools events: the document's status, headers and redirect chain; every request with its type, status, size, protocol and cache headers; console errors, uncaught exceptions and browser log errors; Web Vitals from a `PerformanceObserver` injected before any page script; the visible text, title, robots directives and same-site links. Screenshots pause animations first, and the visual module learns dynamic regions from a second capture in snapshots.
+
+Plain HTTP requests outside the browser (discovery, link checks, form action checks, the cache double fetch) share the run's headers, proxy, TLS settings, user agent and per-host pace.
+
+### Storage and reports
+
+`store` writes each run as `run.json` (schema `rhythm-soundcheck/v1`) with its screenshots, into `.soundcheck/snapshots/<name>/` or `.soundcheck/runs/<date-time>/`. A snapshot is written to `.incoming/` and moved into place only when complete. Runs are pruned to the newest 20, and the folders are added to `.git/info/exclude`. `report` renders one result model as the live terminal view, plain text, JSON, Markdown, JUnit and a standalone HTML page with embedded, scaled screenshots and the before/after slider. See [Reading results](Soundcheck-Reading-Results).
 
 ---
 <sub>← [Release process](Release-Process) · [Home](Home)</sub>
