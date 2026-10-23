@@ -5,7 +5,7 @@
 # Environment:
 #   RHYTHM_INSTALL_DIR  where to install (default ~/.local/bin, or /usr/local/bin as root)
 #   RHYTHM_VERSION      a specific version, e.g. 0.2.0 (default: latest)
-#   RHYTHM_TOOLS        tools to install as well (default "tuner"; set empty for none)
+#   RHYTHM_TOOLS        tools to install as well (default "tuner soundcheck"; set empty for none)
 #   RHYTHM_GITHUB_API   GitHub API base, for mirrors (default https://api.github.com)
 set -eu
 
@@ -86,7 +86,7 @@ if ! { cp "$tmp/rhythm" "$dir/.rhythm.new" && chmod 0755 "$dir/.rhythm.new" && m
 fi
 say "Installed $("$dir/rhythm" --version) to $dir"
 
-for tool in ${RHYTHM_TOOLS-tuner}; do
+for tool in ${RHYTHM_TOOLS-tuner soundcheck}; do
 	"$dir/rhythm" install "$tool" --dir "$dir" >&2 || die "installing $tool failed"
 done
 
@@ -94,4 +94,4 @@ case ":$PATH:" in
 *":$dir:"*) ;;
 *) say "Add $dir to your PATH, e.g.: echo 'export PATH=\"$dir:\$PATH\"' >> ~/.profile" ;;
 esac
-say "Get started: rhythm tuner scan example.com"
+say "Get started: rhythm tuner scan example.com · rhythm soundcheck snapshot example.com"

@@ -20,7 +20,7 @@
 
 ## Documentation
 
-Everything about rhythm and its tools lives in the **[documentation wiki](https://github.com/RhythmShahriar/rhythm/wiki)**: installing and updating, every Tuner feature, CI, writing checks, and the project's policies.
+Everything about rhythm and its tools lives in the **[documentation wiki](https://github.com/RhythmShahriar/rhythm/wiki)**: installing and updating, every Tuner and Soundcheck feature, CI, writing checks, and the project's policies.
 
 ## Install
 
@@ -36,7 +36,7 @@ curl -fsSL https://rythm.sh/install | sh
 irm https://rythm.sh/install.ps1 | iex
 ```
 
-This installs `rhythm` and Tuner to `~/.local/bin` (`/usr/local/bin` as root; `%LOCALAPPDATA%\Programs\rhythm` on Windows, added to your PATH). Every download is checked against the release's `checksums.txt`.
+This installs `rhythm`, Tuner and Soundcheck to `~/.local/bin` (`/usr/local/bin` as root; `%LOCALAPPDATA%\Programs\rhythm` on Windows, added to your PATH). Every download is checked against the release's `checksums.txt`.
 
 <details>
 <summary>Installer options</summary>
@@ -45,7 +45,7 @@ This installs `rhythm` and Tuner to `~/.local/bin` (`/usr/local/bin` as root; `%
 |---|---|
 | `RHYTHM_INSTALL_DIR` | install somewhere else |
 | `RHYTHM_VERSION` | install a specific version, e.g. `0.1.0` |
-| `RHYTHM_TOOLS` | tools to install alongside (default `tuner`; empty for none) |
+| `RHYTHM_TOOLS` | tools to install alongside (default `tuner soundcheck`; empty for none) |
 
 ```sh
 curl -fsSL https://rythm.sh/install | RHYTHM_INSTALL_DIR=/opt/bin RHYTHM_TOOLS="" sh
@@ -58,6 +58,7 @@ curl -fsSL https://rythm.sh/install | RHYTHM_INSTALL_DIR=/opt/bin RHYTHM_TOOLS="
 | Tool | What it does | |
 |---|---|---|
 | **[tuner](https://github.com/RhythmShahriar/tuner)** | Finds what's out of tune in WordPress &amp; PHP sites: leaked secrets, exposed files, known CVEs, weak configuration | `rhythm tuner scan yoursite.com` |
+| **[soundcheck](https://github.com/RhythmShahriar/soundcheck)** | Did your change break anything? Snapshots a whole site in a real browser, then shows what broke after an update or deploy: PHP and JS errors, dead buttons, forms, cache leaks, layout and speed | `rhythm soundcheck snapshot yoursite.com` |
 
 More are on the way. Each lives in its own repository and releases on its own schedule; `rhythm <tool>` runs the `rhythm-<tool>` binary, the same extension model as `git` and `gh`.
 
@@ -65,6 +66,7 @@ More are on the way. Each lives in its own repository and releases on its own sc
 
 ```sh
 rhythm tuner scan yoursite.com   # run a tool (short: rhythm t scan …)
+rhythm sc compare                # Soundcheck, by its short name
 rhythm install tuner             # add a tool
 rhythm update                    # update rhythm, every tool, and their data
 rhythm update --check            # only report what's out of date

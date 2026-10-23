@@ -105,3 +105,14 @@ func TestUpdateToolOnPath(t *testing.T) {
 		t.Errorf("output:\n%s", out.String())
 	}
 }
+
+func TestSoundcheckRegistered(t *testing.T) {
+	if tools["soundcheck"] != "RhythmShahriar/soundcheck" || aliases["sc"] != "soundcheck" {
+		t.Errorf("soundcheck isn't registered: %v %v", tools, aliases)
+	}
+	var out bytes.Buffer
+	usage(&out)
+	if !strings.Contains(out.String(), "soundcheck (sc)") {
+		t.Error("usage doesn't list soundcheck")
+	}
+}

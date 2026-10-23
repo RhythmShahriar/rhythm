@@ -24,11 +24,12 @@ var version = "dev"
 
 // tools maps each tool to its GitHub repository.
 var tools = map[string]string{
-	"tuner": "RhythmShahriar/tuner",
+	"tuner":      "RhythmShahriar/tuner",
+	"soundcheck": "RhythmShahriar/soundcheck",
 }
 
 // aliases are short names for tools.
-var aliases = map[string]string{"t": "tuner"}
+var aliases = map[string]string{"t": "tuner", "sc": "soundcheck"}
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
@@ -80,7 +81,8 @@ func usage(w io.Writer) {
   rhythm <tool> [args]
 
 Tools:
-  tuner (t)  WordPress & PHP security scanner
+  tuner (t)        WordPress & PHP security scanner
+  soundcheck (sc)  did my change break anything? whole-site before/after checks
 
 Commands:
   rhythm install <tool> [--dir <dir>]   download a tool
