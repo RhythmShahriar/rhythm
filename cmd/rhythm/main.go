@@ -213,7 +213,10 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 	}
 
 	if !*checkOnly {
-		for _, t := range targets[min(1, len(targets)):] {
+		for _, t := range targets {
+			if t.name == "rhythm" {
+				continue // rhythm has no data of its own; tools refresh theirs
+			}
 			cmd := exec.CommandContext(ctx, t.path, "update") //nolint:gosec // our own tool binaries
 			cmd.Stdout, cmd.Stderr = stdout, stderr
 			if err := cmd.Run(); err != nil {
