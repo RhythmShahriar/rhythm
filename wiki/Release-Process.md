@@ -172,7 +172,7 @@ After the workflow finishes:
 4. **Update path.** On a machine with the previous version, `rhythm update --check` should offer the new one, and `rhythm update` should install it:
 
    ```text
-   rhythm-tuner   0.3.1 → 0.3.2 available
+   rhythm-tuner       0.3.1 → 0.3.2 available
    ```
 
 5. **Fresh install.** Run the installer in a clean environment, such as a throwaway container or VM, and check `rhythm tuner --version`.

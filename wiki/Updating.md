@@ -14,7 +14,7 @@ It works in this order:
 
 ```text
 rhythm         0.1.0 (up to date)
-rhythm-tuner   0.3.0 → 0.3.1 ✔
+rhythm-tuner       0.3.0 → 0.3.1 ✔
 Checks: built-in (rhythm-tuner 0.3.1); they're as new as pack 2026.10.23-154747
 Refreshed 29 vulnerability records
 Data: WPVulnerability (wpvulnerability.com, CC0)
@@ -31,7 +31,7 @@ rhythm update --check
 
 ```text
 rhythm         0.1.0 (up to date)
-rhythm-tuner   0.3.0 → 0.3.1 available
+rhythm-tuner       0.3.0 → 0.3.1 available
 ```
 
 `--check` reports what's out of date and changes nothing. It doesn't refresh tool data either.
