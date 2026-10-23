@@ -76,12 +76,43 @@ A tool is only expected to catch what it's built for: a link checker won't see a
 
 ## Results
 
-> [!NOTE]
-> **Results are published with Soundcheck v1.0.0.** This section is filled in from the benchmark run for that release, with the date, the Soundcheck version and the platform it ran on.
+Run on 23 October 2026 (UTC) with rhythm-soundcheck 1.0.0 on Linux (amd64), default settings plus each scenario's page and interaction levels. Every scenario's good state was clean: nothing above a notice.
 
 | # | Scenario | Soundcheck | BackstopJS | lychee | Unlighthouse |
 |---|---|---|---|---|---|
-| s01–s20 | *to be published with v1.0.0* | | | | |
+| s01 | PHP fatal error on one inner page | **caught** | **caught** | **caught** | missed |
+| s02 | PHP warning with file and line in the footer of every page | **caught** | **caught** | missed | missed |
+| s03 | Deprecated notice after a PHP upgrade (plain PHP) | **caught** | **caught** | missed | **caught** |
+| s04 | White screen (empty 200) on one page | **caught** | **caught** | missed | missed |
+| s05 | JS error on load from a plugin script | **caught** | **caught** | missed | **caught** |
+| s06 | jQuery deregistered while inline code still uses it | **caught** | missed | missed | **caught** |
+| s07 | admin-ajax endpoint returns 500 | **caught** | **caught** | missed | **caught** |
+| s08 | REST endpoint used by a widget returns 404 | **caught** | **caught** | missed | **caught** |
+| s09 | Deleted page that other pages still link to | **caught** | missed | **caught** | missed |
+| s10 | Broken image | **caught** | **caught** | **caught** | **caught** |
+| s11 | Contact form stops sending | **caught** | missed | missed | missed |
+| s12 | Menu toggle button becomes dead | **caught** | missed | missed | missed |
+| s13 | Button throws a JS error on click | **caught** | missed | missed | missed |
+| s14 | Layout change: hero disappears, header flips | **caught** | **caught** | missed | missed |
+| s15 | Fixed-width element breaks the mobile layout | **caught** | **caught** | missed | missed |
+| s16 | noindex switched on by an SEO setting | **caught** | missed | missed | **caught** |
+| s17 | Page title lost | **caught** | missed | missed | **caught** |
+| s18 | Page cache caches the cart | **caught** | missed | missed | missed |
+| s19 | Cache leak: a logged-in page served to visitors | **caught** | **caught** | **caught** | missed |
+| s20 | Heavy plugin added: 2 MB image and a render-blocking script | **caught** | **caught** | missed | **caught** |
+| | **Total** | **20 / 20** | 12 / 20 | 4 / 20 | 9 / 20 |
+
+How to read it:
+
+- **Soundcheck** caught each scenario as the change it is (BROKE, NEW, CHANGED or SLOWER), from the right module: s11–s13 come from interactions, s18–s19 from the cache module, s20 from speed.
+- **BackstopJS** is a visual tool: it catches what changes the pixels, including a PHP warning printed on the page. It can't see a JS error that changes nothing visible, a page cache serving the cart, or a broken form, and it doesn't say what changed.
+- **lychee** only checks links, so it caught the 404s and the 500, plus s19 by accident: the leaked admin bar added a logout link that fails.
+- **Unlighthouse** catches what moves a Lighthouse score: console errors, SEO and performance. It didn't catch the visual, interaction or cache scenarios.
+
+The per-scenario details (what each tool reported, and anything else Soundcheck noticed) are in [`docs/benchmark.md`](https://github.com/RhythmShahriar/soundcheck/blob/master/docs/benchmark.md) in the Soundcheck repository.
+
+> [!NOTE]
+> We wrote both the tool and the testbed, so read this as evidence that Soundcheck catches these kinds of breakage, not as a neutral contest. The scenarios, the expectations and the harness are open; rerun it, and add scenarios where you think it falls short.
 
 ## Run it yourself
 
