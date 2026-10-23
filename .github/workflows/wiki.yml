@@ -1,0 +1,55 @@
+# Publishes wiki/ to the repository's GitHub Wiki. The wiki is generated:
+# edit the Markdown in wiki/ and open a pull request, so changes are
+# reviewed and versioned like code. Edits made in the Wiki tab are
+# overwritten on the next publish.
+name: wiki
+on:
+  push:
+    branches: [master]
+    paths: ["wiki/**", "scripts/check-wiki.py", ".github/workflows/wiki.yml"]
+  pull_request:
+    paths: ["wiki/**", "scripts/check-wiki.py", ".github/workflows/wiki.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write # the wiki is a git repository the token pushes to
+
+concurrency:
+  group: wiki
+  cancel-in-progress: false
+
+jobs:
+  wiki:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check links
+        run: python3 scripts/check-wiki.py wiki
+
+      - name: Publish
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/wiki"
+          url="https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.wiki.git"
+          # GitHub only creates the wiki's repository once a first page is
+          # saved in the web UI; there's no API for it.
+          if ! git ls-remote "$url" >/dev/null 2>&1; then
+            echo "::warning::The wiki isn't set up yet. Open the Wiki tab, click 'Create the first page' and save it once, then re-run this workflow."
+            exit 0
+          fi
+          git clone -q --depth 1 "$url" "$dir"
+          rsync -a --delete --exclude .git wiki/ "$dir/"
+          cd "$dir"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "The wiki is already up to date."
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -q -m "docs: publish wiki from ${GITHUB_SHA::7}"
+          git push -q
