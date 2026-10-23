@@ -29,12 +29,26 @@ func newGrouper(fanOut int) *grouper {
 	return &grouper{fanOut: fanOut, children: map[string]map[string]bool{}}
 }
 
+// contentParams name the page in a query string, as WordPress's plain
+// permalinks do (/?page_id=2, /?p=7, /?cat=3).
+var contentParams = []string{"page_id", "p", "cat", "tag", "author", "post_type", "attachment_id", "product", "product_cat", "m"}
+
 // Group returns the template key for u, e.g. "/product/{slug}" or
-// "/2026/{m}/{slug}". The query is dropped except for pagination.
+// "/2026/{m}/{slug}". The query is dropped except for pagination and
+// parameters that name the content (plain permalinks), which group like a
+// path segment: /?page_id=2 and /?page_id=9 stay apart until there are
+// more than fanOut of them.
 func (g *grouper) Group(u *url.URL) string {
+	q := u.Query()
+	for _, name := range contentParams {
+		if v := q.Get(name); v != "" {
+			base := strings.TrimSuffix(u.Path, "index.php") + "?" + name + "="
+			return base + g.child(base, v) + paged(q)
+		}
+	}
 	segs := strings.Split(strings.Trim(u.Path, "/"), "/")
 	if len(segs) == 1 && segs[0] == "" {
-		return "/"
+		return "/" + paged(q)
 	}
 	out := make([]string, len(segs))
 	for i, s := range segs {
@@ -54,25 +68,34 @@ func (g *grouper) Group(u *url.URL) string {
 	// The last segment: generalize when its parent fans out.
 	last := len(out) - 1
 	if !strings.HasPrefix(out[last], "{") {
-		parent := "/" + strings.Join(out[:last], "/")
-		g.mu.Lock()
-		kids := g.children[parent]
-		if kids == nil {
-			kids = map[string]bool{}
-			g.children[parent] = kids
-		}
-		if !kids[out[last]] && len(kids) < g.fanOut {
-			kids[out[last]] = true
-		}
-		fanned := !kids[out[last]]
-		g.mu.Unlock()
-		if fanned {
-			out[last] = "{slug}"
-		}
+		out[last] = g.child("/"+strings.Join(out[:last], "/"), out[last])
 	}
-	key := "/" + strings.Join(out, "/")
-	if q := u.Query(); q.Has("page") || q.Has("paged") || q.Has("p") {
-		key += "?{page}"
+	return "/" + strings.Join(out, "/") + paged(q)
+}
+
+// child returns name, or "{slug}" once parent has more than fanOut
+// distinct children.
+func (g *grouper) child(parent, name string) string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	kids := g.children[parent]
+	if kids == nil {
+		kids = map[string]bool{}
+		g.children[parent] = kids
 	}
-	return key
+	if !kids[name] && len(kids) < g.fanOut {
+		kids[name] = true
+	}
+	if !kids[name] {
+		return "{slug}"
+	}
+	return name
+}
+
+// paged marks paginated pages, so page 2, 3… of a list group together.
+func paged(q url.Values) string {
+	if q.Has("page") || q.Has("paged") {
+		return "?{page}"
+	}
+	return ""
 }
