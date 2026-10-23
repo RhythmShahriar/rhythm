@@ -5,6 +5,6 @@ on:
   pull_request:
 jobs:
   go:
-    uses: RhythmShahriar/.github/.github/workflows/ci-go.yml@main
+    uses: RhythmShahriar/.github/.github/workflows/ci-go.yml@master
   commitlint:
-    uses: RhythmShahriar/.github/.github/workflows/commitlint.yml@main
+    uses: RhythmShahriar/.github/.github/workflows/commitlint.yml@master
