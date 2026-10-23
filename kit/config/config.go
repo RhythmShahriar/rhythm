@@ -15,6 +15,16 @@ func Dir() (string, error) {
 	return filepath.Join(d, "rhythm"), nil
 }
 
+// CacheDir returns the Rhythm cache directory for one tool, e.g.
+// ~/.cache/rhythm/<tool> (or the OS equivalent). It is not created.
+func CacheDir(tool string) (string, error) {
+	d, err := os.UserCacheDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(d, "rhythm", tool), nil
+}
+
 // FirstRun reports whether key has not been seen on this machine before,
 // and records it so later calls return false.
 func FirstRun(key string) bool {
