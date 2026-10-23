@@ -1,5 +1,5 @@
 # Installs rhythm and its tools on Windows from GitHub Releases:
-#   irm https://raw.githubusercontent.com/RhythmShahriar/rhythm/master/scripts/install.ps1 | iex
+#   irm https://rythm.sh/install.ps1 | iex
 #
 # Environment:
 #   RHYTHM_INSTALL_DIR  where to install (default %LOCALAPPDATA%\Programs\rhythm)
