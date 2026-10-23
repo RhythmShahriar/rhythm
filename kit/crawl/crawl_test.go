@@ -220,3 +220,59 @@ func TestExtractLinksBase(t *testing.T) {
 		t.Errorf("links = %v, %v", links, err)
 	}
 }
+
+func TestCrawlNoFollow(t *testing.T) {
+	srv := fakeSite(t)
+	f, err := New(Options{UserAgent: "test", NoFollow: true}).Crawl(context.Background(), mustURL(t, srv.URL+"/"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var paths []string
+	for _, p := range f.Pages() {
+		paths = append(paths, strings.TrimPrefix(p.URL, srv.URL))
+	}
+	if !slices.Contains(paths, "/") || !slices.Contains(paths, "/from-sitemap/") {
+		t.Errorf("want the start page and sitemap pages: %v", paths)
+	}
+	if slices.Contains(paths, "/deep/") {
+		t.Errorf("NoFollow must not follow links: %v", paths)
+	}
+}
+
+func TestGroupingPlainPermalinks(t *testing.T) {
+	g := newGrouper(3)
+	key := func(p string) string { return g.Group(mustURL(t, "https://x.example"+p)) }
+	if a, b := key("/?page_id=2"), key("/?page_id=9"); a == b || a != "/?page_id=2" {
+		t.Errorf("pages by ID stay separate: %q %q", a, b)
+	}
+	if a, b := key("/?p=1"), key("/?cat=1"); a == b || a == "/" {
+		t.Errorf("a post and a category aren't the home page: %q %q", a, b)
+	}
+	for _, id := range []string{"10", "11", "12", "13", "14"} {
+		key("/?product=" + id)
+	}
+	if k := key("/?product=99"); k != "/?product={slug}" {
+		t.Errorf("many products group: %q", k)
+	}
+	if k := key("/?page_id=2&paged=3"); k != "/?page_id=2?{page}" {
+		t.Errorf("pagination: %q", k)
+	}
+	if k := key("/?utm=x"); k != "/" {
+		t.Errorf("other params don't make a page: %q", k)
+	}
+}
+
+func TestStartAndListedPagesAlwaysAdmitted(t *testing.T) {
+	start := mustURL(t, "https://x.example/")
+	f := NewFrontier(start, Options{Include: []string{"/shop/*"}, PerGroup: 1, Limit: 10})
+	f.robots = &robots{disallow: []string{"/private/"}}
+	if !f.Add("https://x.example/", "start", 0) {
+		t.Error("the start page is where links are found; include mustn't drop it")
+	}
+	if f.Add("https://x.example/blog/", "link", 1) {
+		t.Error("include still applies to found links")
+	}
+	if !f.Add("https://x.example/private/checkout/", "config", 0) {
+		t.Error("a page the user listed gets past include and robots.txt")
+	}
+}

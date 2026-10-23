@@ -38,17 +38,21 @@ type Options struct {
 	Exclude      []string // added to DefaultExcludes
 	IgnoreRobots bool     // for your own site, when robots.txt blocks pages you want checked
 	NoSitemaps   bool
-	UserAgent    string
-	Rate         float64 // requests per second per host; 0 means unlimited
-	Concurrency  int     // 0 means 4
-	HTTP         *http.Client
+	// NoFollow stops after robots.txt, sitemaps and the start page: the
+	// caller follows links itself, e.g. from pages it renders in a browser,
+	// so pages aren't fetched twice.
+	NoFollow    bool
+	UserAgent   string
+	Rate        float64 // requests per second per host; 0 means unlimited
+	Concurrency int     // 0 means 4
+	HTTP        *http.Client
 }
 
 // Page is one discovered page.
 type Page struct {
 	URL    string `json:"url"`
 	Group  string `json:"group"`  // URL template, e.g. /product/{slug}
-	Source string `json:"source"` // start, sitemap or link
+	Source string `json:"source"` // start, sitemap, link, or config (pages the caller listed)
 	Depth  int    `json:"depth"`  // links from the start page
 }
 
@@ -96,6 +100,10 @@ func (f *Frontier) Add(raw, source string, depth int) bool {
 		return false
 	}
 	f.seen[k] = true
+	// The start page is always admitted, because links are found from it,
+	// and pages the user listed ("config") get past include, robots.txt
+	// and grouping: they asked for them by name.
+	start, listed := source == "start", source == "config"
 	reason := ""
 	switch {
 	case !SameSite(f.start, u):
@@ -104,9 +112,9 @@ func (f *Frontier) Add(raw, source string, depth int) bool {
 		reason = "not a page"
 	case Excluded(u, DefaultExcludes) || Excluded(u, f.opts.Exclude):
 		reason = "excluded"
-	case len(f.opts.Include) > 0 && !Excluded(u, f.opts.Include):
+	case len(f.opts.Include) > 0 && !Excluded(u, f.opts.Include) && !start && !listed:
 		reason = "not included"
-	case !f.opts.IgnoreRobots && !f.robots.Allowed(pathQuery(u)):
+	case !f.opts.IgnoreRobots && !listed && !f.robots.Allowed(pathQuery(u)):
 		reason = "robots.txt"
 	case len(f.pages) >= f.opts.Limit:
 		reason = "page limit"
@@ -116,7 +124,7 @@ func (f *Frontier) Add(raw, source string, depth int) bool {
 		return false
 	}
 	group := f.groups.Group(u)
-	if f.opts.PerGroup > 0 && f.perKey[group] >= f.opts.PerGroup {
+	if f.opts.PerGroup > 0 && f.perKey[group] >= f.opts.PerGroup && !listed {
 		f.skipped["grouped"]++
 		return false
 	}
@@ -182,6 +190,9 @@ func (c *Crawler) Crawl(ctx context.Context, start *url.URL) (*Frontier, error) 
 	f.Add(start.String(), "start", 0)
 	if !c.opts.NoSitemaps {
 		c.sitemaps(ctx, f, start)
+	}
+	if c.opts.NoFollow {
+		return f, ctx.Err()
 	}
 
 	// Breadth-first over links. Pages from sitemaps are crawled too, at
