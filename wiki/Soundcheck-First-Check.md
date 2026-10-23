@@ -64,7 +64,7 @@ While it runs, a progress bar counts pages. When it's done:
 
  ╭──────────────────────────────────────────╮
  │  SNAPSHOT BEFORE-UPDATE   saved          │
- │  ✖ 0 errors   ▲ 1 warning   · 2 notices  │
+ │  ✗ 0 errors   ▲ 1 warning   · 2 notices  │
  ╰──────────────────────────────────────────╯
   37 pages · 54s
   ! /team/: 37% of the page changes on its own (desktop); visual changes ther…
@@ -145,7 +145,7 @@ rhythm soundcheck compare
 
  ╭──────────────────────────────────────────────────────────────╮
  │  SOUNDCHECK   Something broke                                │
- │  ✖ 3 broke   ▲ 6 new   ■ 5 changed   ◆ 3 slower   ✔ 0 fixed  │
+ │  ✗ 3 broke   ▲ 6 new   ■ 5 changed   ◆ 3 slower   ✓ 0 fixed  │
  ╰──────────────────────────────────────────────────────────────╯
   compared with snapshot "before-update" (1m ago) · 37 pages · 47s
   ! cache: skipped the cache leak test; set SOUNDCHECK_USER and SOUNDCHECK_PA…

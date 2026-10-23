@@ -13,11 +13,11 @@ Most of the time you read comparisons. A snapshot also shows its run's issues, s
 
 | Class | Glyph | Means | Comes from |
 |---|---|---|---|
-| **BROKE** | `✖` | worked in the snapshot, fails now | a new issue at level **error**: a 404 or 500, a PHP fatal, the "critical error" screen, a white screen, a form that no longer submits, a click that throws, a private page now cached, a cache leak |
+| **BROKE** | `✗` | worked in the snapshot, fails now | a new issue at level **error**: a 404 or 500, a PHP fatal, the "critical error" screen, a white screen, a form that no longer submits, a click that throws, a private page now cached, a cache leak |
 | **NEW** | `▲` | a problem that wasn't there before | a new issue at level **warning** or **notice**: a PHP warning, a JS error, a dead button, a broken link, a new `noindex` |
 | **CHANGED** | `■` | looks or reads differently; check it's intended | screenshots that differ, pages that got taller or shorter, a changed title, a page that lost most of its text or now redirects elsewhere, a page cache that stopped serving pages |
 | **SLOWER** | `◆` | measurably slower than the snapshot | lab metrics that got worse past a noise floor, a plugin or theme that got heavier |
-| **FIXED** | `✔` | a problem from the snapshot is gone | an issue in the snapshot that's no longer found, a page that got measurably faster or lighter |
+| **FIXED** | `✓` | a problem from the snapshot is gone | an issue in the snapshot that's no longer found, a page that got measurably faster or lighter |
 
 Issues are matched between the two runs by their check, title and source, on the same page. A problem that's in both runs isn't shown at all: a comparison is about your change, not about everything imperfect. Run `rhythm soundcheck run` for the full list.
 
@@ -73,7 +73,7 @@ Within a class, changes are sorted by how big they are (how many pages, how much
 
  ╭──────────────────────────────────────────────────────────────╮
  │  SOUNDCHECK   Something broke                                │                 ← 10 verdict
- │  ✖ 3 broke   ▲ 6 new   ■ 5 changed   ◆ 3 slower   ✔ 0 fixed  │
+ │  ✗ 3 broke   ▲ 6 new   ■ 5 changed   ◆ 3 slower   ✓ 0 fixed  │
  ╰──────────────────────────────────────────────────────────────╯
   compared with snapshot "before-update" (1m ago) · 37 pages · 47s                ← 11 stats
   ! cache: skipped the cache leak test; set SOUNDCHECK_USER and SOUNDCHECK_PA…     ← 12 notes
@@ -113,7 +113,7 @@ Only modules that ran in both runs are compared, so adding a module later doesn'
 
 | Level | Glyph | Means | Examples |
 |---|---|---|---|
-| **error** | `✖` | something doesn't work | a 5xx or 404 page, a PHP fatal, a white screen, a form that fails, a click that throws, a cached cart, a cache leak, a failed flow |
+| **error** | `✗` | something doesn't work | a 5xx or 404 page, a PHP fatal, a white screen, a form that fails, a click that throws, a cached cart, a cache leak, a failed flow |
 | **warning** | `▲` | a problem visitors may hit | a PHP warning, a JS error, a dead click, a broken link or image, mixed content, a form without a nonce |
 | **notice** | `·` | worth knowing | a PHP notice or deprecation, a missing title, `noindex`, a redirect chain, speed suggestions |
 
