@@ -33,7 +33,7 @@ sha256() {
 os=$(uname -s | tr '[:upper:]' '[:lower:]')
 case $os in
 linux | darwin) ;;
-*) die "unsupported OS '$os'. On Windows, download rhythm from https://github.com/$REPO/releases" ;;
+*) die "unsupported OS '$os'. On Windows, run in PowerShell: irm https://raw.githubusercontent.com/$REPO/master/scripts/install.ps1 | iex" ;;
 esac
 case $(uname -m) in
 x86_64 | amd64) arch=amd64 ;;

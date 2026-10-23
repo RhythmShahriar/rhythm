@@ -19,7 +19,13 @@ rhythm tuner scan example.com
 curl -fsSL rythm.sh/install | sh
 ```
 
-This installs `rhythm` and Tuner to `~/.local/bin` (`/usr/local/bin` as root), verifying every download against the release's `checksums.txt`. Set `RHYTHM_INSTALL_DIR`, `RHYTHM_VERSION`, or `RHYTHM_TOOLS=""` to change that.
+On Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/RhythmShahriar/rhythm/master/scripts/install.ps1 | iex
+```
+
+This installs `rhythm` and Tuner to `~/.local/bin` (`/usr/local/bin` as root; `%LOCALAPPDATA%\Programs\rhythm` on Windows, added to your PATH), verifying every download against the release's `checksums.txt`. Set `RHYTHM_INSTALL_DIR`, `RHYTHM_VERSION`, or `RHYTHM_TOOLS=""` to change that.
 
 ## Use
 
