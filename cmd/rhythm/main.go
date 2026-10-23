@@ -186,30 +186,30 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 
 	for _, t := range targets {
 		if !update.IsRelease(t.current) {
-			fmt.Fprintf(stdout, "%-14s %s (development build, not updated)\n", t.name, t.current)
+			fmt.Fprintf(stdout, "%-18s %s (development build, not updated)\n", t.name, t.current)
 			continue
 		}
 		u := updater(t.repo, t.binary, t.current)
 		rel, err := u.Latest(ctx)
 		if err != nil {
-			fmt.Fprintf(stderr, "%-14s %v\n", t.name, err)
+			fmt.Fprintf(stderr, "%-18s %v\n", t.name, err)
 			status = 1
 			continue
 		}
 		if !update.Newer(t.current, rel.Version) {
-			fmt.Fprintf(stdout, "%-14s %s (up to date)\n", t.name, t.current)
+			fmt.Fprintf(stdout, "%-18s %s (up to date)\n", t.name, t.current)
 			continue
 		}
 		if *checkOnly {
-			fmt.Fprintf(stdout, "%-14s %s → %s available\n", t.name, t.current, rel.Version)
+			fmt.Fprintf(stdout, "%-18s %s → %s available\n", t.name, t.current, rel.Version)
 			continue
 		}
 		if err := u.Install(ctx, rel, t.path); err != nil {
-			fmt.Fprintf(stderr, "%-14s %v\n", t.name, err)
+			fmt.Fprintf(stderr, "%-18s %v\n", t.name, err)
 			status = 1
 			continue
 		}
-		fmt.Fprintf(stdout, "%-14s %s → %s ✔\n", t.name, t.current, rel.Version)
+		fmt.Fprintf(stdout, "%-18s %s → %s ✔\n", t.name, t.current, rel.Version)
 	}
 
 	if !*checkOnly {

@@ -89,7 +89,7 @@ func TestUpdateToolOnPath(t *testing.T) {
 
 	var out, errb bytes.Buffer
 	run([]string{"update", "--check"}, &out, &errb)
-	if !strings.Contains(out.String(), "rhythm-tuner   0.1.0 → 0.2.0 available") {
+	if !strings.Contains(out.String(), "rhythm-tuner       0.1.0 → 0.2.0 available") {
 		t.Errorf("--check output:\n%s%s", out.String(), errb.String())
 	}
 	if got, _ := os.ReadFile(tool); !strings.Contains(string(got), "0.1.0") {
