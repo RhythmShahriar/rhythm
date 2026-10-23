@@ -369,3 +369,20 @@ func (u *Updater) Check(ctx context.Context) (latest string, newer bool) {
 	}
 	return st.Latest, Newer(u.Current, st.Latest)
 }
+
+// Notice checks for a newer release in the background and delivers a
+// one-line notice on the returned channel, or closes it when there's
+// nothing to say. Run it alongside the tool's real work and read it at
+// the end without waiting long, so it never delays the user.
+func Notice(ctx context.Context, u *Updater) <-chan string {
+	ch := make(chan string, 1)
+	go func() {
+		defer close(ch)
+		cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		if latest, newer := u.Check(cctx); newer {
+			ch <- fmt.Sprintf("A new release of %s is available: %s → %s\n  run: rhythm update", u.Binary, u.Current, latest)
+		}
+	}()
+	return ch
+}
