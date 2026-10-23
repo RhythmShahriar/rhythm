@@ -36,13 +36,12 @@ GitHub's `ubuntu-latest` runners have Google Chrome installed, so no browser dow
 | `against` | `""` | Compare with this site now (e.g. production) instead of a snapshot. |
 | `mode` | `against` when `against` is set, otherwise `run` | `against`: compare `url` with `against`. `snapshot`: record `url` for a later compare step in the same job. `compare`: compare `url` with the latest snapshot. `run`: check once. |
 | `name` | `ci` | Snapshot name, for mode `snapshot`. |
-| `fail-on` | `broke` | Fail the job on changes at or above `broke`, `new`, `changed` or `slower` (comparisons), or issues at or above `error`, `warning` or `notice` (`run`, `snapshot`). Empty never fails. |
+| `fail-on` | `broke` for modes `against` and `compare`, `error` for `run` and `snapshot` | Fail the job on changes at or above `broke`, `new`, `changed` or `slower` (comparisons), or on issues at or above `error`, `warning` or `notice` (`run`, `snapshot`). `none` never fails. |
 | `args` | `""` | Extra flags, e.g. `--limit 100 --skip speed -k`. |
 | `version` | `latest` | Soundcheck version to install, e.g. `1.0.0`. |
 | `upload` | `"true"` | Upload the HTML and JUnit reports as the `soundcheck-report` artifact. |
 
-> [!WARNING]
-> The default `fail-on: broke` only fits comparisons (modes `against` and `compare`). For mode `run` or `snapshot`, set `fail-on` to `error`, `warning`, `notice` or `""`: Soundcheck rejects `broke` there as a usage error (`--fail-on "broke": want error, warning or notice`), and the step fails with exit code 2 before it checks anything. This includes the default mode `run`, when `against` isn't set.
+The default mode is `against` when the `against` input is set, and `run` otherwise. Leave `fail-on` empty for the default that fits the mode; a value of the wrong kind for the mode (`broke` for `run`, `error` for `compare`) is a usage error and fails the step with exit code 2.
 
 ### Outputs
 
@@ -51,7 +50,7 @@ GitHub's `ubuntu-latest` runners have Google Chrome installed, so no browser dow
 | `exit-code` | Soundcheck's exit code: `0` ok, `1` `fail-on` hit, `2` usage error, `3` couldn't check. |
 | `report` | Path of the standalone HTML report. |
 
-When Soundcheck exits `2` or higher, the step fails straight away and no reports are written. On `1`, the reports are written and uploaded first, then the job fails with `Soundcheck found changes at or above --fail-on broke. See the job summary and the soundcheck-report artifact.`
+When Soundcheck exits `2` or higher, the step fails straight away and no reports are written. On `1`, the reports are written and uploaded first, then the job fails with `Soundcheck found changes or issues at or above --fail-on broke. See the job summary and the soundcheck-report artifact.` (with `its default` in place of the level when `fail-on` isn't set).
 
 ## Staging against production
 
@@ -94,7 +93,7 @@ jobs:
           url: https://staging.yoursite.com
           mode: snapshot
           name: before-deploy
-          fail-on: ""
+          fail-on: none
           upload: "false"
 
       - name: Deploy
@@ -139,7 +138,9 @@ rhythm soundcheck report --junit -o soundcheck-junit.xml --fail-on new -q
 rhythm soundcheck report --html -o soundcheck-report.html -q
 ```
 
-In JUnit, each class (or level) is a test suite and each change a test case; cases at or above `--fail-on` are failures (BROKE and NEW without it). One extra passing case, `37 pages checked`, records that the check ran even when nothing changed. To show the JUnit file as test results in GitHub, add a test reporter action pointed at `${{ runner.temp }}/soundcheck-report/soundcheck-junit.xml` after the Soundcheck step.
+In JUnit, each class (or level) is a test suite and each change a test case; cases at or above `--fail-on` are failures (BROKE and NEW without it). One extra passing case, `37 pages checked`, records that the check ran even when nothing changed.
+
+The action only attaches the JUnit file to the `soundcheck-report` artifact; nothing publishes it as test results. To see it in GitHub's test views, add a test reporter action of your choice after the Soundcheck step, pointed at `${{ runner.temp }}/soundcheck-report/soundcheck-junit.xml`.
 
 The Markdown report starts with the verdict and a count table, then a table per class with the change, where, before → after and the fix. It fits pull request comments too.
 

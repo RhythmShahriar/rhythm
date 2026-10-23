@@ -80,6 +80,8 @@ Then run `make hooks` and `make check` in each repository you change.
 | `make fmt` | `gofmt -w .` |
 | `make build` | `bin/rhythm`, `bin/rhythm-tuner` or `bin/rhythm-soundcheck` |
 | `make pack` | Tuner only: builds the check pack into `dist/checks-pack`, byte for byte as CI publishes it |
+| `make testbed`, `make testbed-down` | Soundcheck only: start or delete the [testbed](#soundcheck-and-the-testbed) in Docker |
+| `make bench` | Soundcheck only: build, then run the [benchmark](Soundcheck-Benchmark) against the testbed |
 
 CI runs the same checks on every pull request, plus `gofmt`, `go vet`, a build, `shellcheck` on scripts and hooks, and `goreleaser check`.
 
@@ -173,14 +175,15 @@ Soundcheck's modules are Go code in `checks/<module>/`, each implementing the ho
 End to end, Soundcheck is tested against the **testbed**: a WordPress site and a plain-PHP site in Docker with 20 scenarios, each with a good and a broken state. It's also the [benchmark](Soundcheck-Benchmark).
 
 ```sh
-make build                         # bin/rhythm-soundcheck
-make -C testbed up                 # WordPress on 127.0.0.1:18800, plain PHP on :18810
-cd testbed && ./toggle.sh s05 broken && ./toggle.sh status
-go run -tags testbed ./testbed/bench -only s05   # snapshot good, break, compare, judge
-make -C testbed down               # throw everything away
+make testbed                       # WordPress on 127.0.0.1:18800, plain PHP on :18810
+testbed/toggle.sh s05 broken && testbed/toggle.sh status
+make build && go run -tags testbed ./testbed/bench -only s05   # snapshot good, break, compare, judge
+go test -tags testbed ./testbed/bench/   # the testbed's own end-to-end tests
+make bench                         # every scenario; writes docs/benchmark.md
+make testbed-down                  # throw everything away
 ```
 
-To add a scenario, add its broken state to the testbed site (a mu-plugin, theme or test plugin that checks `testbed-state/<id>`), describe it in `testbed/scenarios.yaml` with the change Soundcheck should report, and run it with `-only`. Keep scenarios to one problem each, and break things the way a real update does.
+To add a scenario, add its page (`wp/seed.sh`, or a file in `php/`), implement the broken state behind `testbed_broken('sNN')` next to the code it breaks, describe it in `testbed/scenarios.yaml` with the change Soundcheck should report, and run it with `-only`. The [testbed README](https://github.com/RhythmShahriar/soundcheck/blob/master/testbed/README.md) has the details. Keep scenarios to one problem each, and break things the way a real update does.
 
 Like Tuner's checks, Soundcheck must never exploit anything, must mask secrets, and must stay safe on real sites: new clicks and submits respect the destructive blocklist and the production guard. Soundcheck is MIT licensed.
 

@@ -51,7 +51,7 @@ Only the first of these that matches is reported:
 | `health/wp-critical` | error | `WordPress "critical error" screen` | "There has been a critical error on this website" |
 | `health/database` | error | `Database error on the page` | "Error establishing a database connection", `SQLSTATE[…]` |
 | `health/error-page` | error | `Application error page` | Laravel and Symfony error pages, Ignition, a stack trace, an uncaught exception |
-| `health/white-screen` | error | `Blank page (white screen)` | status 200 with no visible text and no resources loaded |
+| `health/white-screen` | error | `Blank page (white screen)` | status 200 with no visible text and nothing loaded but a favicon (WordPress sends even a blank page's favicon request through a redirect, which doesn't count) |
 
 The fix for the critical error screen points at the email WordPress sends to the admin and at `wp-content/debug.log` with `WP_DEBUG_LOG` on.
 
@@ -86,13 +86,13 @@ Same-site URLs are shown as paths; other hosts in full.
 
 ## Broken links
 
-At the end of a run, Soundcheck tests links on the visited pages that point at same-site pages it didn't visit (grouped or excluded pages, pages past the limit), with a `HEAD` request, falling back to `GET` when the server doesn't support `HEAD`. It tests up to 300 such links, four at a time and at the run's pace. Pages it did visit use the status it saw.
+At the end of a run, Soundcheck tests links on the visited pages that point at same-site pages it didn't visit (grouped pages, pages past the limit or outside `--include`), with a `HEAD` request, falling back to `GET` when the server doesn't support `HEAD`. Each link is requested exactly as written, trailing slash and all. It tests up to 300 such links, four at a time and at the run's pace. Pages it did visit use the status it saw.
 
 | Check | Level | Title |
 |---|---|---|
-| `health/broken-link` | warning | `Broken link to /spring-offer (404)` |
+| `health/broken-link` | warning | `Broken link to /spring-offer/ (404)` |
 
-A link answering 404, 410 or 5xx is reported once, with every page that links to it. Links to `/wp-admin`, logout links and files (images, PDFs, CSS, JS) aren't tested.
+A link answering 404, 410 or 5xx is reported once, with every page that links to it. Links that match discovery's [built-in excludes](Soundcheck-Discovery#urls-soundcheck-never-visits) or your `pages.exclude` (add to cart, log out, `/wp-admin` and so on) are never requested, and neither are files (images, PDFs, CSS, JS).
 
 ## Mixed content and indexing
 

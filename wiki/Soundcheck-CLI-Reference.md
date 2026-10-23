@@ -29,7 +29,7 @@ A site is a URL or a hostname. Without a scheme, `https://` is tried first, then
 rhythm soundcheck snapshot staging.yoursite.com --name before-update
 ```
 
-Discovers and checks the site, then saves the run in `.soundcheck/snapshots/<name>/` and makes it the latest snapshot. Without `--name`, the name is the date and time, such as `2026-10-24T00-49-25`. Names use letters, digits, dots, dashes and underscores, up to 64 characters. An existing snapshot with the same name is replaced once the new one is complete. Each screenshot is taken twice to learn [dynamic regions](Soundcheck-Visual#regions-that-change-on-their-own).
+Discovers and checks the site, then saves the run in `.soundcheck/snapshots/<name>/` and makes it the latest snapshot. Without `--name`, the name is the date and time, such as `2026-10-24T00-49-25`. Names use letters, digits, dots, dashes and underscores, up to 64 characters. An existing snapshot with the same name is replaced once the new one is complete. Each screenshot is taken twice to learn [dynamic regions](Soundcheck-Visual#regions-that-change-on-their-own). With `--lighthouse`, Unlighthouse runs after the snapshot is saved and writes into its folder.
 
 ### compare
 
@@ -54,7 +54,7 @@ The `--against` site is discovered and checked first and plays the snapshot's pa
 ```sh
 rhythm soundcheck report                                    # the latest run or comparison
 rhythm soundcheck report before-update                      # a snapshot
-rhythm soundcheck report .soundcheck/runs/2026-10-24T00-45-13
+rhythm soundcheck report .soundcheck/runs/2026-10-24T02-23-17
 rhythm soundcheck report --md -o soundcheck.md
 ```
 
@@ -65,7 +65,7 @@ Re-renders a stored result without visiting the site, in any format, with `--ope
 ```text
 $ rhythm soundcheck snapshots
 NAME                     PAGES  TAKEN        SITE
-before-update            37     20m ago      https://staging.yoursite.com/  (latest)
+before-update            37     6m ago       https://staging.yoursite.com/  (latest)
 ```
 
 With none, it prints `No snapshots yet. Take one: rhythm soundcheck snapshot <url>`.
@@ -78,10 +78,11 @@ With none, it prints `No snapshots yet. Take one: rhythm soundcheck snapshot <ur
 
 ```text
 $ rhythm soundcheck update
+Removed unused Chromium /home/you/.cache/rhythm/soundcheck/browser/chromium-1321438
 Browser: installed Chrome at /usr/bin/google-chrome (updated with your system)
 ```
 
-With an installed Chrome, there's nothing to do. Otherwise it downloads the Chromium this version of Soundcheck is pinned to, if it isn't there yet, removes older downloaded revisions, and prints `Browser: Chromium at <path>`. `rhythm update` runs it after updating the binary.
+With an installed Chrome, Soundcheck uses it and removes any Chromium it downloaded earlier. Otherwise it downloads the Chromium this version is pinned to, if it isn't there yet, removes other downloaded revisions, and prints `Browser: Chromium at <path>`. `rhythm update` runs it after updating the binary.
 
 | Flag | Default | Description |
 |---|---|---|
@@ -132,15 +133,15 @@ Pick one format flag. Without `-o`, a format flag replaces the live view on stdo
 |---|---|---|
 | `--config <file>` | `.soundcheck/config.yaml` | Settings file. A missing default file is fine; a missing `--config` file is an error. Snapshots and runs still go in `./.soundcheck`. |
 | `--limit <n>` | `300` | At most this many pages. |
-| `--include <globs>` | all | Only pages whose path and query match, e.g. `'/shop/*'`. |
+| `--include <globs>` | all | Only pages whose path and query match, e.g. `'/shop/*'`. The start page is always checked. |
 | `--exclude <globs>` | none | Skip pages matching, on top of the built-in excludes. |
-| `--page <path>` | none | Check this page too, even if nothing links to it. Repeatable. |
+| `--page <path>` | none | Check this page too, even if nothing links to it; it gets past `--include`, `robots.txt` and grouping. Repeatable. |
 | `--ignore-robots` | off | Visit pages `robots.txt` disallows (your own site). |
 | `--modules <list>` | all | `health`, `visual`, `interact`, `cache`, `speed`. |
 | `--skip <list>` | none | Leave these modules out. |
 | `--level <list>` | `inspect,click` | Interaction levels: `inspect`, `click`, `submit`, `flows`. `submit` sends test data. |
 | `--viewport <list>` | `desktop,mobile` | Viewports to screenshot. |
-| `--no-login` | off | Don't log in, even if `SOUNDCHECK_USER` is set. |
+| `--no-login` | off | Skip the login (leak test, login flows), even if `SOUNDCHECK_USER` is set. |
 | `--lighthouse` | off | Also run Unlighthouse (needs Node.js and `npx`). See [Speed](Soundcheck-Speed#--lighthouse). |
 
 See [Discovery](Soundcheck-Discovery) and [Interactions](Soundcheck-Interactions).
@@ -150,7 +151,7 @@ See [Discovery](Soundcheck-Discovery) and [Interactions](Soundcheck-Interactions
 | Flag | Default | Description |
 |---|---|---|
 | `--rate <n>` | `5` | Page loads per second per site; fractions allowed. |
-| `--tabs <n>` | `4` | Pages checked at once, 1 to 16. |
+| `--tabs <n>` | `8` | Pages checked at once, 1 to 16, each in its own background window. |
 | `--timeout <d>` | `30s` | Per page, as a duration (`45s`, `1m`); at least 5 s. |
 | `-A`, `--user-agent <ua>` | `rhythm-soundcheck/<version> (+https://rythm.sh/soundcheck)` | User-Agent header, for the browser and plain requests. |
 | `-H`, `--header <h>` | none | Extra header, `"Name: value"`. Repeatable. Sent with every request, by the browser too. |
@@ -175,8 +176,8 @@ See [CI](Soundcheck-CI).
 |---|---|
 | `0` | Done, with nothing at or above `--fail-on` (or `--fail-on` not set). |
 | `1` | A change or issue at or above `--fail-on`. |
-| `2` | Usage error: unknown command or flag, a bad value or config file, no site, no snapshot to compare with, an existing file for `init`. |
-| `3` | The site couldn't be checked (unreachable, no pages found, no browser), nothing stored for `report`, or a file couldn't be written. |
+| `2` | Usage error: unknown command or flag, a bad value or config file, no site, no snapshot to compare with, nothing stored for `report`, an existing file for `init` or `flows init`. |
+| `3` | The site couldn't be checked (unreachable, no pages found, no browser), or a file couldn't be written. |
 | `130` | Interrupted (Ctrl+C). An interrupted snapshot saves nothing; an interrupted compare or run keeps partial results. |
 
 Usage errors name the flag and what it accepts:
@@ -191,7 +192,7 @@ rhythm soundcheck: --fail-on "broke": want error, warning or notice (or a class 
 
 | Variable | Description |
 |---|---|
-| `SOUNDCHECK_USER`, `SOUNDCHECK_PASSWORD` | The test account for the cache leak test and login flows. Both must be set. Never written to reports. |
+| `SOUNDCHECK_USER`, `SOUNDCHECK_PASSWORD` | The test account for the cache leak test and flows with `login: true`. Both must be set. Pages are still checked as a visitor. Never written to reports. |
 | `RHYTHM_NO_UPDATE_CHECK` | Set to any value to stop the once-a-day "new release available" check. |
 | `CI` | When set (as CI systems do), the release check is skipped too. |
 | `RHYTHM_GITHUB_API` | GitHub API base for the release check, for mirrors or GitHub Enterprise. Default `https://api.github.com`. |

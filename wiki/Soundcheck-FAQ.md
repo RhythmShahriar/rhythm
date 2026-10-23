@@ -4,11 +4,12 @@ Answers to common questions and fixes for common problems with Soundcheck. If yo
 
 ### Chromium download and update
 
-Soundcheck needs Chrome or Chromium. It looks for an installed Chrome or Chromium in the usual places first. When there's none, it downloads a pinned Chromium build once, the first time it needs a browser, into your cache folder (`~/.cache/rhythm/soundcheck/browser` on Linux; see [CLI reference](Soundcheck-CLI-Reference#files-and-locations)), and says so with `Downloading Chromium once, into <folder> …`.
+Soundcheck needs Chrome or Chromium. It looks for an installed Chrome or Chromium in the usual places first. When there's none, it downloads a pinned Chromium build once, the first time it needs a browser, into your cache folder (`~/.cache/rhythm/soundcheck/browser` on Linux; see [CLI reference](Soundcheck-CLI-Reference#files-and-locations)), and says so on stderr with `Downloading Chromium once, into <folder> …`. Download progress also goes to stderr, never stdout, so `--json` on stdout stays valid.
 
-The download is reused by every later run. `rhythm soundcheck update` does the same ahead of time (useful in a Docker image build), and after a Soundcheck update it removes the older Chromium revisions the new version no longer uses. With Chrome installed it only reports what it found:
+The download is reused by every later run. `rhythm soundcheck update` does the same ahead of time (useful in a Docker image build), and removes downloaded Chromium revisions this version no longer uses. When an installed Chrome is used, it removes any downloaded Chromium too:
 
 ```text
+Removed unused Chromium /home/you/.cache/rhythm/soundcheck/browser/chromium-1321438
 Browser: installed Chrome at /usr/bin/google-chrome (updated with your system)
 ```
 
@@ -62,7 +63,13 @@ For a staging cookie, use `--cookie "staging_auth=…"`. Pass the same header to
 
 ### Logging in
 
-Set a test account in `SOUNDCHECK_USER` and `SOUNDCHECK_PASSWORD`. Soundcheck uses it for the cache leak test and for flows with `login: true`; pages are always checked as an anonymous visitor. When the login fails, a note says why, for example `cache: leak test: couldn't log in: WordPress refused the login: …`. Common causes:
+Set a test account in `SOUNDCHECK_USER` and `SOUNDCHECK_PASSWORD`. Soundcheck uses it for the cache leak test and for flows with `login: true`; pages are always checked as an anonymous visitor. Soundcheck tries the login once, at the start. When it fails, one note says why, and the leak test and login flows are skipped:
+
+```text
+note: login failed, so the checks that need it were skipped: WordPress refused the login: Error: The password you entered for the username is incorrect.
+```
+
+Common causes:
 
 - **A security plugin or a captcha on the login form.** Allow the test account, or log in with a [login flow](Soundcheck-Forms-And-Flows#logging-in) that handles the extra step.
 - **A custom login URL** (WPS Hide Login and similar). Set `login.url: /your-login/`.
@@ -71,22 +78,22 @@ Set a test account in `SOUNDCHECK_USER` and `SOUNDCHECK_PASSWORD`. Soundcheck us
 
 ### Slow or huge sites
 
-The time a run takes grows with pages × viewports × what each module does. Clicking and the cache double fetch add the most. On a local test site, 37 pages with every module took about three minutes for the snapshot; the same pages with only health and visual took 45 seconds.
+The time a run takes grows with pages × viewports × what each module does; clicking and the cache double fetch add the most. With every module on, a 37-page local test site took 54 s for the snapshot and 47 s for the compare, and a 101-page static site on a 16-core machine took 92 s and 61 s. Clicking is capped at 45 s per page. The pace on the server is set by `--rate` (5 page loads a second), whatever the number of tabs.
 
 | To… | Use |
 |---|---|
 | check fewer pages | `--limit 100`, or `--include` for the section you changed |
 | check one sample per template | `per_group: 1` in the config |
-| check more pages at once | `--tabs 8` (if the server can take it) |
+| check more pages at once | `--tabs 12` (default 8); this helps when pages are slow, the rate still applies |
 | skip what you don't need | `--skip speed,cache`, `--viewport desktop`, `--level inspect` |
 | be gentler on a fragile host | `--rate 1` or `--rate 0.5`, `--tabs 2` |
 | allow slow pages | `--timeout 60s` |
 
-Grouping keeps large sites manageable without a limit: a shop with thousands of products is checked through ten product pages plus three samples of the rest. See [Discovery](Soundcheck-Discovery#grouping-by-url-pattern).
+Grouping keeps large sites manageable without a limit: a shop with 3,000 products is checked through about 13 product pages, ten on their own and three samples of the rest. See [Discovery](Soundcheck-Discovery#grouping-by-url-pattern).
 
 ### "found no pages to check"
 
-The start page loaded, but every page was filtered out. Usually `--include` doesn't match the start page: start at a page inside the section, such as `rhythm soundcheck run yoursite.com/shop/ --include '/shop/*'`. See [Include and exclude](Soundcheck-Discovery#include-and-exclude). It also happens when `robots.txt` disallows everything; on your own staging site, add `--ignore-robots`.
+The start page loaded, but it was filtered out too, so there was nothing to check. The start page is always checked unless it matches an exclude (yours or the [built-in ones](Soundcheck-Discovery#urls-soundcheck-never-visits)) or `robots.txt` disallows it. On your own staging site, a `robots.txt` that disallows everything is common: add `--ignore-robots`.
 
 ### Why wasn't a page checked?
 
@@ -108,11 +115,7 @@ Snapshots learn regions that move on their own, but only what moves within about
 
 ### Everything shows as NEW
 
-The comparison probably ran with different settings than the snapshot. Look for notes such as `modules differ` or `interaction levels differ`: a check that only ran this time reports everything it finds as NEW. Keep `--level`, `--modules` and `--viewport` in `.soundcheck/config.yaml` so both runs match.
-
-### A broken link that isn't broken
-
-Open the link in a browser. If it loads, check whether the server answers the address **without** its trailing slash (`/about` instead of `/about/`): Soundcheck tests unvisited links in that form. WordPress redirects it, which is fine; a server that answers 404 for it shows up as a broken link. Please [report it](#reporting-a-bug) if you hit this.
+The comparison probably ran with different settings than the snapshot. Look for notes such as `interaction levels differ`: a level that only ran this time (say `submit`) reports what it finds as NEW. Modules are handled for you (`modules differ (…); only modules in both are compared`), levels and viewports aren't. Keep `--level`, `--modules` and `--viewport` in `.soundcheck/config.yaml` so both runs match.
 
 ### A slowdown I can't reproduce
 

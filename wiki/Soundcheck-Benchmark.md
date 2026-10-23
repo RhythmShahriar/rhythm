@@ -6,8 +6,8 @@ The testbed lives in the Soundcheck repository, in `testbed/`. It runs two sites
 
 | Site | Address | Stack |
 |---|---|---|
-| WordPress | `http://localhost:18800` | WordPress 6.8 on PHP 8.3 and Apache, MariaDB, a test theme and five small test plugins |
-| Plain PHP | `http://localhost:18810` | PHP 8.3 on Apache, no framework |
+| WordPress | `http://localhost:18800` | WordPress 6.8.3 on PHP 8.3 and Apache with MariaDB 11.4: a coffee roaster's site with pages, posts, a menu, a contact form, a shop and a cart, built from a test theme and five small test plugins. Each scenario has its own page, and `/scenarios/` lists them. |
+| Plain PHP | `http://localhost:18810` | "Ledger", three pages of plain PHP 8.3 on Apache, no framework |
 
 The WordPress site hosts each scenario on its own pages, so scenarios don't affect each other. Every scenario has a **good** state and a **broken** state. `testbed/toggle.sh` switches them by creating or removing a file in `testbed/state/`, which the sites check on every request: no rebuild, no restart. The test page cache keys on the set of broken scenarios, so it never serves a page rendered in the other state. `make down` throws everything away and `make up` starts again from the same seeded site.
 
@@ -88,22 +88,37 @@ A tool is only expected to catch what it's built for: a link checker won't see a
 You need Docker with Compose v2, Go, and a clone of the Soundcheck repository:
 
 ```sh
-make build                 # bin/rhythm-soundcheck
-make -C testbed up         # WordPress on :18800, plain PHP on :18810
-go run -tags testbed ./testbed/bench                      # Soundcheck + the tools you have installed
+make testbed               # WordPress on 127.0.0.1:18800, plain PHP on :18810 (about 30 s)
+make bench                 # builds bin/rhythm-soundcheck, runs every scenario, writes docs/benchmark.md
+make testbed-down          # throw everything away
+```
+
+`make bench` runs `go run -tags testbed ./testbed/bench` with the binary it just built. Run the harness yourself for its flags:
+
+```sh
 go run -tags testbed ./testbed/bench -tools all           # also fetch BackstopJS, lychee and Unlighthouse
 go run -tags testbed ./testbed/bench -only s05,s09        # some scenarios
-make -C testbed down
 ```
+
+| Flag | Default | |
+|---|---|---|
+| `-bin` | `bin/rhythm-soundcheck` | the binary to benchmark |
+| `-only` | all | e.g. `s01,s05` |
+| `-tools` | `auto` | `auto` (the ones installed), `none`, `all`, or a list |
+| `-out` | `docs/benchmark.md` | the scoreboard |
+| `-work` | `testbed/bench/work` | runs and `results.json` |
+| `-wp`, `-php` | from `scenarios.yaml` | site URLs, if you moved the ports with `TESTBED_WP_PORT` / `TESTBED_PHP_PORT` |
+| `-timeout` | `5m` | per command |
 
 The benchmark writes the scoreboard to `docs/benchmark.md`, and keeps each scenario's runs (snapshot, `compare.json`, the tools' output) in `testbed/bench/work/<id>/`, with every result in `work/results.json`. Switch a scenario by hand to look at it in a browser:
 
 ```sh
-cd testbed
-./toggle.sh s05 broken     # or: make broken ID=s05
-./toggle.sh status
-./toggle.sh all good
+testbed/toggle.sh s05 broken     # or: make -C testbed broken ID=s05
+testbed/toggle.sh status
+testbed/toggle.sh all good
 ```
+
+The testbed's [README](https://github.com/RhythmShahriar/soundcheck/blob/master/testbed/README.md) has its accounts, every Make target, and how to add a scenario.
 
 The testbed only listens on `127.0.0.1`. It's also the end-to-end test suite for Soundcheck itself; see [Contributing](Contributing#soundcheck-and-the-testbed).
 

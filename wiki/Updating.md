@@ -13,13 +13,17 @@ It works in this order:
 3. **Each tool's data**, by running `rhythm-<tool> update`. For Tuner that refreshes the [check pack](Tuner-Check-Packs) and the cached vulnerability data; for Soundcheck, the browser it uses (see [Soundcheck's browser](#soundchecks-browser)).
 
 ```text
-rhythm         0.1.0 (up to date)
+rhythm             0.1.0 (up to date)
 rhythm-tuner       0.3.0 → 0.3.1 ✔
+rhythm-soundcheck  1.0.0 (up to date)
 Checks: built-in (rhythm-tuner 0.3.1); they're as new as pack 2026.10.23-154747
 Refreshed 29 vulnerability records
 Data: WPVulnerability (wpvulnerability.com, CC0)
 Cache: /home/you/.cache/rhythm/tuner/vulns
+Browser: installed Chrome at /usr/bin/google-chrome (updated with your system)
 ```
+
+The last line is Soundcheck's own `update`: it checked the browser it uses.
 
 Each binary is updated in place, wherever it is installed. A problem with one target is reported and the rest still run; the command exits `1` if anything failed and `0` otherwise.
 
@@ -30,8 +34,9 @@ rhythm update --check
 ```
 
 ```text
-rhythm         0.1.0 (up to date)
+rhythm             0.1.0 (up to date)
 rhythm-tuner       0.3.0 → 0.3.1 available
+rhythm-soundcheck  1.0.0 (up to date)
 ```
 
 `--check` reports what's out of date and changes nothing. It doesn't refresh tool data either.
@@ -121,13 +126,14 @@ Use `--no-check-updates` to scan with the built-in checks only, or `--offline` t
 
 Soundcheck uses an installed Chrome or Chromium when there is one; those update with your system. Otherwise it downloads the Chromium build its version is pinned to, once, into your cache folder. `rhythm soundcheck update` (which `rhythm update` runs for you) makes sure that browser is there:
 
-- With Chrome installed, it reports what it found and changes nothing:
+- With Chrome installed, it reports what it found:
 
   ```text
   Browser: installed Chrome at /usr/bin/google-chrome (updated with your system)
   ```
 
-- Otherwise it downloads the pinned Chromium if it's missing, deletes older Chromium revisions that earlier Soundcheck versions downloaded, prints `Removed older Chromium <folder>` for each, and ends with `Browser: Chromium at <path>`.
+- It also deletes Chromium it downloaded earlier and no longer needs: every downloaded revision when an installed Chrome is used, or the revisions other than the pinned one. Each prints `Removed unused Chromium <folder>`.
+- Without Chrome, it downloads the pinned Chromium if it's missing (progress on stderr) and ends with `Browser: Chromium at <path>`.
 
 A new Soundcheck release may pin a newer Chromium. `rhythm update` then downloads it and removes the old one in the same step; if a check downloads it first, the old revision stays until the next `update`.
 

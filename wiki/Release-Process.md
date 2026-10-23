@@ -53,7 +53,7 @@ The shared `ci-go.yml` workflow runs on every push to `master` and every pull re
 
 ## When the kit changes
 
-Tools import the shared kit (`github.com/RhythmShahriar/rhythm/kit/...`) as a normal Go module, pinned in their `go.mod` (Tuner currently requires `github.com/RhythmShahriar/rhythm v0.1.0`, Soundcheck `v0.2.0`). A tool release builds against that pinned version, not against `rhythm`'s `master`. So when a tool needs a kit change, release in this order:
+Tools import the shared kit (`github.com/RhythmShahriar/rhythm/kit/...`) as a normal Go module, pinned in their `go.mod` (Tuner currently requires `github.com/RhythmShahriar/rhythm v0.1.0`, Soundcheck `v0.2.1`). A tool release builds against that pinned version, not against `rhythm`'s `master`. So when a tool needs a kit change, release in this order:
 
 1. **Release `rhythm` first.** Merge the kit change and tag a new `rhythm` version, e.g. `v0.2.0`.
 2. **Bump the tool.** In the tool repository:
@@ -82,7 +82,7 @@ Soundcheck is the worked example: a new repository, `RhythmShahriar/soundcheck`,
 ### 1. Set up the repository
 
 - **Module and binary.** The module is `github.com/RhythmShahriar/<tool>` and the command lives in `cmd/rhythm-<tool>`. The binary must be `rhythm-<tool>`: the router runs `rhythm-<tool>` from the `PATH`.
-- **The kit.** Require a tagged `rhythm` for the kit (Soundcheck requires `v0.2.0`) and use it for the banner, theme, user folders, update notice and shared flags, so the tool looks and behaves like the others.
+- **The kit.** Require a tagged `rhythm` for the kit (Soundcheck requires `v0.2.1`) and use it for the banner, theme, user folders, update notice and shared flags, so the tool looks and behaves like the others.
 - **The standard commands.** `version` (printing `rhythm-<tool> <version>`), `help`, the exit codes `0`, `1` (`--fail-on`), `2` (usage), `3` (couldn't run), `130` (interrupted), and `update`, which `rhythm update` calls after updating the binary to refresh the tool's data (for Soundcheck, its browser). An `update` with nothing to do should still exit `0`.
 - **Responsible use.** A one-time notice through `kit/config.FirstRun` (Soundcheck's marker is `soundcheck-authorised-use`), and the background release check through `kit/update.Notice` with the tool's repository and binary.
 - **Release config.** Copy `.goreleaser.yaml`, `.github/workflows/release.yml` and `ci.yml` from an existing tool. Set `project_name` to the binary name so archives are named `rhythm-<tool>_<os>_<arch>`; see [the naming contract](#the-naming-contract).
@@ -117,7 +117,7 @@ Release `rhythm` with the registration. Users get the tool with `rhythm install 
 rhythm (kit the tool needs)  →  the tool's first release  →  rhythm (registers the tool)
 ```
 
-1. **`rhythm` with the kit**, if the tool needs kit packages that aren't released yet. For Soundcheck that was `v0.2.0`, with `kit/crawl`, `kit/ratelimit`, `kit/cache` and `kit/cli`.
+1. **`rhythm` with the kit**, if the tool needs kit packages that aren't released yet. For Soundcheck that was `v0.2.0`, which added `kit/crawl`, `kit/ratelimit`, `kit/cache` and `kit/cli`, and then `v0.2.1` for the crawl fixes it now requires.
 2. **The tool**, requiring that `rhythm` version.
 3. **`rhythm` again**, registering the tool and installing it by default.
 

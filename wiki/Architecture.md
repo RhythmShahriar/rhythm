@@ -56,7 +56,7 @@ The router knows which tools exist (today `tuner` and `soundcheck`), and which G
 | `kit/ui` | The terminal theme, built from the Rhythm brand tokens: **Ink** `#100F0D`, **Paper** `#FFFFFF`, and one signal color, **Dot** `#FF7C52` (a deeper `#E8603A` on light backgrounds). Severities use conventional colors: critical red, high orange, medium yellow, low blue, ok green, muted gray. Built on Lip Gloss. |
 | `kit/config` | The per-user config directory (`~/.config/rhythm` or the OS equivalent), and `FirstRun`, which records one-time notices such as Tuner's responsible-use note |
 | `kit/update` | Finding the latest GitHub release, comparing semantic versions, downloading the `<binary>_<os>_<arch>` archive, verifying it against `checksums.txt`, and swapping the binary atomically. Also the once-a-day update check, which honors `RHYTHM_NO_UPDATE_CHECK` and `CI`, and `Notice`, which runs it in the background during a command. |
-| `kit/crawl` | Site discovery: `robots.txt`, sitemaps (indexes, gzip) and links, URL normalization (tracking parameters, trailing slashes), same-site rules, the `DefaultExcludes` for admin, login, cart and logout URLs, and grouping pages by URL pattern (`/product/{slug}`) so a large site is checked through samples. Its `Frontier` takes more pages while a browser renders them. |
+| `kit/crawl` | Site discovery: `robots.txt`, sitemaps (indexes, gzip) and links (or none, with `NoFollow`, for a caller that follows links itself), URL normalization (tracking parameters, trailing slashes), same-site rules, the `DefaultExcludes` for admin, login, cart and logout URLs, and grouping pages by URL pattern (`/product/{slug}`, `/?page_id={slug}`) so a large site is checked through samples. Its `Frontier` takes more pages while a browser renders them; the start page and pages listed by the user get past include, robots and grouping. |
 | `kit/ratelimit` | An even request pace per host that halves after `429` or `503` (down to one request every two seconds), `Retry-After` handling up to 30 s, backoff, and `ParseTarget`, which turns `yoursite.com` or a URL into the site to check. |
 | `kit/cache` | A small on-disk JSON cache with a TTL and stale fallback when the network is down, plus atomic `WriteFile` and `WriteJSON`. |
 | `kit/cli` | Flag helpers shared by every tool: flags before or after positional arguments, comma-separated and repeatable list flags, usage errors that map to exit code 2, terminal detection. |
@@ -184,12 +184,12 @@ soundcheck/
 
 ```mermaid
 flowchart TD
-  R["Resolve the site<br/>(follow redirects)"] --> D["Discover<br/>kit/crawl: robots, sitemaps, links"]
+  R["Resolve the site<br/>(follow redirects)"] --> D["Discover<br/>kit/crawl: robots, sitemaps, start page"]
   D --> L["Launch Chrome<br/>private session"]
-  L --> T["Tab pool (--tabs)<br/>paced by kit/ratelimit"]
+  L --> T["Page pool (--tabs, one window each)<br/>paced by kit/ratelimit"]
   subgraph page ["Each page, in its own tab"]
     P["Prepare hooks<br/>(speed: JS/CSS coverage)"] --> V["capture.Visit<br/>desktop load, events, metrics, screenshot"]
-    V --> LV["Live hooks<br/>(interact: inspect, click, submit)"]
+    V --> LV["Live hooks<br/>(speed, then interact: inspect, click, submit)"]
     LV --> M["capture.Mobile<br/>reload at 390 px, screenshot"]
     M --> C["CheckPage hooks<br/>(health, visual, speed)"]
   end
@@ -206,7 +206,7 @@ The runner knows nothing about what modules check. A module is a Go type with a 
 | Hook | When it runs | Used by |
 |---|---|---|
 | `Prepare` | on a fresh tab, before it navigates | speed (starts CSS and JS coverage) |
-| `Live` | while the page is open at desktop size, after the screenshot, before the mobile reload; may interact with the page | interact, speed |
+| `Live` | while the page is open at desktop size, after the screenshot, before the mobile reload; interact runs last, since it changes the page | speed, interact |
 | `CheckPage` | after the visit, on the recorded page, without the browser | health, visual (learns dynamic regions in snapshots), speed |
 | `CheckSite` | once, after every page | health (links), cache, speed (suggestions), interact (flows) |
 | `Compare` | in a comparison, on both runs | health (titles, content, redirects), visual, cache, speed |
@@ -216,11 +216,11 @@ Each issue gets a key from its check, title and source, so `compare` can match t
 
 ### The browser layer
 
-`browser` drives Chrome through the DevTools protocol with [go-rod](https://github.com/go-rod/rod). It uses `--browser`, or an installed Chrome or Chromium, or downloads a pinned Chromium into `<cache>/rhythm/soundcheck/browser`. Chrome runs headless with GPU, audio and background networking off, and without its sandbox only when running as root. The crawl runs in one private (incognito) session; the leak test and each flow get their own, so a logged-in user never shares cookies with the anonymous crawl.
+`browser` drives Chrome through the DevTools protocol with [go-rod](https://github.com/go-rod/rod). It uses `--browser`, or an installed Chrome or Chromium, or downloads a pinned Chromium into `<cache>/rhythm/soundcheck/browser` (progress on stderr). Chrome runs headless with GPU, audio and background networking off, with background-tab throttling disabled, and without its sandbox only when running as root. Each page gets its own window with focus emulated, so pages in parallel paint and animate like the front one, and the HTTP cache is off so every page loads cold. The crawl runs in one private (incognito) session; the leak test and each flow get their own, so a logged-in user never shares cookies with the anonymous crawl. The login is tried once at the start of a run.
 
 `capture` records each visit from DevTools events: the document's status, headers and redirect chain; every request with its type, status, size, protocol and cache headers; console errors, uncaught exceptions and browser log errors; Web Vitals from a `PerformanceObserver` injected before any page script; the visible text, title, robots directives and same-site links. Screenshots pause animations first, and the visual module learns dynamic regions from a second capture in snapshots.
 
-Plain HTTP requests outside the browser (discovery, link checks, form action checks, the cache double fetch) share the run's headers, proxy, TLS settings, user agent and per-host pace.
+Discovery itself fetches only `robots.txt`, sitemaps and the start page (`kit/crawl` with `NoFollow`); further pages come from links in the pages the browser renders. Plain HTTP requests outside the browser (discovery, link checks, form action checks, the cache double fetch) share the run's headers, proxy, TLS settings, user agent and per-host pace.
 
 ### Storage and reports
 

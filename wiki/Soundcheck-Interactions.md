@@ -39,7 +39,9 @@ Click listeners are found through Chrome's DevTools, so handlers added with `add
 
 ## Level 2: click
 
-Soundcheck collects up to 200 controls that look interactive: buttons, `role=button|tab|menuitem|switch`, `<summary>`, elements with `aria-expanded`, `aria-controls`, `aria-haspopup`, Bootstrap `data-toggle` attributes, `#` and `javascript:` links, and anything with a click listener. Controls that open menus and panels go first. It then clicks up to `interactions.max_clicks` of them per page (default **15**), each like a visitor: scroll it into view, move the mouse onto it, wait for hover effects, click.
+Soundcheck collects up to 200 controls that look interactive: buttons, `role=button|tab|menuitem|switch`, `<summary>`, elements with `aria-expanded`, `aria-controls`, `aria-haspopup`, Bootstrap `data-toggle` attributes, `#` and `javascript:` links, and anything with a click listener. Controls that open menus and panels go first. It then clicks up to `interactions.max_clicks` of them per page (default **15**), each like a visitor: scroll it into view, send hover events, wait a moment for hover effects, then press and release and click. These pointer and mouse events are dispatched inside the page, so clicking works the same in every window while several pages are checked at once. Because they're script events, CSS `:hover` styles don't apply and handlers that insist on `event.isTrusted` ignore them.
+
+Only controls a visitor could click are candidates. A control that's hidden, has no size, sits off screen, or is clipped by a parent that scrolls or hides its overflow is left out. One that's covered by something else (an open menu, a modal, a cookie banner) gets one retry after a reload. Clicking stops after **45 seconds** on a page, with a note such as `interact /shop/: stopped clicking after 45s with 12 controls left (the page is slow)`.
 
 After each click it watches for up to 1.5 s (longer while requests the click started are still running):
 
@@ -51,22 +53,22 @@ After each click it watches for up to 1.5 s (longer while requests the click sta
 | a request the click made failed | `interact/click-request`, **error**: `Clicking Load more makes a request that fails` |
 
 ```text
-[NEW] Button does nothing: Menu - /, /about/, /blog/ +32 more
+[NEW] Button does nothing: Menu - /, /about/, /blog/ +31 more
   Clicking it changed nothing on the page, made no request and didn't navigate. (button.menu-toggle)
   fix: Wire up its click handler, or remove the button if it's no longer needed.
 ```
 
 ```text
-[BROKE] Clicking Add to wishlist (li:nth-of-type(3) > button.add-to-wishlist) throws a JS error - /shop/
-  Uncaught ReferenceError: WishlistStore is not defined
+[BROKE] Clicking Add to wishlist throws a JS error - /shop/
+  Uncaught ReferenceError: WishlistStore is not defined (6 controls: li:nth-of-type(1) > button.add-to-wishlist, li:nth-of-type(2) > button.add-to-wishlist, li:nth-of-type(3) > button.add-to-wishlist, li:nth-of-type(4) > button.add-to-wishlist, li:nth-of-type(5) > button.add-to-wishlist, li:nth-of-type(6) > button.add-to-wishlist)
   fix: Click it with the browser console open to see the stack trace.
 ```
 
-When several controls on a page have the same label, the title adds a CSS selector to tell them apart. The detail of a dead click ends with the selector, so you can find the element with `document.querySelector()`.
+Titles use the control's visible label. Identical controls on a page with the same outcome (six "Add to wishlist" buttons that all throw) are one issue, with the selectors in the detail (`6 controls: …`, up to ten listed). The detail of a single control ends with its selector, so you can find it with `document.querySelector()`. Selectors leave out the state classes form plugins add and change (Contact Form 7's `init`, `sent`, `invalid` and the like, and their WPForms, Gravity Forms and Elementor equivalents), so the same control has the same selector in both runs.
 
 Requests to analytics and ad hosts (Google Analytics and Tag Manager, Facebook, Hotjar, Clarity, Segment and others) don't count as a reaction: they fire on almost any click. A link to `#` that only jumps to the top of the page doesn't count either.
 
-Between clicks, Escape closes whatever opened. If a click navigated, or a menu covers the next control, the page is reloaded. Every click is recorded in the run's JSON under `interactions` with its outcome (`ok`, `dead`, `error`, `skipped`) and why it was skipped, such as `navigates away`, `looks destructive` or `can't scroll to it`.
+Between clicks, Escape closes whatever opened. If a click navigated, the page is reloaded. Every click is recorded in the run's JSON under `interactions` with its outcome (`ok`, `dead`, `error`, `skipped`) and, for skipped ones, why, such as `navigates away` or `looks destructive`.
 
 ## Keeping clicks safe
 
@@ -102,11 +104,14 @@ Entries are URL prefixes: a page is production when its URL starts with one, so 
 - **Doesn't submit forms.** Level 3 skips every form with `production URL; allowlist the form in interactions.forms to submit it`, unless the form matches a selector in `interactions.forms`.
 - **Doesn't run the cache leak test**, which would serve the test account's pages to real visitors if the cache leaks. See [Cache](Soundcheck-Cache#the-leak-test).
 
-Inspecting and clicking still run. A note says what was skipped:
+- **Refuses click and submit steps in flows**, unless the flow file sets `production: true`. Read-only steps (`goto`, `fill`, `select`, `check`, `wait`, `expect`, `screenshot`) still run; the flow stops at the first refused step with a warning, `interact/flow-production`. See [Flows on production](Soundcheck-Forms-And-Flows#flows-on-production).
+
+Inspecting and clicking pages still run. Notes say what was skipped:
 
 ```text
 note: Form submits skipped on production URLs: allowlist forms in interactions.forms to test them there
 note: cache: skipped the cache leak test on a production URL: a leaking cache would show the test account to real visitors. Run it on staging
+note: Flow clicks and submits skipped on production URLs: set production: true in a flow to allow them
 ```
 
 To test one form on production anyway, for example a newsletter signup that writes to a test list, allowlist it:
@@ -116,12 +121,9 @@ interactions:
   forms: ["#newsletter-form"]
 ```
 
-> [!WARNING]
-> Flows (level 4) aren't covered by the production guard: they do exactly what their steps say, on any site. Keep flows that submit or buy pointed at staging, or out of the flows folder when you check production.
-
 ## Speed and reliability
 
-Clicking takes time: each click waits for a reaction, and a page with many controls takes several seconds. If a check is slow, lower `interactions.max_clicks`, or use `--level inspect` for a quick pass. Clicks that couldn't happen (the element was hidden, covered or off-screen) are recorded as skipped in the JSON rather than reported, so a missing click never shows up as a false problem.
+Clicking takes time: each click waits up to 1.5 s for a reaction, and a page with many controls takes several seconds, at most 45. If a check is slow, lower `interactions.max_clicks`, or use `--level inspect` for a quick pass. Controls a visitor couldn't click (hidden, off screen, clipped, still covered after the retry) are never reported, so a control that couldn't be clicked doesn't show up as a false problem.
 
 ---
 <sub>← [Visual changes](Soundcheck-Visual) · [Home](Home) · [Forms and flows](Soundcheck-Forms-And-Flows) →</sub>

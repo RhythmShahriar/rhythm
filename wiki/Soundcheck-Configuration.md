@@ -60,7 +60,7 @@ speed:
   slower: 25            # % slower before a page is reported SLOWER
 
 rate: 5                 # page loads per second per site
-tabs: 4                 # pages checked at once
+tabs: 8                 # pages checked at once; politeness comes from rate
 timeout: 30             # seconds per page
 ```
 
@@ -70,10 +70,10 @@ timeout: 30             # seconds per page
 |---|---|---|---|
 | `pages.limit` | `300` | `--limit` | Most pages to check, at least 1. See [Discovery](Soundcheck-Discovery#the-page-limit). |
 | `pages.per_group` | `3` | | Pages checked per URL pattern; `-1` checks every page. See [Grouping](Soundcheck-Discovery#grouping-by-url-pattern). |
-| `pages.include` | `[]` | `--include` | Only pages whose path and query match one of these globs. |
-| `pages.exclude` | `[]` | `--exclude` | Skip pages matching, on top of the [built-in excludes](Soundcheck-Discovery#urls-soundcheck-never-visits). |
+| `pages.include` | `[]` | `--include` | Only pages whose path and query match one of these globs (the start page is always checked). |
+| `pages.exclude` | `[]` | `--exclude` | Skip pages matching, on top of the [built-in excludes](Soundcheck-Discovery#urls-soundcheck-never-visits). Matching links aren't requested by the broken link check either. |
 | `pages.ignore_robots` | `false` | `--ignore-robots` | Check pages `robots.txt` disallows. |
-| `pages.extra` | `[]` | `--page` | Paths to check even if nothing links to them. |
+| `pages.extra` | `[]` | `--page` | Paths to check even if nothing links to them; they get past `include`, `robots.txt` and grouping. |
 
 ### What to check
 
@@ -105,7 +105,7 @@ Credentials are never read from this file: set `SOUNDCHECK_USER` and `SOUNDCHECK
 | Key | Default | Flag | Description |
 |---|---|---|---|
 | `rate` | `5` | `--rate` | Page loads per second per site; more than 0, fractions allowed (`0.5` is one every two seconds). |
-| `tabs` | `4` | `--tabs` | Pages checked at once, 1 to 16. |
+| `tabs` | `8` | `--tabs` | Pages checked at once, 1 to 16. Each runs in its own background browser window. The pace on the server is set by `rate`, so more tabs only speed up slow pages. |
 | `timeout` | `30` | `--timeout` | Seconds per page, at least 5. The flag takes a duration such as `45s`. |
 
 Invalid values stop the run with a usage error that names the setting, such as `--tabs must be between 1 and 16` or `visual.threshold is a percentage, 0 to 100`.
@@ -160,7 +160,7 @@ Inside a git repository, Soundcheck adds the snapshots and runs to `.git/info/ex
 │       ├── report.html    the standalone report
 │       └── shots/         screenshots: <page id>-desktop.png, -mobile.png, and .2.png second captures
 ├── runs/
-│   └── 2026-10-24T00-45-13/
+│   └── 2026-10-24T02-23-17/
 │       ├── run.json
 │       ├── comparison.json   for compare and --against
 │       ├── report.html
@@ -168,8 +168,8 @@ Inside a git repository, Soundcheck adds the snapshots and runs to `.git/info/ex
 │       ├── visual/           before, after and diff images of visual changes
 │       ├── against/          the --against site's run
 │       ├── flows/            flow screenshots
-│       └── lighthouse/       --lighthouse results
-└── .incoming/             a snapshot being taken; moved into snapshots/ when it's complete
+│       └── lighthouse/       --lighthouse results (for a snapshot, in its own folder)
+└── .incoming/             only while a snapshot is being taken; moved into snapshots/ when complete
 ```
 
 - **Snapshots** are kept until you delete them: `rhythm soundcheck snapshots delete <name>`. Taking a snapshot with an existing name replaces it, but only once the new one is complete, so a failed or interrupted snapshot never destroys a good one.

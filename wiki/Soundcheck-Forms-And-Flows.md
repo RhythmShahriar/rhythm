@@ -34,8 +34,8 @@ A contact form whose mail started failing after an update:
 The detail is the message the plugin showed. A successful submit isn't reported as an issue; it's recorded in the run's JSON under `interactions`:
 
 ```json
-{"kind": "submit", "selector": "form.wpcf7-form.init", "label": "Contact Form 7 #12", "outcome": "validation", "detail": "One or more fields have an error. Please check and try again."}
-{"kind": "submit", "selector": "form.wpcf7-form.init", "label": "Contact Form 7 #12", "outcome": "success", "detail": "Thank you for your message. It has been sent."}
+{"kind": "submit", "selector": "form.wpcf7-form", "label": "Contact Form 7 #12", "outcome": "validation", "detail": "One or more fields have an error. Please check and try again."}
+{"kind": "submit", "selector": "form.wpcf7-form", "label": "Contact Form 7 #12", "outcome": "success", "detail": "Thank you for your message. It has been sent."}
 ```
 
 ### Forms that are never submitted
@@ -142,7 +142,8 @@ The detail says what went wrong (`.wpcf7 form.sent not found`). A failed action 
 |---|---|---|
 | `name` | yes | Shown in results and used for screenshot names. |
 | `start` | no | Path or URL opened first. Default: the site's home page. Relative paths resolve against the site being checked. |
-| `login` | no | `true` runs the flow as the test user (see [Logging in](#logging-in)). Without credentials, the flow is skipped with a note. |
+| `login` | no | `true` runs the flow as the test user (see [Logging in](#logging-in)). Without credentials, or when the login failed, the flow is skipped with a note. |
+| `production` | no | `true` lets the flow click and submit on URLs listed under `production` in the config. See [Flows on production](#flows-on-production). |
 | `steps` | yes | The actions, in order. Each step is a one-key mapping. |
 
 ### Steps
@@ -187,14 +188,37 @@ Values from `${env:…}` are never stored or printed: every error message is mas
 
 ### Mistakes in a flow file
 
-Flow files are checked strictly: unknown keys, unknown steps and unknown `${fake:…}` kinds are errors, reported as a note with the line:
+Flow files are checked strictly: unknown keys, unknown steps and unknown `${fake:…}` kinds are errors. A file that can't be read is an **error**-level issue (`interact/flow-file`), so it fails `--fail-on error` in CI, and the other flows still run:
 
 ```text
-note: flows: .soundcheck/flows/bad.yaml: line 3: unknown step "clik" (actions: goto, click, fill, select, check, submit, wait, expect, screenshot)
+[ERROR] Flow file "bad.yaml" can't be read - site-wide
+  source: .soundcheck/flows/bad.yaml
+  line 3: unknown step "clik" (actions: goto, click, fill, select, check, submit, wait, expect, screenshot)
+  fix: Fix the file; `rhythm soundcheck flows init` writes an example of the format.
 ```
 
-> [!IMPORTANT]
-> A flow file with a mistake stops **all** flows for that run, and the run still ends `all clear`. Check the notes after editing flows, and in CI look for a `flows:` note in the report.
+### Flows on production
+
+On URLs listed under `production` in the config, a flow's `click` and `submit` steps are refused, because a flow does exactly what its steps say. Read-only steps (`goto`, `fill`, `select`, `check`, `wait`, `expect`, `screenshot`) still run. The flow stops at the first refused step, which becomes a warning:
+
+```text
+[WARNING] Flow "Contact form sends" step 4 refused on production: click "Send" - /contact/
+  source: .soundcheck/flows/contact.yaml
+  refused on a production URL (set production: true in the flow to allow it)
+  fix: Run flows against staging, or add production: true to .soundcheck/flows/contact.yaml if this flow is safe on the live site.
+```
+
+A flow that's safe on the live site, such as a search or a members-area check that changes nothing, can opt in:
+
+```yaml
+name: Search finds products
+production: true
+start: /
+steps:
+  - fill: {selector: "input[name=s]", value: mug}
+  - submit: "form[role=search]"
+  - expect: {text: Blue Mug}
+```
 
 ## Logging in
 
@@ -218,6 +242,12 @@ The login is used by:
 - **flows with `login: true`**, which start already logged in.
 
 The pages themselves are always checked as an anonymous visitor. `--no-login` ignores the variables for one run.
+
+Soundcheck tries the login once, at the start. If it fails, one note says why, the checks that need it are skipped, and the run's `options.logged_in` stays false:
+
+```text
+note: login failed, so the checks that need it were skipped: WordPress refused the login: Error: The password you entered for the username is incorrect.
+```
 
 On WordPress, Soundcheck logs in through `/wp-login.php` (`#user_login`, `#user_pass`, `#wp-submit`), with "Remember me" off. It succeeds when WordPress sets its `wordpress_logged_in_*` cookie and the front end shows the admin bar or the `logged-in` body class. For a login page elsewhere, set `login.url: /account/login/`. Errors are specific:
 

@@ -21,7 +21,7 @@ Most of the time you read comparisons. A snapshot also shows its run's issues, s
 
 Issues are matched between the two runs by their check, title and source, on the same page. A problem that's in both runs isn't shown at all: a comparison is about your change, not about everything imperfect. Run `rhythm soundcheck run` for the full list.
 
-Speed is the exception. Lab timings wobble between loads, so a page near a threshold would flip between NEW and FIXED. Speed issues are never diffed directly; the speed module reports SLOWER and FIXED itself, only when a value moved by more than `speed.slower` percent (default 25) **and** a fixed floor. See [Speed](Soundcheck-Speed#regressions).
+Speed is the exception. Lab timings wobble between loads, so a page near a threshold would flip between NEW and FIXED. Speed issues never show as NEW or FIXED; only the speed module reports speed changes, as SLOWER and FIXED, only when a value moved by more than `speed.slower` percent (default 25) **and** a fixed floor. See [Speed](Soundcheck-Speed#regressions).
 
 > [!NOTE]
 > A page that's only in one of the two runs doesn't make its problems new or fixed. If pages are missing this time, the result says so in a note.
@@ -40,7 +40,8 @@ How grouping works:
 
 - **Issues** group by their identity: the check, the title and the source. PHP messages and JS errors are normalized (long messages cut, numbers in JS errors replaced) so the same error groups across pages and runs. An error in a script inside the page itself is reported with the source `inline script`, since its line number moves with the content.
 - **Site-wide issues**, such as a broken link or a speed suggestion, are reported once with every page they affect.
-- **Visual changes** shared by several pages become one change, and more than five pages that each look different in one viewport collapse into one line such as `35 pages look different (mobile)`. See [Visual changes](Soundcheck-Visual#grouping).
+- **Identical controls** on a page with the same outcome are one change. Six wishlist buttons that all throw are `Clicking Add to wishlist throws a JS error`, with the selectors in the detail (`6 controls: …`).
+- **Visual changes** shared by several pages become one change, and more than five pages that each look different in one viewport collapse into one line such as `35 pages look different (desktop)`. See [Visual changes](Soundcheck-Visual#grouping).
 - **Speed** changes group by URL pattern, or become one site-wide change when most pages moved.
 
 Within a class, changes are sorted by how big they are (how many pages, how much changed or got slower), then by title.
@@ -51,36 +52,36 @@ Within a class, changes are sorted by how big they are (how many pages, how much
   ♪ rhythm soundcheck 1.0.0                      https://staging.yoursite.com/   ← 1 header
   ────────────────────────────────────────────────────────────────────────────
 
-  ▸ Snapshot      "before-update", 37 pages, taken 6m ago                          ← 2 steps
+  ▸ Snapshot      "before-update", 37 pages, taken 1m ago                          ← 2 steps
   ▸ Pages         37 pages
 
-  BROKE  2 ───────────────────────────────────────────────────────────────────    ← 3 section
+  BROKE  3 ───────────────────────────────────────────────────────────────────    ← 3 section
 
  ▌  BROKE      Private page is served from cache                       /cart/     ← 4 card
  ▌             nginx                                                              ← 5 source
- ▌             x-cache-status: HIT; cache-control: max-age=86400; age: 128        ← 6 detail
+ ▌             x-cache-status: HIT; cache-control: max-age=86400; age: 24         ← 6 detail
  ▌             → Exclude cart, checkout, account and login pages from every …     ← 7 fix
 
-  CHANGED  12 ────────────────────────────────────────────────────────────────
+  CHANGED  5 ─────────────────────────────────────────────────────────────────
 
-    ■  Page got 168 px taller (mobile)                                      /     ← 8 line
+    ■  New block near the bottom of 35 pages (desktop)               35 pages     ← 8 line
     ■  Page title changed                                             /about/
 
   SLOWER  3 ──────────────────────────────────────────────────────────────────
 
     ◆  Plugin heavy-slider now loads assets on pages          0 B → 293 KB  /     ← 9 before → after
 
- ╭───────────────────────────────────────────────────────────────╮
- │  SOUNDCHECK   Something broke                                 │                ← 10 verdict
- │  ✖ 2 broke   ▲ 6 new   ■ 12 changed   ◆ 3 slower   ✔ 0 fixed  │
- ╰───────────────────────────────────────────────────────────────╯
-  compared with snapshot "before-update" (9m ago) · 37 pages · 2m42s              ← 11 stats
+ ╭──────────────────────────────────────────────────────────────╮
+ │  SOUNDCHECK   Something broke                                │                 ← 10 verdict
+ │  ✖ 3 broke   ▲ 6 new   ■ 5 changed   ◆ 3 slower   ✔ 0 fixed  │
+ ╰──────────────────────────────────────────────────────────────╯
+  compared with snapshot "before-update" (1m ago) · 37 pages · 47s                ← 11 stats
   ! cache: skipped the cache leak test; set SOUNDCHECK_USER and SOUNDCHECK_PA…     ← 12 notes
-  → full report: .soundcheck/runs/2026-10-24T00-45-13/report.html                 ← 13 report
+  → full report: .soundcheck/runs/2026-10-24T02-23-17/report.html                 ← 13 report
 ```
 
 1. **Header.** The version and the site, as it was resolved (scheme and host after redirects).
-2. **Steps.** Which snapshot is compared, how many pages, and the login (`Login: as sa*** (from SOUNDCHECK_USER)`) when one is used.
+2. **Steps.** Which snapshot is compared, how many pages, and the test account (`Login: as sa*** (from SOUNDCHECK_USER)`) when one is set for the leak test and login flows.
 3. **Sections**, one per class, with a count.
 4. **Cards.** BROKE and NEW changes get a card: the class, the title and where it happened, a page or a count of pages, followed by up to three pages.
 5. **Source.** Where it comes from: a theme or plugin file and line, a script URL, a cache layer, a flow file.
@@ -100,11 +101,11 @@ Lines are cut to fit 80 columns, marked with `…`. The plain view, the HTML rep
 A comparison is only fair when both runs were made the same way. When they weren't, a note says so:
 
 ```text
-note: modules differ (snapshot [interact], now [health visual interact cache])
+note: modules differ (snapshot [interact], now [health visual interact cache]); only modules in both are compared
 note: interaction levels differ (snapshot [inspect click submit], now [inspect click])
 ```
 
-`compare` doesn't reuse the snapshot's flags: pass the same `--level`, `--modules`, `--skip` and `--viewport` again, or better, keep them in [`.soundcheck/config.yaml`](Soundcheck-Configuration) so every run uses them. A check that only ran this time reports everything it finds as NEW.
+Only modules that ran in both runs are compared, so adding a module later doesn't flood the result with NEW. Other settings aren't reconciled: `compare` doesn't reuse the snapshot's flags. Pass the same `--level`, `--modules`, `--skip` and `--viewport` again, or better, keep them in [`.soundcheck/config.yaml`](Soundcheck-Configuration) so every run uses them.
 
 ## The issue levels of a run
 
@@ -125,34 +126,38 @@ When the output isn't a terminal (a pipe, a file, a CI log), or with `--plain`, 
 ```text
 rhythm soundcheck 1.0.0 - https://staging.yoursite.com/
 
-Snapshot: "before-update", 37 pages, taken 6m ago
+Snapshot: "before-update", 37 pages, taken 1m ago
 Pages: 37 pages
+⋮
+[BROKE] Clicking Add to wishlist throws a JS error - /shop/
+  Uncaught ReferenceError: WishlistStore is not defined (6 controls: li:nth-of-type(1) > button.add-to-wishlist, li:nth-of-type(2) > button.add-to-wishlist, li:nth-of-type(3) > button.add-to-wishlist, li:nth-of-type(4) > button.add-to-wishlist, li:nth-of-type(5) > button.add-to-wishlist, li:nth-of-type(6) > button.add-to-wishlist)
+  fix: Click it with the browser console open to see the stack trace.
 ⋮
 [BROKE] Private page is served from cache - /cart/
   source: nginx
-  x-cache-status: HIT; cache-control: max-age=86400; age: 128
+  x-cache-status: HIT; cache-control: max-age=86400; age: 24
   fix: Exclude cart, checkout, account and login pages from every cache layer (nginx), and bypass the cache for requests with woocommerce_items_in_cart, wp_woocommerce_session_* or wordpress_logged_in_* cookies. WooCommerce marks these pages no-cache; a cache rule is overriding that. Purge the cache afterwards.
 [NEW] PHP Warning: Undefined array key "layout" - /, /about/, /blog/ +33 more
   source: themes/acme/footer.php:42
   fix: Fix the code at the source line, and turn display_errors off in production so visitors never see these.
 ⋮
-[SLOWER] Total Blocking Time up from 0 - /
-  0 ms → 399 ms
-  Lab measurement, one load per page; a page counts when it's higher by more than 25% and at least 100 ms
-  fix: New or updated JavaScript runs longer tasks; check which plugin or theme scripts changed (see the per-plugin cost suggestions).
+[SLOWER] LCP 18× slower - /
+  28 ms → 500 ms
+  Lab measurement, one load per page; a page counts when it's slower by more than 25% and at least 300 ms
+  fix: Find what grew the largest element's load: a bigger hero image, new render-blocking CSS/JS, or a slower server response.
 
-Something broke - 2 broke, 6 new, 12 changed, 3 slower, 0 fixed - compared with snapshot "before-update" (9m ago), 37 pages · 2m42s
+Something broke - 3 broke, 6 new, 5 changed, 3 slower, 0 fixed - compared with snapshot "before-update" (2m ago), 37 pages · 47s
 note: cache: skipped the cache leak test; set SOUNDCHECK_USER and SOUNDCHECK_PASSWORD to a test account to run it
-full report: .soundcheck/runs/2026-10-24T00-45-13/report.html
+full report: .soundcheck/runs/2026-10-24T02-23-17/report.html
 ```
 
-Each page line, such as `[11/12] / 200 1.48s (2 issues)`, shows the progress, the path, the status, how long the visit took, and `ok`, the number of issues, or `error`. For a run (not a comparison), plain mode lists each issue as `[LEVEL] title - pages` with its source and, for errors and warnings, the fix. `-v` prints the page lines in the normal view too, and `-q` prints only the results.
+Each page line, such as `[11/12] / 200 1.48s (2 issues)`, shows the progress, the path, the status, how long the visit took, and `ok`, the number of issues, or `error`. For a run (not a comparison), plain mode lists each issue as `[LEVEL] title - pages` with its source, the detail for issues on one page, and, for errors and warnings, the fix. `-v` prints the page lines in the normal view too, and `-q` prints only the results.
 
 ## The HTML report
 
 Every `snapshot`, `run` and `compare` writes `report.html` into its folder under `.soundcheck/`. It's one standalone file: styles, scripts and the screenshots (scaled to 960 px wide, as JPEG) are inside, so it opens in any browser without a server and can be attached to a ticket.
 
-- **Verdict and chips.** The verdict, the stats, and a chip per class (or level) with its count. Click a chip to hide or show that class.
+- **Verdict and chips.** The verdict, the date of the run (and of the snapshot it was compared with), the stats, and a chip per class (or level) with its count. Click a chip to hide or show that class.
 - **Filter.** Type to filter by title, page, plugin or file.
 - **Cards.** Each change with its badge, where it happened, before → after, source, detail, the full fix, the check ID (such as `health/php-error`) and the list of pages.
 - **Screenshots.** Visual changes have a viewer: **Slider** (drag the handle across the before and after screenshots), **Before**, **After** and **Diff** (changed pixels highlighted on a faded copy of the page). Mobile captures show at phone width. Past 60 visual changes, the images are linked instead of embedded.
@@ -166,7 +171,7 @@ Open the latest one with `rhythm soundcheck report --open`, or pass `--open` to 
 
 | Flag | Format | For |
 |---|---|---|
-| `--md` | Markdown: the verdict, a count table, a table per class (change, where, before → after, fix), notes in a collapsed section | pull request comments, CI job summaries, client reports |
+| `--md` | Markdown: the verdict with the snapshot's date (`compared with snapshot "before-update" (23 Oct 2026 20:22 UTC)`), a count table, a table per class (change, where, before → after, fix), notes in a collapsed section | pull request comments, CI job summaries, client reports |
 | `--json` | the comparison, or the run, in the `rhythm-soundcheck/v1` schema | scripts and dashboards |
 | `--junit` | JUnit XML: a test suite per class (or level), a test case per change, plus one passing `N pages checked` case | CI test reports |
 | `--html` | the standalone HTML report | sharing |
@@ -182,12 +187,12 @@ In JUnit, test cases at or above `--fail-on` are failures. Without `--fail-on`, 
 
 ### The JSON schema
 
-A comparison has `schema` (`rhythm-soundcheck/v1`), `tool`, `version`, `before` and `after` (each with `target`, `name`, `dir`, `started`), `pages`, `created`, optional `warnings`, and `changes`. Each change has:
+A comparison has `schema` (`rhythm-soundcheck/v1`), `tool`, `version`, `before` and `after` (each with `target`, `name`, `dir`, `started`), `pages`, `created`, `warnings` (every note, including the run's own, such as a skipped leak test or an unreadable flow file; left out when there are none), and `changes`. Each change has:
 
 | Field | Meaning |
 |---|---|
 | `class` | `broke`, `new`, `changed`, `slower` or `fixed` |
-| `check` | module and rule, such as `health/php-error` or `visual/size` |
+| `check` | module and rule, such as `health/php-error` or `visual/block` |
 | `title` | the one-line description |
 | `detail`, `source`, `fix` | evidence, origin, suggested fix (when there are any) |
 | `pages` | the paths affected |
@@ -198,18 +203,16 @@ A comparison has `schema` (`rhythm-soundcheck/v1`), `tool`, `version`, `before` 
 ```json
 {
   "class": "changed",
-  "check": "visual/size",
-  "title": "Page got 168 px taller (mobile)",
-  "detail": "A 168 px tall block was inserted 840 px down; the content below it moved down.",
-  "fix": "Expected if content was added or removed; otherwise look for a new notice, banner or element pushing the layout.",
-  "pages": ["/"],
-  "before": "390×955 px",
-  "after": "390×1123 px",
-  "score": 17.59,
+  "check": "visual/block",
+  "title": "New block near the bottom of 35 pages (desktop)",
+  "detail": "A 48 px tall block appeared near the bottom of each page listed, moving the content below it; that content is unchanged.",
+  "fix": "Expected if you added or removed it; otherwise look for a plugin or theme notice, banner or element that appeared.",
+  "pages": ["/", "/about/", "/blog/", "…"],
+  "score": 5.33,
   "files": {
-    "after": "visual/de4beeca4d-mobile-after.png",
-    "before": "visual/de4beeca4d-mobile-before.png",
-    "diff": "visual/de4beeca4d-mobile-diff.png"
+    "after": "visual/de4beeca4d-desktop-after.png",
+    "before": "visual/de4beeca4d-desktop-before.png",
+    "diff": "visual/de4beeca4d-desktop-diff.png"
   }
 }
 ```
@@ -233,7 +236,7 @@ rhythm soundcheck compare --fail-on broke
 |---|---|
 | `0` | Done; nothing at or above `--fail-on` (or `--fail-on` not set) |
 | `1` | A change or issue at or above `--fail-on` |
-| `2` | Usage error: unknown command or flag, a bad value, no snapshot to compare with |
+| `2` | Usage error: unknown command or flag, a bad value, no snapshot to compare with, nothing stored for `report` |
 | `3` | The site couldn't be checked (unreachable, no pages found, no browser), or a report couldn't be written |
 | `130` | Interrupted (Ctrl+C) |
 

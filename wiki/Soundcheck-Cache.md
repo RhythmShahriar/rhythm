@@ -31,7 +31,7 @@ The run's summary, `cache` in the run JSON, has the pages fetched, hits, `hit_ra
 
 A CDN that passes HTML through is common and only a notice. A server or plugin cache that never answers is a warning: it's installed but not working, often because a cookie, a query string or a `Cache-Control: no-cache` header from a plugin bypasses it.
 
-In a comparison, a cache that served pages in the snapshot and serves none now is CHANGED:
+In a comparison, a cache that served pages in the snapshot and serves none now is one CHANGED line (the `cache/never-cached` issue that comes with it isn't also reported as NEW):
 
 | Check | Title |
 |---|---|
@@ -48,7 +48,7 @@ Pages that hold one visitor's cart, order or account must never come from a shar
 ```text
 [BROKE] Private page is served from cache - /cart/
   source: nginx
-  x-cache-status: HIT; cache-control: max-age=86400; age: 128
+  x-cache-status: HIT; cache-control: max-age=86400; age: 24
   fix: Exclude cart, checkout, account and login pages from every cache layer (nginx), and bypass the cache for requests with woocommerce_items_in_cart, wp_woocommerce_session_* or wordpress_logged_in_* cookies. WooCommerce marks these pages no-cache; a cache rule is overriding that. Purge the cache afterwards.
 ```
 
@@ -94,7 +94,7 @@ The test is skipped, with a note, when:
 |---|---|
 | `cache: skipped the cache leak test; set SOUNDCHECK_USER and SOUNDCHECK_PASSWORD to a test account to run it` | no credentials, or `--no-login` |
 | `cache: skipped the cache leak test on a production URL: a leaking cache would show the test account to real visitors. Run it on staging` | the site is listed under `production` |
-| `cache: leak test: couldn't log in: …` | the login failed; the message says why |
+| `login failed, so the checks that need it were skipped: …` | the test account couldn't log in; the message says why. The note about missing credentials follows it. |
 | `cache: leak test skipped pages whose anonymous fetch looked logged in; don't pass login cookies with --cookie or -H` | your own headers made the "anonymous" requests logged in |
 
 > [!WARNING]
@@ -113,10 +113,11 @@ When a cached page carries a nonce (`_wpnonce`, `wpApiSettings`, Contact Form 7,
 ```text
 [ERROR] Cached page carries an expired security token - /team/
   source: nginx
+  The cached copy is at least 25 h old (Age header) and carries wpApiSettings nonce; WordPress rejects nonces after 12–24 hours, so forms, add to cart and AJAX on this copy fail.
   fix: Lower the page cache lifetime below 10 hours (nginx), or load nonces with AJAX after the page loads (e.g. your cache plugin's nonce/fragment option), so no visitor gets a page with a token WordPress no longer accepts.
 ```
 
-with the detail `The cached copy is at least 25 h old (Age header) and carries wpApiSettings nonce; WordPress rejects nonces after 12–24 hours, so forms, add to cart and AJAX on this copy fail.` The age comes from the `Age` header or the cache plugin's time stamp. A stamp in an unknown time zone is discounted by 14 hours, so the age is never overstated.
+The age comes from the `Age` header or the cache plugin's time stamp. A stamp in an unknown time zone is discounted by 14 hours, so the age is never overstated.
 
 ## Stale cache
 
@@ -129,7 +130,7 @@ When a page came from the cache, Soundcheck also fetches a fresh render with a c
 ```text
 [NEW] Cached page is out of date - /pricing/
   source: nginx
-  The cached copy (x-cache-status: HIT, 6 min old) differs from a fresh render; only in the cached copy: "$49"; only in the fresh page: "$59"
+  The cached copy (x-cache-status: HIT, 1 min old) differs from a fresh render; only in the cached copy: "$49"; only in the fresh page: "$59"
   fix: Purge nginx when content changes: enable your cache plugin's purge-on-update for related pages (home, archives, product and category pages), or connect it to your CDN so purges reach the edge.
 ```
 

@@ -1,4 +1,4 @@
-This tutorial takes you through a full before-and-after check: take a snapshot, make a change, compare, and read the HTML report. It takes about ten minutes, most of it waiting for the browser.
+This tutorial takes you through a full before-and-after check: take a snapshot, make a change, compare, and read the HTML report. It takes about ten minutes, most of it making your change.
 
 You need a site you own or have permission to test, ideally a staging copy. The examples use `staging.yoursite.com`; replace it with your own. The output on this page comes from a small WordPress-like test site, where the "change" is a plugin update that went wrong.
 
@@ -49,7 +49,7 @@ While it runs, a progress bar counts pages. When it's done:
   ────────────────────────────────────────────────────────────────────────────
 
   ▸ Snapshot      "before-update"
-  ▸ Pages         37 pages · 19 left out (excluded 6, grouped 13)
+  ▸ Pages         36 pages · 13 left out (grouped 13)
 
   WARNINGS  1 ────────────────────────────────────────────────────────────────
 
@@ -62,24 +62,26 @@ While it runs, a progress bar counts pages. When it's done:
     ·  CSS and JavaScript block the first render                     37 pages
     ·  Static files aren't cached by browsers for long               37 pages
 
- ╭───────────────────────────────────────────╮
- │  SNAPSHOT BEFORE-UPDATE   saved           │
- │  ✖ 0 errors   ▲ 1 warnings   · 2 notices  │
- ╰───────────────────────────────────────────╯
-  37 pages · 3m14s
+ ╭──────────────────────────────────────────╮
+ │  SNAPSHOT BEFORE-UPDATE   saved          │
+ │  ✖ 0 errors   ▲ 1 warning   · 2 notices  │
+ ╰──────────────────────────────────────────╯
+  37 pages · 54s
+  ! /team/: 37% of the page changes on its own (desktop); visual changes ther…
+  ! /team/: 48% of the page changes on its own (mobile); visual changes there…
   ! cache: skipped the cache leak test; set SOUNDCHECK_USER and SOUNDCHECK_PA…
   → next: make your change (update a plugin, deploy…), then run: rhythm soundcheck compare
 ```
 
-- **Pages** says how many pages were found and why others were left out. Here 6 were add-to-cart links (never visited, they have side effects) and 13 blog posts and products were *grouped*: past ten pages in a folder, Soundcheck keeps three samples of the pattern. See [Discovery](Soundcheck-Discovery).
+- **Pages** says how many pages discovery found in the sitemap and why others were left out. Here 13 blog posts and products were *grouped*: once a folder has more than ten pages, Soundcheck keeps three samples of the pattern. Links found while the pages render can add more; this run ended with 37. See [Discovery](Soundcheck-Discovery).
 - **The issues** are problems the site has *now*, before your change. A snapshot reports them so you know the starting point; the comparison later shows only what changed.
-- **The `!` note** says the cache leak test needs a test account. It's covered in [Cache](Soundcheck-Cache#the-leak-test); skip it for now.
+- **The `!` notes** say what limits the result. `/team/` has a slider, so Soundcheck learned that part of the page changes on its own and will ignore it (see [Visual changes](Soundcheck-Visual#regions-that-change-on-their-own)). The cache leak test needs a test account; it's covered in [Cache](Soundcheck-Cache#the-leak-test), skip it for now.
 
 The snapshot is in `.soundcheck/snapshots/before-update/`, and it became the *latest* snapshot, the one `compare` uses by default.
 
 ## 4. Make your change
 
-Update the plugin, switch the theme, upgrade PHP, deploy the branch: whatever you want to check. On the test site, the update added a PHP warning to the footer, broke a store locator script and the menu button, deleted a page, made the home page heavier and started caching the cart.
+Update the plugin, switch the theme, upgrade PHP, deploy the branch: whatever you want to check. On the test site, the update added a PHP warning to the footer, broke a store locator script, the menu button and the wishlist buttons, deleted a page, made the home page heavier and started caching the cart.
 
 ## 5. Compare
 
@@ -93,22 +95,26 @@ rhythm soundcheck compare
   ♪ rhythm soundcheck 1.0.0                      https://staging.yoursite.com/
   ────────────────────────────────────────────────────────────────────────────
 
-  ▸ Snapshot      "before-update", 37 pages, taken 6m ago
+  ▸ Snapshot      "before-update", 37 pages, taken 1m ago
   ▸ Pages         37 pages
 
-  BROKE  2 ───────────────────────────────────────────────────────────────────
+  BROKE  3 ───────────────────────────────────────────────────────────────────
+
+ ▌  BROKE      Clicking Add to wishlist throws a JS error              /shop/
+ ▌             Uncaught ReferenceError: WishlistStore is not defined (6 cont…
+ ▌             → Click it with the browser console open to see the stack tra…
 
  ▌  BROKE      Page not found (404)                            /spring-offer/
  ▌             → Restore the page, or redirect it and update links to it.
 
  ▌  BROKE      Private page is served from cache                       /cart/
  ▌             nginx
- ▌             x-cache-status: HIT; cache-control: max-age=86400; age: 128
+ ▌             x-cache-status: HIT; cache-control: max-age=86400; age: 24
  ▌             → Exclude cart, checkout, account and login pages from every …
 
   NEW  6 ─────────────────────────────────────────────────────────────────────
 
- ▌  NEW        Broken link to /spring-offer (404)                    37 pages
+ ▌  NEW        Broken link to /spring-offer/ (404)                   37 pages
  ▌             /, /about/, /blog/ +34 more
  ▌             → Update or remove the link, or redirect the old URL.
 
@@ -117,41 +123,41 @@ rhythm soundcheck compare
  ▌             themes/acme/footer.php:42
  ▌             → Fix the code at the source line, and turn display_errors of…
 
- ▌  NEW        Button does nothing: Menu                             35 pages
- ▌             /, /about/, /blog/ +32 more
+ ▌  NEW        Button does nothing: Menu                             34 pages
+ ▌             /, /about/, /blog/ +31 more
  ▌             Clicking it changed nothing on the page, made no request and …
  ▌             → Wire up its click handler, or remove the button if it's no …
  ⋮
 
-  CHANGED  12 ────────────────────────────────────────────────────────────────
+  CHANGED  5 ─────────────────────────────────────────────────────────────────
 
-    ■  8 pages look different (mobile)                                8 pages
-    ■  Page got 168 px taller (mobile)                                      /
-    ■  New block at the bottom of 13 pages (mobile)                  13 pages
- ⋮
+    ■  Page looks different (mobile)                                        /
+    ■  Page looks different (desktop)                                       /
+    ■  New block near the bottom of 35 pages (mobile)                35 pages
+    ■  New block near the bottom of 35 pages (desktop)               35 pages
     ■  Page title changed                                             /about/
 
   SLOWER  3 ──────────────────────────────────────────────────────────────────
 
-    ◆  Page weight 2112× higher                              1 KB → 2.3 MB  /
+    ◆  Page weight 517× higher                               5 KB → 2.3 MB  /
+    ◆  LCP 18× slower                                       28 ms → 500 ms  /
     ◆  Plugin heavy-slider now loads assets on pages          0 B → 293 KB  /
-    ◆  Total Blocking Time up from 0                         0 ms → 399 ms  /
 
- ╭───────────────────────────────────────────────────────────────╮
- │  SOUNDCHECK   Something broke                                 │
- │  ✖ 2 broke   ▲ 6 new   ■ 12 changed   ◆ 3 slower   ✔ 0 fixed  │
- ╰───────────────────────────────────────────────────────────────╯
-  compared with snapshot "before-update" (9m ago) · 37 pages · 2m42s
+ ╭──────────────────────────────────────────────────────────────╮
+ │  SOUNDCHECK   Something broke                                │
+ │  ✖ 3 broke   ▲ 6 new   ■ 5 changed   ◆ 3 slower   ✔ 0 fixed  │
+ ╰──────────────────────────────────────────────────────────────╯
+  compared with snapshot "before-update" (1m ago) · 37 pages · 47s
   ! cache: skipped the cache leak test; set SOUNDCHECK_USER and SOUNDCHECK_PA…
-  → full report: .soundcheck/runs/2026-10-24T00-45-13/report.html
+  → full report: .soundcheck/runs/2026-10-24T02-23-17/report.html
 ```
 
 Reading from the top:
 
-- **BROKE** is what worked in the snapshot and fails now: a page that answered 200 and now answers 404, and a cart the cache now serves to everyone.
+- **BROKE** is what worked in the snapshot and fails now: six identical wishlist buttons that throw when clicked (one line; the selectors are in the detail), a page that answered 200 and now answers 404, and a cart the cache now serves to everyone.
 - **NEW** is a problem that wasn't there before. The PHP warning is on 36 pages, but it's **one** line, with the file and line it comes from.
-- **CHANGED** is what looks or reads differently: screenshots, sizes, titles. Check each one was intended.
-- **SLOWER** is a measurable slowdown, past a noise floor. The plugin cost line names the plugin that got heavier.
+- **CHANGED** is what looks or reads differently. The PHP warning made a block appear near the bottom of 35 pages: one line per viewport, not 35. Check each change was intended.
+- **SLOWER** is a measurable slowdown, past a noise floor. The plugin cost line names the plugin that made the home page heavier.
 - **The panel** gives the verdict and the count per class.
 
 [Reading results](Soundcheck-Reading-Results) explains every class, how changes are grouped, and the report formats.
@@ -190,7 +196,7 @@ rhythm soundcheck snapshots
 
 ```text
 NAME                     PAGES  TAKEN        SITE
-before-update            37     20m ago      https://staging.yoursite.com/  (latest)
+before-update            37     6m ago       https://staging.yoursite.com/  (latest)
 ```
 
 `rhythm soundcheck compare --snapshot <name>` compares with an older one, and `rhythm soundcheck snapshots delete <name>` removes one.

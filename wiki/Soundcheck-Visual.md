@@ -4,31 +4,36 @@ Visual differences are always **CHANGED**: Soundcheck can't know whether a new l
 
 ## Screenshots
 
-| Viewport | Size |
-|---|---|
-| `desktop` | 1366 × 900, full page |
-| `mobile` | 390 × 844, full page, as a phone |
+| Viewport | Window | Capture |
+|---|---|---|
+| `desktop` | 1366 × 900 | the full page |
+| `mobile` | 390 × 844, as a phone | the full page |
 
-Each page is captured once it has loaded and its network has been quiet for a moment. Before the capture, animations and transitions are paused and text carets hidden, so the same page gives the same pixels. Pages taller than 12,000 px are captured down to that height.
+Each page is captured once it has loaded and its network has been quiet for a moment. Before the capture, animations and transitions are paused and text carets hidden, so the same page gives the same pixels. The full page is captured by clipping it at its height, without resizing the window, so layouts sized to the window (`100vh` heroes, sticky footers) look the way a visitor sees them. Pages shorter than the window are captured at the window's height; pages taller than 12,000 px are captured down to that height.
+
+Every page runs in its own background browser window that's treated as focused, so it paints and animates like a page in the front window.
 
 Choose viewports with `--viewport desktop` or `viewports: [desktop]` in the config. Screenshots are kept in the run's `shots/` folder; for each visual change, the before, after and diff images are copied into the comparison's `visual/` folder, so the report's slider works on its own.
 
 ## How screenshots are compared
 
-The diff works like [pixelmatch](https://github.com/mapbox/pixelmatch): two pixels differ when their perceptual (YIQ) color distance is over a small threshold, which ignores compression and gamma noise, and anti-aliased edges that render a subpixel differently don't count. Changed pixels close to each other are joined into regions.
+The diff works like [pixelmatch](https://github.com/mapbox/pixelmatch): two pixels differ when their perceptual (YIQ) color distance is over a small threshold, which ignores compression and gamma noise, and anti-aliased edges that render a subpixel differently don't count. Changed pixels close to each other are joined into areas.
 
-A page is reported when the changed pixels are more than **`visual.threshold` percent** of the page (default `0.5`):
+Before comparing, Soundcheck lines up the rows of the two screenshots, so a block inserted or removed somewhere on the page doesn't make everything below it look changed (see [Inserted and removed blocks](#inserted-and-removed-blocks)).
+
+A page is reported when what's left changed is more than **`visual.threshold` percent** of the page (default `0.5`):
 
 ```yaml
 visual:
   threshold: 0.5   # % of a page's pixels that must change to report it, 0 to 100
 ```
 
-Raise it if small, harmless differences (a date, a counter) keep showing up; lower it to catch a one-word change in a long page. A page's `Page looks different` line gives the share that changed, how many areas, and the largest:
+Raise it if small, harmless differences (a date, a counter) keep showing up; lower it to catch a one-word change in a long page. A `Page looks different` change gives the share that changed, how many areas, the largest, and a height change nothing else explains:
 
 ```text
 [CHANGED] Page looks different (desktop) - /
-  13.50% of the page changed, in 5 areas; the largest at 233,157 (600×300 px); a 168 px tall block was inserted 457 px down; the content below it moved down.
+  12.55% of the page changed, in 1 area; the largest at 233,157 (600×300 px). The page is 120 px taller.
+  fix: Open the report to compare the screenshots. If the change is expected, take a new snapshot.
 ```
 
 Pages that failed in either run (an error, a 4xx or 5xx) aren't compared visually; their status is the news.
@@ -46,7 +51,7 @@ Selectors that match nothing are fine.
 
 ## Regions that change on their own
 
-A snapshot takes each screenshot **twice**, a little over a second apart. Whatever differs between the two (a slider moving to the next slide, a clock, a rotating testimonial) is recorded as a *dynamic region*, and later comparisons ignore changes inside it. Nothing to configure.
+A snapshot takes each screenshot **twice**, a little over a second apart, at both viewports. Whatever differs between the two (a slider moving to the next slide, a clock, a rotating testimonial) is recorded as a *dynamic region* for that viewport, and later comparisons ignore changes inside it. Nothing to configure.
 
 When a large part of a page changes on its own, a note says so, because changes there can't be seen:
 
@@ -58,43 +63,35 @@ note: /team/: 48% of the page changes on its own (mobile); visual changes there 
 The note appears when more than 30% of the page moves. If the moving element isn't what you want to check, list it under `visual.ignore` instead: with `ignore: [".slider"]`, the same page snapshotted with no note.
 
 > [!NOTE]
-> Dynamic regions are learned in the snapshot only. `run` and the live side of a comparison take one screenshot per viewport, so a run is faster than a snapshot.
+> Dynamic regions are learned in the snapshot only. `run` and the live side of a comparison take one screenshot per viewport, so they're faster than a snapshot.
 
-## Pages that got taller or shorter
+## Inserted and removed blocks
 
-When a new block (a notice, a banner, a new section) appears in the middle of a page, everything below it moves down. A naive diff would call the whole lower page changed. Soundcheck looks for the band of rows that was inserted or removed, lines up the content above and below it, and keeps that alignment when it explains the change better. Then it reports the size change with the band:
-
-```text
-[CHANGED] Page got 48 px taller (desktop) - /blog/
-  1366×901 px → 1366×949 px
-  A 48 px tall block was inserted 0 px down; the content below it moved down.
-  fix: Expected if content was added or removed; otherwise look for a new notice, banner or element pushing the layout.
-```
-
-Size changes under 8 px aren't reported. Wider and narrower pages are reported the same way, which on mobile often means something no longer fits the screen (see also `health/not-responsive` in [Page health](Soundcheck-Page-Health#mixed-content-and-indexing)).
-
-## Grouping
-
-A theme or plugin change usually touches every page the same way. Soundcheck groups those into one change:
-
-- **A block inserted or removed at the same place** on several pages (the same height, starting within 16 px) is one change: `New block at the top of 12 pages (desktop)`, `New block at the bottom of 13 pages (mobile)`, `Block removed from the top of …`, or `New block 570 px down on 13 pages`.
-- **An area that changed identically** on several pages (the same position, the same pixels before and after) is one change, named by where it is: `Header changed on 30 pages (desktop)`, `Footer changed on …`, or `Area 370 px down changed on …`.
-- **Pages that changed size by the same amount** are one change: `Page got 25 px taller (mobile)` with `13 pages changed size by the same amount.`
-- **Whatever else changed** on a page is `Page looks different (desktop)`, with "besides the changes shared with other pages" when part of it was grouped. When more than five pages look different in one viewport, they become one line with the median and largest change, showing the worst page's screenshots:
+When a new block (a notice, a banner, a PHP warning, a new section) appears on a page, everything below it moves down. Soundcheck finds the rows that were inserted or removed by lining up the rows of the two screenshots, and checks that the content around them is unchanged. A block found in the same place on several pages is one change:
 
 ```text
-[CHANGED] 13 pages look different (mobile) - /blog/backup-strategy/, /blog/caching-101/, /blog/case-study-bakery/ +10 more
-  Median 17.13% of each page changed, at most 17.30% (/blog/plugin-roundup/, shown).
-  fix: Open the report to compare the screenshots. If the change is expected, take a new snapshot.
-```
-
-```text
-[CHANGED] New block at the bottom of 13 pages (mobile) - /blog/backup-strategy/, /blog/caching-101/, /blog/case-study-bakery/ +10 more
-  On every page listed: a 25 px tall block was inserted 753 px down; the content below it moved down.
+[CHANGED] New block at the top of 15 pages (desktop) - /, /blog/, /blog/backup-strategy/ +12 more
+  A 48 px tall block appeared at the top of each page listed, moving the content below it; that content is unchanged.
   fix: Expected if you added or removed it; otherwise look for a plugin or theme notice, banner or element that appeared.
 ```
 
-Desktop and mobile are compared and grouped separately, so one change often shows once per viewport.
+```text
+[CHANGED] New block near the bottom of 35 pages (desktop) - /, /about/, /blog/ +32 more
+  A 48 px tall block appeared near the bottom of each page listed, moving the content below it; that content is unchanged.
+```
+
+The place is `at the top of` (within 150 px of the top), `near the bottom of`, or `N px down on` for a block mid-page, which must start at about the same height on every page. Removed blocks read `Block removed from the top of …`, `Block removed N px down on …`. Blocks of a slightly different height (text that wraps differently) still match.
+
+The height change a block explains is part of its change. A separate `Page got 48 px taller (desktop)` line only appears when nothing else explains a page's new size; size changes under 8 px aren't reported. Wider and narrower pages are reported the same way, which on mobile often means something no longer fits the screen (see also `health/not-responsive` in [Page health](Soundcheck-Page-Health#mixed-content-and-indexing)).
+
+## Grouping
+
+A theme or plugin change usually touches every page the same way. After blocks, Soundcheck groups what's left:
+
+- **An area that changed identically** on several pages (the same position, the same pixels before and after) is one change, named by where it is: `Header changed on 30 pages (desktop)`, `Footer changed on …`, or `Area 370 px down changed on …`. Different shared changes with the same name in one viewport merge into one line.
+- **Whatever else changed** on a page is `Page looks different (desktop)`. When more than five pages look different in one viewport, they become one line such as `13 pages look different (mobile)`, whose detail gives the median and largest change (`Median <n>% of each page changed, at most <n>% (<page>, shown).`), with the worst page's screenshots.
+
+Desktop and mobile are compared and grouped separately, so one change usually shows once per viewport.
 
 > [!TIP]
 > Open the HTML report for visual changes. The text tells you where and how much; the **Slider**, **Before**, **After** and **Diff** views show what. See [Reading results](Soundcheck-Reading-Results#the-html-report).
