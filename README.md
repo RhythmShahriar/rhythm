@@ -46,3 +46,7 @@ make check   # lint + tests
 ```
 
 `kit/` is the shared base (theme, output, config, update) imported by every tool.
+
+## License
+
+[AGPL-3.0](LICENSE). Copyright 2026 Rhythm Shahriar.
