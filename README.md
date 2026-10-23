@@ -18,6 +18,10 @@
 
 <br>
 
+## Documentation
+
+Everything about rhythm and its tools lives in the **[documentation wiki](https://github.com/RhythmShahriar/rhythm/wiki)**: installing and updating, every Tuner feature, CI, writing checks, and the project's policies.
+
 ## Install
 
 **macOS · Linux**
@@ -75,7 +79,7 @@ Release checksums are signed with keyless [cosign](https://docs.sigstore.dev/) f
 
 ```sh
 cosign verify-blob --bundle checksums.txt.sigstore.json \
-  --certificate-identity-regexp 'https://github.com/RhythmShahriar/' \
+  --certificate-identity https://github.com/RhythmShahriar/.github/.github/workflows/release-go.yml@refs/heads/master \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   checksums.txt
 ```
