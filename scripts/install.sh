@@ -310,7 +310,7 @@ main() {
 
 	case ":$PATH:" in
 	*":$dir:"*)
-		# The router never checks rhythm itself, and with --quiet it doesn't
+		# The router never checks rhythm itself. With --quiet it doesn't
 		# say when a copy of a tool comes first on PATH either.
 		for b in rhythm ${quiet:+$done_tools}; do
 			[ "$b" = rhythm ] || b=rhythm-$b

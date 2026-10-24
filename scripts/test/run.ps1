@@ -275,7 +275,7 @@ function Case-some {
 }
 
 # Assert-PathLines checks that the output mentions PATH exactly $Count
-# times, and that the one mention is $Text.
+# times and that the one mention is $Text.
 function Assert-PathLines([int]$Count, [string]$Text = '') {
     $Lines = @($script:Out -split "`n" | Where-Object { $_.Contains('PATH') })
     if ($Lines.Count -ne $Count) { Fail "$($Lines.Count) lines mention PATH, want $Count" }

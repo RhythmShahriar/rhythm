@@ -17,7 +17,7 @@
 # tool releases are there for tests that run a real rhythm. The rhythm
 # versions differ the way real releases do:
 #   0.6.0 (latest)  knows tuner, soundcheck and echo; has install --dry-run
-#                   and --quiet, and says once that --dir isn't on PATH
+#                   and --quiet; says once that --dir isn't on PATH
 #   0.5.0           knows all three, no --dry-run or --quiet; says for each
 #                   tool that --dir isn't on PATH
 #   0.4.0           knows tuner and soundcheck, no --dry-run
