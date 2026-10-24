@@ -121,6 +121,17 @@ func cmdList(args []string, stdout, stderr io.Writer) int {
 // programs and, unless offline, looks up the latest releases. Problems
 // reaching the release API are collected in the netReport.
 func listEntries(ctx context.Context, offline bool) ([]listEntry, *netReport) {
+	// Third-party programs are asked for their versions alongside the
+	// registry tools, so hung ones cost the probe timeout once in all.
+	var others []target
+	for _, tp := range thirdPartyTools() {
+		others = append(others, target{tool: tp.name, binary: "rhythm-" + tp.name, path: tp.path, real: resolve(tp.path)})
+	}
+	probed := make(chan struct{})
+	go func() {
+		probeTargets(ctx, others)
+		close(probed)
+	}()
 	targets, _ := findTargets(ctx, nil)
 	nets := &netReport{}
 	var entries []listEntry
@@ -144,11 +155,11 @@ func listEntries(ctx context.Context, offline bool) ([]listEntry, *netReport) {
 		}
 		entries = append(entries, e)
 	}
-	for _, tp := range thirdPartyTools() {
-		v, reason, _ := probeVersion(ctx, tp.path)
-		e := listEntry{name: tp.name, binary: "rhythm-" + tp.name, version: v, signed: signed(resolve(tp.path)), path: tp.path, thirdParty: true}
-		if v == unknownVersion {
-			e.versionErr = "version unknown (" + reason + ")"
+	<-probed
+	for _, t := range others {
+		e := listEntry{name: t.tool, binary: t.binary, version: t.current, signed: signed(t.real), path: t.path, thirdParty: true}
+		if t.current == unknownVersion {
+			e.versionErr = "version unknown (" + t.probe + ")"
 		}
 		entries = append(entries, e)
 	}

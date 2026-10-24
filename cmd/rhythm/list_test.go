@@ -6,9 +6,11 @@ package main
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // runManage runs one of this file set's commands the way `rhythm <name>`
@@ -182,5 +184,29 @@ func TestRouterCommandsRegistered(t *testing.T) {
 		if !ok || c.run == nil || c.summary == "" {
 			t.Errorf("%s isn't registered: %+v", name, c)
 		}
+	}
+}
+
+// TestListProbesInParallel: hung third-party programs and a hung tool
+// cost the probe timeout once between them, not once each.
+func TestListProbesInParallel(t *testing.T) {
+	sleep, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Skip("no sleep binary")
+	}
+	s := listSandbox(t)
+	old := probeTimeout
+	probeTimeout = 500 * time.Millisecond
+	t.Cleanup(func() { probeTimeout = old })
+	for _, name := range []string{"rhythm-tuner", "rhythm-foo", "rhythm-bar", "rhythm-baz"} {
+		script(t, s.bin, name, "exec "+sleep+" 5")
+	}
+	start := time.Now()
+	code, out, errs := runManage("list", "--offline")
+	if took := time.Since(start); took > 3*probeTimeout {
+		t.Errorf("took %s", took)
+	}
+	if code != 0 || !strings.Contains(out, "bar (3rd)") || !strings.Contains(errs, "rhythm-baz         version unknown (no answer within 500ms)") {
+		t.Errorf("exit %d\n%s%s", code, out, errs)
 	}
 }
