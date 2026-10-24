@@ -148,7 +148,7 @@ scripts/split-laravel.sh v1.0.0
 
 It runs `git subtree split --prefix connectors/laravel`, pushes the result to `echo-laravel`'s `master`, and creates the same tag there, then prints `Pushed connectors/laravel at v1.0.0 to <remote>`. `ECHO_LARAVEL_REMOTE` overrides the remote. Packagist reads `rhythmsh/echo-laravel` from that repository and picks up the new tag through its GitHub hook (or **Update** on the package's Packagist page). Run it from an up-to-date `master` after tagging Echo, since the subtree history is pushed as it is.
 
-<!-- TODO(lead): split-laravel.sh is run by hand; if a workflow takes it over, describe that here. -->
+No workflow runs the split: the Echo repository's workflows are `ci.yml`, `release.yml` (the binaries) and `npm.yml` (the Node package), so after each Echo tag, run `scripts/split-laravel.sh` yourself.
 
 ### Before tagging Echo
 

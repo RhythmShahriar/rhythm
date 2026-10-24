@@ -64,8 +64,9 @@ Soundcheck browses a site like a visitor, in a real browser, and records what it
 
 Echo captures what a site sends: emails, SMS, chat alerts, webhooks, analytics and payment calls. It runs on your machine or CI runner, next to a staging or local site.
 
-- **Seals by default.** `rhythm echo up` records every message and answers in each service's place, so nothing reaches real people: no email is delivered, no SMS sent, no webhook posted. Live-mode payment calls get the provider's own refusal, so a test can't charge a card. See [Sealing staging](Echo-Sealing-Staging).
-- **Observe mode really sends.** With `--observe`, messages go out for real, to real recipients. Use it only where that's safe, and list your test recipients under `allow_recipients` so anyone else is flagged.
+- **Seals by default.** `rhythm echo up` records every message and answers in each service's place, so nothing reaches real people: no email is delivered, no SMS sent, no webhook posted. Mail that reaches Echo's own SMTP sink or `sendmail` stand-in is kept and recorded as `faked`, never delivered. See [Sealing staging](Echo-Sealing-Staging).
+- **Refuses live payments, always.** A live-mode payment call (a Stripe live key, or a key Echo can't read; PayPal's live hosts) gets the provider's own refusal in every mode: sealed or observed, allowlisted or not, so a test can't charge a card. Through the proxy, payment APIs are never tunnelled blind: without `--mitm`, a connection to them is refused, so Echo can always see the key.
+- **Observe mode really sends.** With `--observe`, messages a connector handles go out for real, to real recipients. Use it only where that's safe, and list your test recipients under `allow_recipients` so anyone else is flagged.
 - **Connectors stay off in production.** The WordPress, Laravel and Node connectors and the `sendmail` stand-in do nothing where the environment says production, unless you force them. A sealed connector that can't reach Echo refuses to send rather than letting a message out.
 - **Actions send real requests to the site you point them at.** Each action in `.echo/config.yaml` is a request, a command or a replay you wrote; Echo refuses `http` actions on URLs you list under `production:`.
 - **Replays are held to strict rules.** `rhythm echo replay` only runs with Echo sealed, only sends to URLs listed under `staging:` or that resolve to loopback or private addresses, refuses when a live Stripe key is anywhere in reach or the payload says `livemode`, never follows redirects, and can't forge PayPal webhooks at all. See [Replay](Echo-Replay#safety-rules).
@@ -79,12 +80,14 @@ Echo captures what a site sends: emails, SMS, chat alerts, webhooks, analytics a
 
 - Treat `.echo/`, the HTML reports and CI artifacts like a database dump: keep them private, delete them when you're done, and don't attach them to public issues.
 - Prefer test data on staging. A staging copy of production holds real customers; Echo's sealing keeps them from being messaged, but their data still ends up in the captures when the site sends to them.
-- On a machine others use, keep Echo on loopback, or set a token: without one, anything on the machine can read the captures through the API.
+- On a machine others use, keep Echo on loopback, or set a token: without one, anything on the machine can read the captures through the API. Beyond loopback, `up` refuses to start the API, the SMTP sink or the proxy without a token, and the SMTP sink then wants the token as its SMTP password (any username).
 - If you're testing a client's site, the captures are their customers' data: agree in writing how long you keep them.
 
 ## What Echo never does
 
 - Deliver mail, send SMS, post webhooks or make payment calls while sealed.
+- Let a live-mode payment call through, in any mode.
+- Deliver mail that reached its SMTP sink or `sendmail` stand-in, in any mode.
 - Send a message to anyone in its own name: its canaries go to `.invalid` addresses, and the deliverability checks send no mail at all.
 - Replay webhooks to production, with live keys in reach, or while observing.
 - Upload captures, reports or telemetry anywhere.

@@ -78,7 +78,7 @@ npm audit signatures
 
 It checks the registry signature of every installed package and the provenance attestation of those that have one; a verified attestation for `@rhythmsh/echo` means the package was built from `github.com/RhythmShahriar/echo` by GitHub Actions. Release candidates (`v1.1.0-rc1`) are published under the `next` tag, never `latest`.
 
-<!-- TODO(lead): add real `npm audit signatures` output once @rhythmsh/echo is published; it couldn't be run before the first publish. -->
+On a project that has `@rhythmsh/echo` installed, the output counts verified registry signatures and verified attestations; any package listed as invalid or missing a signature is worth a look before you deploy.
 
 ## What is signed and what isn't
 

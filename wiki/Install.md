@@ -1,6 +1,7 @@
 Install `rhythm`, Tuner, Soundcheck and Echo with one command on macOS, Linux or Windows. This page also covers `go install`, manual downloads, the installer's options, and how to add a single tool later.
 
-<!-- TODO(lead): Echo becomes a default tool, with the alias e, in rhythm v0.5.0; until then the installers default to tuner soundcheck. -->
+> [!NOTE]
+> Echo is one of the default tools, with the alias `e`, from rhythm v0.5.0. An older `rhythm` installs only Tuner and Soundcheck and doesn't know `rhythm install echo`; run `rhythm update` (or the installer again) first. It still runs `rhythm echo …` when `rhythm-echo` is on your `PATH`, since the router runs any `rhythm-<tool>` it finds.
 
 ## Quick install
 

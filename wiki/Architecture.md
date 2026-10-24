@@ -51,8 +51,7 @@ flowchart LR
 - If the binary isn't found, a known tool gets `rhythm: tuner isn't installed` with the install command; an unknown name gets `rhythm: unknown tool "<name>"`.
 - `rhythm` handles four commands itself: `help`, `version`, `install <tool> [--dir]` and `update [--check]`. Anything else is treated as a tool name.
 
-<!-- TODO(lead): echo and its alias e are registered in the router with rhythm v0.5.0; check this paragraph and the aliases above against cmd/rhythm/main.go then. -->
-The router knows which tools exist (`tuner`, `soundcheck` and `echo`), and which GitHub repository each comes from, through a small table in [`cmd/rhythm/main.go`](https://github.com/RhythmShahriar/rhythm/blob/master/cmd/rhythm/main.go). `rhythm update` uses it to find installed tools on the `PATH`, update each binary, then run `rhythm-<tool> update` so each tool refreshes its own data. See [Updating](Updating).
+The router knows which tools exist (`tuner`, `soundcheck` and, from rhythm v0.5.0, `echo` with its alias `e`), and which GitHub repository each comes from, through a small table in [`cmd/rhythm/main.go`](https://github.com/RhythmShahriar/rhythm/blob/master/cmd/rhythm/main.go). `rhythm update` uses it to find installed tools on the `PATH`, update each binary, then run `rhythm-<tool> update` so each tool refreshes its own data. See [Updating](Updating).
 
 ## The kit
 

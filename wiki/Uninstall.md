@@ -83,7 +83,7 @@ find ~ -type d -name .soundcheck 2>/dev/null
 Echo keeps snapshots, runs and reports in a `.echo/` folder in each project where you ran it. They contain the messages your sites sent, with their personal data, so delete them when you no longer need them:
 
 ```sh
-rm -r .echo/snapshots .echo/runs .echo/.incoming   # keeps config.yaml
+rm -rf .echo/snapshots .echo/runs .echo/.incoming   # keeps config.yaml
 rm -r .echo                                        # everything
 find ~ -type d -name .echo 2>/dev/null             # to find them
 ```
