@@ -415,7 +415,7 @@ func TestCompleteRealCommands(t *testing.T) {
 		}
 	}
 	has([]string{"update", "--"}, "--check", "--json", "--lock", "--min-age", "--no-data", "--quiet", "--rollback", "--self-only", "--skip-signature", "--cache", "--to")
-	has([]string{"install", "--"}, "--dir", "--defaults", "--dry-run", "--force", "--from", "--locked", "--min-age", "--quiet", "--skip-signature", "--cache")
+	has([]string{"install", "--"}, "--dir", "--defaults", "--dry-run", "--force", "--locked", "--min-age", "--quiet", "--skip-signature", "--cache")
 	has([]string{"list", "--"}, "--json", "--offline")
 	has([]string{"uninstall", "--"}, "--all", "--purge")
 	has([]string{"doctor", "--"}, "--json", "--offline")
@@ -423,6 +423,10 @@ func TestCompleteRealCommands(t *testing.T) {
 	has([]string{"update", ""}, "rhythm", "tuner", "soundcheck", "echo", "zap")
 	has([]string{"update", "tuner", "s"}, "soundcheck") // update takes several
 	has([]string{"uninstall", "tuner", "e"}, "echo")
+	// This rhythm can't read bundles, so --from isn't offered.
+	if got := complete(t, "install", "--"); slices.Contains(got, "--from") {
+		t.Errorf("install offers --from: %q", got)
+	}
 	if got := complete(t, "list", ""); len(got) != 0 {
 		t.Errorf("list takes no names, got %q", got)
 	}

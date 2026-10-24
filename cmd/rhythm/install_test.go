@@ -30,6 +30,36 @@ func TestInstallHelp(t *testing.T) {
 	}
 }
 
+func TestInstallHelpOffersFromOnlyWithABundleReader(t *testing.T) {
+	_, out, _ := runCmd("install", "--help")
+	if strings.Contains(out, "--from") || strings.Contains(out, "bundle") {
+		t.Errorf("help offers --from without a bundle reader:\n%s", out)
+	}
+	old := openBundle
+	openBundle = func(string, string) (releaseSource, error) { return nil, errors.New("unused") }
+	t.Cleanup(func() { openBundle = old })
+	_, out, _ = runCmd("install", "--help")
+	for _, want := range []string{
+		"a CI runner downloads each one once. --from installs from an offline\nbundle instead of GitHub releases.\n",
+		"  --from bundle      install from the offline bundle instead of GitHub releases\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestUsesFlag(t *testing.T) {
+	for args, want := range map[string]bool{
+		"--from x": true, "-from x": true, "--from=x": true, "-from=x": true, "tuner --from x": true,
+		"from": false, "--dir from": false, "-- --from": false, "--fromage": false, "": false,
+	} {
+		if got := usesFlag(strings.Fields(args), "from"); got != want {
+			t.Errorf("usesFlag(%q) = %v, want %v", args, got, want)
+		}
+	}
+}
+
 func TestInstallSuggestsName(t *testing.T) {
 	code, _, errs := runCmd("install", "soundchek", "--dir", t.TempDir())
 	if code != 2 || !strings.Contains(errs, `unknown tool "soundchek" (did you mean soundcheck?)`) {

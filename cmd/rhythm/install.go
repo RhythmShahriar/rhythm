@@ -497,11 +497,28 @@ Each archive is checked against the release's checksums.txt. When this
 rhythm checks signatures, checksums.txt is checked against its own.
 --skip-signature leaves the signature out and warns about it. --cache
 (or RHYTHM_DOWNLOAD_CACHE=1) keeps verified archives and reuses them, so
-a CI runner downloads each one once. --from installs from an offline
-bundle instead of GitHub releases.
+a CI runner downloads each one once.%s
 
 Exit status: 0 when every tool was installed, 1 when any failed, 2 for a
 usage error and 130 when interrupted.`
+
+// usesFlag reports whether args set the flag name (as --name, -name,
+// --name=value or -name=value) before a "--" that ends the flags.
+func usesFlag(args []string, name string) bool {
+	for _, a := range args {
+		if a == "--" {
+			return false
+		}
+		if !strings.HasPrefix(a, "-") {
+			continue
+		}
+		a = strings.TrimPrefix(strings.TrimPrefix(a, "-"), "-")
+		if a == name || strings.HasPrefix(a, name+"=") {
+			return true
+		}
+	}
+	return false
+}
 
 // installOptions are the rhythm install flags that shape each tool's
 // install.
@@ -540,7 +557,15 @@ func (it installItem) String() string {
 }
 
 func cmdInstall(args []string, stdout, stderr io.Writer) int {
-	flags := newFlagSet("install", installSynopsis)
+	// --from is offered only by a rhythm that can read bundles.
+	fromHelp := ""
+	if openBundle != nil {
+		fromHelp = " --from installs from an offline\nbundle instead of GitHub releases."
+	} else if usesFlag(args, "from") {
+		fmt.Fprintln(stderr, "rhythm: --from needs a newer rhythm")
+		return exitUsage
+	}
+	flags := newFlagSet("install", fmt.Sprintf(installSynopsis, fromHelp))
 	dir := flags.String("dir", "", "install into `dir` (default: next to rhythm)")
 	quiet := flags.Bool("quiet", false, "print only the Installed lines and errors")
 	dryRun := flags.Bool("dry-run", false, "check the names and print the tools, one per line, without installing")
@@ -548,7 +573,10 @@ func cmdInstall(args []string, stdout, stderr io.Writer) int {
 	force := flags.Bool("force", false, "reinstall tools that are already on the latest release")
 	locked := flags.Bool("locked", false, "install the versions in rhythm.lock")
 	ageFlag := flags.String("min-age", "", "skip releases younger than `age`, such as 3d or 1w (default $"+minAgeEnv+")")
-	from := flags.String("from", "", "install from the offline `bundle` instead of GitHub releases")
+	from := new(string)
+	if openBundle != nil {
+		flags.StringVar(from, "from", "", "install from the offline `bundle` instead of GitHub releases")
+	}
 	trust := addTrustFlags(flags)
 	pos, code, ok := parseArgs(flags, args, stdout, stderr)
 	if !ok {
@@ -556,10 +584,6 @@ func cmdInstall(args []string, stdout, stderr io.Writer) int {
 	}
 	age, ok := readMinAge(*ageFlag, stderr)
 	if !ok {
-		return exitUsage
-	}
-	if *from != "" && openBundle == nil {
-		fmt.Fprintln(stderr, "rhythm: --from needs a newer rhythm")
 		return exitUsage
 	}
 	// Every name is checked before anything is downloaded, so a typo in
