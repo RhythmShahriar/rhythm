@@ -241,7 +241,7 @@ Completion covers rhythm's commands, the tools and their flags plus each tool's 
 | `RHYTHM_GITHUB_API` | a GitHub API mirror or GitHub Enterprise (default `https://api.github.com`); it must be `https` (plain `http` only for `127.0.0.1`, `::1` and `localhost`) |
 | `GITHUB_TOKEN` | sent to GitHub only (`api.github.com` and its downloads), never to a mirror |
 | `RHYTHM_GITHUB_TOKEN` | sent to the `RHYTHM_GITHUB_API` host; when set, `GITHUB_TOKEN` isn't sent anywhere |
-| `RHYTHM_OFFLINE` | any value but empty or `0`: no network requests. Update checks are skipped and downloads fail with `offline mode is on; unset RHYTHM_OFFLINE to download` |
+| `RHYTHM_OFFLINE` | any value but empty or `0`: no network requests. Update checks are skipped and downloads fail with `offline mode is on; unset RHYTHM_OFFLINE to download`; `rhythm update` skips the tools' data refresh too |
 | `RHYTHM_CONFIG_DIR` | the whole rhythm config folder (default `~/.config/rhythm`, or `~/Library/Application Support/rhythm` on macOS); must be absolute |
 | `RHYTHM_CACHE_DIR` | where tools keep their caches, as `<dir>/<tool>` (default `~/.cache/rhythm/<tool>` or the OS equivalent); must be absolute |
 | `RHYTHM_MIN_RELEASE_AGE` | the default for `--min-age`: skip releases younger than this, e.g. `3d`, `1w` or `36h` |

@@ -96,10 +96,11 @@ The release archives inside are the release's own, so `rhythm.lock` and the bund
 
 ## Without a bundle
 
-`RHYTHM_OFFLINE=1` (any value but empty or `0`) stops every rhythm command and tool built on the shared kit from using the network. Release checks and notices are skipped; anything that would download says so once and exits 1:
+`RHYTHM_OFFLINE=1` (any value but empty or `0`) stops every rhythm command and tool built on the shared kit from using the network. Release checks and notices are skipped; anything that would download says so once and exits 1. `rhythm update` skips the tools' data refresh as well and says so in one line:
 
 ```text
 RHYTHM_OFFLINE is set, so nothing was downloaded for rhythm-echo, rhythm-soundcheck, rhythm-tuner; unset it to reach the release API
+RHYTHM_OFFLINE is set, so no tool's data was refreshed either; unset it to refresh it
 Updated 0, up to date 0, failed 3: rhythm-echo, rhythm-soundcheck, rhythm-tuner
 ```
 

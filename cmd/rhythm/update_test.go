@@ -645,6 +645,37 @@ func TestOfflineSaidOnce(t *testing.T) {
 	}
 }
 
+// Offline, update doesn't run the tools' data refresh after the binary
+// lookups failed; it says so once.
+func TestOfflineSkipsData(t *testing.T) {
+	installed, latest := allTools()
+	s := newSandbox(t, installed, latest)
+	fakeSelf(t, s.stub(t, "rhythm", "0.1.0", ""), "0.1.0")
+	t.Setenv("RHYTHM_OFFLINE", "1")
+
+	code, out, errs := runCmd("update")
+	want := "RHYTHM_OFFLINE is set, so nothing was downloaded for rhythm, rhythm-echo, rhythm-soundcheck, rhythm-tuner; unset it to reach the release API\n" +
+		"RHYTHM_OFFLINE is set, so no tool's data was refreshed either; unset it to refresh it\n" +
+		"Updated 0, up to date 0, failed 4: rhythm, rhythm-echo, rhythm-soundcheck, rhythm-tuner\n"
+	if code != 1 || errs != want {
+		t.Errorf("exit %d\n%s\nwant\n%s", code, errs, want)
+	}
+	for _, binary := range []string{"rhythm-tuner", "rhythm-soundcheck", "rhythm-echo"} {
+		if s.ranUpdate(binary) {
+			t.Errorf("%s's data refresh ran offline", binary)
+		}
+	}
+	if out != "" {
+		t.Errorf("stdout:\n%s", out)
+	}
+	// Online, the same sandbox refreshes the data.
+	t.Setenv("RHYTHM_OFFLINE", "0")
+	runCmd("update")
+	if !s.ranUpdate("rhythm-tuner") {
+		t.Error("rhythm-tuner's data refresh didn't run online")
+	}
+}
+
 // rateLimited serves 403 with X-RateLimit-Remaining: 0 and counts requests.
 func rateLimited(t *testing.T) (*httptest.Server, *atomic.Int32) {
 	t.Helper()
