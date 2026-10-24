@@ -35,10 +35,11 @@ var ErrPrivate = errors.New("private address")
 // A nil *Guard allows public addresses only. A Guard is safe for
 // concurrent use.
 type Guard struct {
-	host    string
-	once    sync.Once
-	ips     []netip.Addr
-	proxies sync.Map // proxy host:port → true, dialed without the check
+	host     string
+	mu       sync.Mutex // held while resolving, so the lookup runs once
+	resolved bool
+	ips      []netip.Addr
+	proxies  sync.Map // proxy host:port → true, dialed without the check
 }
 
 // NewGuard returns a guard for a target on host. host is resolved on the
@@ -46,17 +47,24 @@ type Guard struct {
 // empty host, or one that doesn't resolve, allows public addresses only.
 func NewGuard(host string) *Guard { return &Guard{host: host} }
 
-// targetIPs resolves the target host once.
+// targetIPs resolves the target host once. A lookup cut short by a
+// canceled or expired ctx isn't kept, so one slow first answer doesn't
+// leave the guard treating a localhost or LAN target as public for the
+// life of the client; the next dial looks it up again.
 func (g *Guard) targetIPs(ctx context.Context) []netip.Addr {
 	if g == nil {
 		return nil
 	}
-	g.once.Do(func() {
-		if g.host != "" {
-			g.ips = Resolve(ctx, g.host)
-		}
-	})
-	return g.ips
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.resolved || g.host == "" {
+		return g.ips
+	}
+	ips := Resolve(ctx, g.host)
+	if len(ips) > 0 || ctx.Err() == nil {
+		g.ips, g.resolved = ips, true
+	}
+	return ips
 }
 
 // Allow reports whether the guard lets a connection to ip through.

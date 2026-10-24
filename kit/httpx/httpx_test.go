@@ -135,7 +135,7 @@ func TestHeadersScopedToTarget(t *testing.T) {
 		}
 	}
 
-	// A direct request to the other host is stripped the same way, and
+	// A direct request to the other host is stripped the same way. The
 	// credential headers the caller set go too even when no -H names them.
 	resp, err = get(t, c, other.URL+"/direct", "Authorization", "Bearer caller", "X-Other", "kept",
 		"Proxy-Authorization", "Basic cHJveHk6cHc=", "Cookie2", "x=1")
@@ -636,5 +636,22 @@ func TestUserAgentKeepsCallers(t *testing.T) {
 	h := srv.headers()
 	if h[0].Get("User-Agent") != "rhythm/1" || h[1].Get("User-Agent") != "caller/2" {
 		t.Errorf("user agents %q, %q", h[0].Get("User-Agent"), h[1].Get("User-Agent"))
+	}
+}
+
+func TestGuardRetriesALookupCutShort(t *testing.T) {
+	loopback := netip.MustParseAddr("127.0.0.1")
+	g := NewGuard("localhost")
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if g.Allow(canceled, loopback) {
+		t.Skip("this resolver answers localhost without looking at the context")
+	}
+	if !g.Allow(context.Background(), loopback) {
+		t.Error("a lookup on a canceled context was kept: localhost is still refused")
+	}
+	// A good answer is kept: a canceled context now changes nothing.
+	if !g.Allow(canceled, loopback) {
+		t.Error("the good answer wasn't kept")
 	}
 }
