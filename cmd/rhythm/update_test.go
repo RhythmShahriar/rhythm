@@ -1270,3 +1270,17 @@ func TestUpdateBadExtensionsFile(t *testing.T) {
 		t.Errorf("relative RHYTHM_CONFIG_DIR: %v", err)
 	}
 }
+
+// TestOfflineZeroIsOnline: RHYTHM_OFFLINE=0 switches offline mode off,
+// as it does for kit/update.
+func TestOfflineZeroIsOnline(t *testing.T) {
+	s := newSandbox(t, map[string]string{"rhythm-tuner": "0.1.0"}, map[string]string{tools["tuner"]: "0.2.0"})
+	t.Setenv("RHYTHM_OFFLINE", "0")
+	code, out, errs := runCmd("update", "tuner", "--check")
+	if code != exitOutdated || strings.Contains(errs, "RHYTHM_OFFLINE") || len(s.api.requests()) == 0 {
+		t.Errorf("exit %d\n%s%s", code, out, errs)
+	}
+	if !offlineOn("1") || !offlineOn("true") || offlineOn("") || offlineOn("0") {
+		t.Error("offlineOn: only \"\" and \"0\" are off")
+	}
+}

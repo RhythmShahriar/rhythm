@@ -102,7 +102,7 @@ const defaultAPI = "https://api.github.com"
 func updater(repo, binary, current string) *update.Updater {
 	api := os.Getenv("RHYTHM_GITHUB_API") // a mirror or GitHub Enterprise; default api.github.com
 	t := &explainTransport{base: http.DefaultTransport, api: apiOrDefault(api), repo: repo, trust: thisRun,
-		offline: os.Getenv(offlineEnv) != ""}
+		offline: offlineOn(os.Getenv(offlineEnv))}
 	if thisRun.bundle != "" {
 		t.source, t.sourceErr = openBundle(thisRun.bundle, repo)
 	}
@@ -308,9 +308,14 @@ func (e *noReleaseError) Error() string {
 	return fmt.Sprintf("mirror %s has no release %s for %s; check RHYTHM_GITHUB_API", redactURL(e.api), e.version, e.repo)
 }
 
-// offlineEnv keeps rhythm off the network when set to anything. A bundle
-// (install --from) still works: it never leaves the machine.
+// offlineEnv keeps rhythm off the network when set to anything but "0".
+// A bundle (install --from) still works: it never leaves the machine.
 const offlineEnv = "RHYTHM_OFFLINE"
+
+// offlineOn reports whether v, the value of RHYTHM_OFFLINE, turns
+// offline mode on. "0" means off, as it does for kit/update, so a script
+// can switch the setting off without unsetting it.
+func offlineOn(v string) bool { return v != "" && v != "0" }
 
 // errOffline is what a request gets while RHYTHM_OFFLINE is set. It
 // stands in for kit/update's ErrOffline, which this rhythm's kit doesn't
