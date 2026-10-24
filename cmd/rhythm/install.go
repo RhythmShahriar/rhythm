@@ -363,10 +363,12 @@ that fails doesn't stop the others.
 
 Pin a version with tool@version: tuner@0.3.1 installs exactly 0.3.1 and
 tuner@0.3 the newest 0.3.x. --min-age (or RHYTHM_MIN_RELEASE_AGE) passes
-over releases younger than the age given, except a version named exactly. --locked installs the versions rhythm.lock
-pins (see rhythm lock), checking each archive against its locked sha256;
-it installs nothing unless every tool matches. Data versions in the lock
-are passed to each tool as update --json --pin.
+over releases younger than the age given, except a version named exactly.
+
+--locked installs the versions rhythm.lock pins (see rhythm lock),
+checking each archive against its locked sha256; it installs nothing
+unless every tool matches. Data versions in the lock are passed to each
+tool as update --json --pin.
 
 Exit status: 0 when every tool was installed, 1 when any failed, 2 for a
 usage error and 130 when interrupted.`
