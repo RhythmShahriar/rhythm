@@ -160,14 +160,7 @@ func (r *updateReport) summary(checkOnly bool) string {
 // targets to update; nil means everything. A non-zero code means the
 // names were wrong and the update must not start.
 func updateScope(names []string, selfOnly bool, stderr io.Writer) (map[string]bool, int) {
-	var list []string
-	for _, n := range names {
-		for _, part := range strings.Split(n, ",") { // tuner,echo works as in every tool's list flags
-			if part = strings.TrimSpace(part); part != "" {
-				list = append(list, part)
-			}
-		}
-	}
+	list := splitNames(names)
 	if selfOnly {
 		if len(list) > 0 {
 			fmt.Fprintln(stderr, "rhythm: --self-only updates rhythm alone; drop the tool names or the flag")

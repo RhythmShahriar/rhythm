@@ -63,6 +63,20 @@ func resolveName(name string) (string, bool) {
 	return name, ok
 }
 
+// splitNames splits each argument on commas, so "tuner,echo" works as in
+// every tool's list flags. Empty names are dropped.
+func splitNames(args []string) []string {
+	var list []string
+	for _, a := range args {
+		for _, part := range strings.Split(a, ",") {
+			if part = strings.TrimSpace(part); part != "" {
+				list = append(list, part)
+			}
+		}
+	}
+	return list
+}
+
 // suggest returns " (did you mean tuner?)" for a name close to a known
 // one, or "" when nothing is close enough to be a typo.
 func suggest(name string) string {
