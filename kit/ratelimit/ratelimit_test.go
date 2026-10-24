@@ -119,6 +119,11 @@ func TestRetryAfter(t *testing.T) {
 	if d := RetryAfter("3600", 0); d != MaxRetryWait {
 		t.Errorf("cap: %v", d)
 	}
+	for _, h := range []string{"9223372037", "9223372036854775807"} {
+		if d := RetryAfter(h, 0); d != MaxRetryWait {
+			t.Errorf("RetryAfter(%q) = %v, want %v", h, d, MaxRetryWait)
+		}
+	}
 	if d := RetryAfter("", 2); d != 4*time.Second {
 		t.Errorf("backoff: %v", d)
 	}

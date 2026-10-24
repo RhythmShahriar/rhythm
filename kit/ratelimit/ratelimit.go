@@ -137,7 +137,9 @@ func RetryAfter(h string, n int) time.Duration {
 	// already past MaxRetryWait.
 	d := time.Second << min(max(n, 0), 6)
 	if secs, err := strconv.Atoi(strings.TrimSpace(h)); err == nil && secs >= 0 {
-		d = time.Duration(secs) * time.Second
+		// Clamp before converting: a huge value would wrap negative and
+		// turn into the shortest wait instead of the longest.
+		d = time.Duration(min(secs, int(MaxRetryWait/time.Second))) * time.Second
 	} else if t, err := http.ParseTime(h); err == nil {
 		d = time.Until(t)
 	}
