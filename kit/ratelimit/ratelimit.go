@@ -4,8 +4,9 @@
 // Package ratelimit keeps Rhythm tools polite: an even request pace per
 // host (Limiter, Hosts) that slows down when a server asks it to (Slow),
 // and the retry waits every tool shares (Backoff, RetryAfter, Sleep).
-// ParseTarget, which turns a command-line target into a URL, lives here
-// too because every tool that paces requests also parses one.
+//
+// ParseTarget is still here so tools keep compiling, but it moved to
+// kit/httpx.
 package ratelimit
 
 import (
@@ -157,6 +158,9 @@ func Sleep(ctx context.Context, d time.Duration) error {
 
 // ParseTarget accepts a URL or a bare hostname. explicitScheme is false
 // when the scheme was guessed (https), so callers can fall back to http.
+//
+// Deprecated: use httpx.ParseTarget, which behaves the same. It is a copy
+// rather than a wrapper because httpx imports this package.
 func ParseTarget(target string) (u *url.URL, explicitScheme bool, err error) {
 	explicitScheme = strings.Contains(target, "://")
 	if !explicitScheme {
