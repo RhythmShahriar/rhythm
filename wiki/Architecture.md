@@ -1,16 +1,19 @@
-How Rhythm fits together: a small router CLI, a shared kit, and tools that live in their own repositories and release on their own. The second half walks through the internals of Tuner, from the first request of a scan to the report, and of Soundcheck, from discovery to a comparison.
+How Rhythm fits together: a small router CLI, a shared kit, and tools that live in their own repositories and release on their own. The second half walks through the internals of Tuner, from the first request of a scan to the report, of Soundcheck, from discovery to a comparison, and of Echo, from a capture to a comparison.
 
 ## The big picture
 
 ```mermaid
 flowchart LR
-  user(["rhythm tuner scan yoursite.com<br/>rhythm soundcheck compare"]) --> router["rhythm<br/>(router)"]
+  user(["rhythm tuner scan yoursite.com<br/>rhythm soundcheck compare<br/>rhythm echo up"]) --> router["rhythm<br/>(router)"]
   router -- "exec rhythm-tuner …" --> tuner["rhythm-tuner"]
   router -- "exec rhythm-soundcheck …" --> sc["rhythm-soundcheck"]
+  router -- "exec rhythm-echo …" --> echo["rhythm-echo"]
   router -. "install / update" .-> gh[("GitHub Releases")]
   tuner -. "check packs, update notice" .-> gh
   sc -. "update notice" .-> gh
+  echo -. "update notice" .-> gh
   sc --> chrome["headless Chrome"]
+  sc -- "echo/client, echo/compare" --> echo
   subgraph kit ["rhythm/kit (Go module)"]
     ui["kit/ui<br/>theme"]
     config["kit/config<br/>user dirs"]
@@ -19,12 +22,14 @@ flowchart LR
     rl["kit/ratelimit<br/>polite pacing"]
     cache["kit/cache<br/>disk cache"]
     cli["kit/cli<br/>flag helpers"]
+    secrets["kit/secrets<br/>masking"]
   end
   router --- update
   tuner --- ui
   tuner --- config
   tuner --- update
   sc --- kit
+  echo --- kit
 ```
 
 | Piece | Repository | Role |
@@ -33,6 +38,8 @@ flowchart LR
 | `kit/` | same repository, module `github.com/RhythmShahriar/rhythm` | Shared base every tool imports |
 | `rhythm-tuner` | [`RhythmShahriar/tuner`](https://github.com/RhythmShahriar/tuner) | WordPress & PHP security scanner |
 | `rhythm-soundcheck` | [`RhythmShahriar/soundcheck`](https://github.com/RhythmShahriar/soundcheck) | Whole-site before/after checks in a real browser |
+| `rhythm-echo` | [`RhythmShahriar/echo`](https://github.com/RhythmShahriar/echo) | Captures and compares what a site sends; seals staging. Also publishes the npm connector `@rhythmsh/echo` |
+| `rhythmsh/echo-laravel` | [`RhythmShahriar/echo-laravel`](https://github.com/RhythmShahriar/echo-laravel) | Echo's Laravel connector, split from `connectors/laravel` in the Echo repository for Packagist |
 | Shared workflows | [`RhythmShahriar/.github`](https://github.com/RhythmShahriar/.github) | Reusable CI, commit lint and release workflows, community files |
 
 ## The router
@@ -40,11 +47,12 @@ flowchart LR
 `rhythm` is deliberately thin. It follows the same extension model as `git` and `gh`:
 
 - `rhythm <tool> [args]` looks up `rhythm-<tool>` on your `PATH` and runs it with the remaining arguments, passing stdin, stdout and stderr straight through. The tool's exit code becomes `rhythm`'s exit code, so `rhythm tuner scan … --fail-on high` works in CI exactly like `rhythm-tuner scan … --fail-on high`.
-- **Aliases** are short names: `t` → `tuner`, `sc` → `soundcheck`. They work for running and for `rhythm install`.
+- **Aliases** are short names: `t` → `tuner`, `sc` → `soundcheck`, `e` → `echo`. They work for running and for `rhythm install`.
 - If the binary isn't found, a known tool gets `rhythm: tuner isn't installed` with the install command; an unknown name gets `rhythm: unknown tool "<name>"`.
 - `rhythm` handles four commands itself: `help`, `version`, `install <tool> [--dir]` and `update [--check]`. Anything else is treated as a tool name.
 
-The router knows which tools exist (today `tuner` and `soundcheck`), and which GitHub repository each comes from, through a small table in [`cmd/rhythm/main.go`](https://github.com/RhythmShahriar/rhythm/blob/master/cmd/rhythm/main.go). `rhythm update` uses it to find installed tools on the `PATH`, update each binary, then run `rhythm-<tool> update` so each tool refreshes its own data. See [Updating](Updating).
+<!-- TODO(lead): echo and its alias e are registered in the router with rhythm v0.5.0; check this paragraph and the aliases above against cmd/rhythm/main.go then. -->
+The router knows which tools exist (`tuner`, `soundcheck` and `echo`), and which GitHub repository each comes from, through a small table in [`cmd/rhythm/main.go`](https://github.com/RhythmShahriar/rhythm/blob/master/cmd/rhythm/main.go). `rhythm update` uses it to find installed tools on the `PATH`, update each binary, then run `rhythm-<tool> update` so each tool refreshes its own data. See [Updating](Updating).
 
 ## The kit
 
@@ -60,8 +68,9 @@ The router knows which tools exist (today `tuner` and `soundcheck`), and which G
 | `kit/ratelimit` | An even request pace per host that halves after `429` or `503` (down to one request every two seconds), `Retry-After` handling up to 30 s, backoff, and `ParseTarget`, which turns `yoursite.com` or a URL into the site to check. |
 | `kit/cache` | A small on-disk JSON cache with a TTL and stale fallback when the network is down, plus atomic `WriteFile` and `WriteJSON`. |
 | `kit/cli` | Flag helpers shared by every tool: flags before or after positional arguments, comma-separated and repeatable list flags, usage errors that map to exit code 2, terminal detection. |
+| `kit/secrets` | Finding and masking credentials in text: cloud, payment and messaging provider keys (Stripe, Twilio, SendGrid, Mailgun, Resend, Postmark, Slack webhook URLs, `whsec_` secrets…), authorization headers, URLs with credentials, secret-looking keys in config, JSON and form bodies. `Redact` masks them in place, keeping a short prefix. |
 
-`kit/ui` also has the shared report pieces: severity badges, section rules and the summary panel. Soundcheck uses `kit/crawl`, `kit/ratelimit`, `kit/cache` and `kit/cli`; Tuner can adopt them when it moves to a newer kit.
+`kit/ui` also has the shared report pieces: severity badges, section rules and the summary panel. Soundcheck uses `kit/crawl`, `kit/ratelimit`, `kit/cache` and `kit/cli`; Echo uses `kit/ui`, `kit/cli`, `kit/cache`, `kit/config`, `kit/update` and `kit/secrets`; Tuner can adopt them when it moves to a newer kit.
 
 `kit/update` relies on a naming contract with every repository's GoReleaser config; see [Release Process](Release-Process#the-naming-contract).
 
@@ -225,6 +234,65 @@ Discovery itself fetches only `robots.txt`, sitemaps and the start page (`kit/cr
 ### Storage and reports
 
 `store` writes each run as `run.json` (schema `rhythm-soundcheck/v1`) with its screenshots, into `.soundcheck/snapshots/<name>/` or `.soundcheck/runs/<date-time>/`. A snapshot is written to `.incoming/` and moved into place only when complete. Runs are pruned to the newest 20, and the folders are added to `.git/info/exclude`. `report` renders one result model as the live terminal view, plain text, JSON, Markdown, JUnit and a standalone HTML page with embedded, scaled screenshots and the before/after slider. See [Reading results](Soundcheck-Reading-Results).
+
+## Inside Echo
+
+```text
+echo/
+├── cmd/rhythm-echo     CLI: commands, flags, up, install, doctor, check, headers, replay, output wiring
+├── config              .echo/config.yaml: defaults, strict loading, validation, the init template
+├── wire                the capture protocol connectors speak (Capture → Decision)
+├── catcher             the running side: inbox, REST API, seal policy, SMTP sink
+├── recognize           HTTP request → channel, provider, recipients, content; provider-shaped fakes
+├── proxy               HTTP(S) proxy for SDKs that skip the connectors; local CA, MITM
+├── sendmail            the sendmail stand-in for PHP's mail() and Unix tools
+├── runner              runs actions: trigger, flush, wait for quiet, collect, check
+├── check               content checks on messages (placeholders, PHP errors, SMS parts…)
+├── compare             two runs → BROKE, NEW, CHANGED, FIXED, with normalization and grouping
+├── replay              signed test webhooks and their safety rules; the event library
+├── dns, headers        deliverability: SPF, DKIM, DMARC, MX, MTA-STS; received-mail analysis
+├── store               the .echo folder: snapshots, runs, LATEST, pruning, git exclude
+├── report              terminal view, plain, JSON, Markdown, JUnit, standalone HTML
+├── client              Go client for the API (used by Soundcheck)
+├── model               messages, actions, issues, changes (schema rhythm-echo/v1)
+├── connectors/         wordpress (the mu-plugin, embedded), laravel (Composer), node (npm)
+└── action.yml          the GitHub Action
+```
+
+### From a capture to a comparison
+
+```mermaid
+flowchart TD
+  subgraph site ["The site"]
+    WP["WordPress mu-plugin<br/>wp_mail, pre_http_request"]
+    LV["Laravel package<br/>transport, Http middleware"]
+    ND["Node package<br/>fetch, http, Nodemailer"]
+    MTA["SMTP · sendmail"]
+    SDK["SDKs with their own HTTP"]
+  end
+  WP & LV & ND -- "POST /v1/capture" --> CAP["catcher.Server.Capture"]
+  MTA -- "SMTP sink" --> CAP
+  SDK -- "HTTPS proxy, MITM" --> CAP
+  CAP --> REC["recognize<br/>channel, provider, content"]
+  REC --> POL{"seal policy<br/>allow · fake · block"}
+  POL -- "decision" --> WP & LV & ND
+  POL --> INBOX[("Inbox<br/>in memory")]
+  RUN["runner: actions<br/>X-Echo-Run tag, flush, quiet"] --> INBOX
+  SC["Soundcheck --echo<br/>echo/client"] --> INBOX
+  INBOX --> CHK["check<br/>content issues"]
+  CHK --> STORE[(".echo/<br/>snapshots, runs")]
+  STORE --> CMP["compare<br/>identity, normalization, classes"]
+  CMP --> REP["report<br/>terminal, HTML, MD, JSON, JUnit"]
+```
+
+1. **Capture.** A connector inside the site reports each email and outbound HTTP request through the [capture protocol](Echo-API#the-capture-protocol), before it's sent, with the `X-Echo-Run` it found. The SMTP sink and the proxy turn what they receive into the same captures, so everything downstream treats them alike.
+2. **Recognize.** `recognize` tries each provider's recognizer in turn: Twilio, Slack, SendGrid, GA4, Stripe and the rest. The first match fills the channel, provider, recipients, content and event; anything else is a generic webhook or request. Secrets are redacted with `kit/secrets` and bodies capped before the message is stored.
+3. **Decide.** The seal policy answers: platform update hosts pass unrecorded; observe mode, the site's own host, loopback and the allowlist are allowed; live payment calls are blocked with the provider's own error; everything else gets the recognizer's fake. The connector does what it's told.
+4. **Collect.** The inbox keeps messages in memory and wakes anything waiting on it. The runner opens an action (`/v1/actions/begin`), triggers it with its run ID, runs the flush commands, then waits until no new message has matched for the quiet time, and closes the action. Soundcheck does the same around each form submit, through `echo/client`.
+5. **Check and store.** `check` runs the content checks on each action's messages. `store` writes the run as `run.json` into `.echo/snapshots/<name>/` (through `.incoming/`, moved into place when complete) or `.echo/runs/<date-time>/`, pruned to the newest 20.
+6. **Compare.** `compare` matches actions by ID and messages by identity (channel and recipients for email and SMS; channel, provider, method, host, path pattern and event for the rest), normalizes test data, numbers and dates, and diffs recipients, subject, text and payload fields. Issues are diffed by key as in Soundcheck. The same change across actions is one line. `report` renders the result, and Soundcheck's `echo` module calls `compare.Messages` directly for its forms and flows.
+
+The WordPress connector is embedded in the binary (`connectors/wordpress/echo.php`) and written by `install`. The Laravel and Node connectors are packages of their own, released with Echo; see [Release process](Release-Process#echos-packages).
 
 ---
 <sub>← [Release process](Release-Process) · [Home](Home)</sub>

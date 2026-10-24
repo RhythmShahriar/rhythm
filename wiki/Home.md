@@ -5,7 +5,17 @@
   </picture>
 </p>
 
-Welcome to the documentation for **rhythm**, one CLI for every Rhythm tool, and for the two tools that run on it: **Tuner**, the WordPress &amp; PHP security scanner, and **Soundcheck**, which checks a whole site before and after a change and shows what broke. Everything lives here; the tools' READMEs link back to these pages.
+Welcome to the documentation for **rhythm**, one CLI for every Rhythm tool, and for the three tools that run on it: **Tuner**, the WordPress &amp; PHP security scanner; **Soundcheck**, which checks a whole site before and after a change and shows what broke; and **Echo**, which captures everything a site sends, seals staging so nothing reaches real people, and shows what each form or order sends before and after a change. Everything lives here; the tools' READMEs link back to these pages.
+
+## The Rhythm set: safe, works, says
+
+| Tool | Asks | Looks at | Start with |
+|---|---|---|---|
+| 🔒 [Tuner](Tuner) | Is my site **safe**? | what an attacker can find: leaks, known vulnerabilities, weak config | [Your first scan](Tuner-First-Scan) |
+| ✅ [Soundcheck](Soundcheck) | Does it still **work**? | what visitors see and do: errors, layout, forms, cache, speed | [Your first check](Soundcheck-First-Check) |
+| 📣 [Echo](Echo) | Is it still **saying** what it should? | everything the site sends: email, SMS, webhooks, chat, analytics, payments | [Your first run](Echo-First-Run) |
+
+They work on the same change: Tuner says a plugin needs updating, Soundcheck shows what the update did to the pages, and Echo shows what it did to the messages. Run Soundcheck with `--echo` and it submits the real forms and compares what each one sent.
 
 ## Start in one minute
 
@@ -17,9 +27,11 @@ Welcome to the documentation for **rhythm**, one CLI for every Rhythm tool, and 
 rhythm tuner scan yoursite.com                    # what's out of tune: leaks, CVEs, weak config
 rhythm soundcheck snapshot staging.yoursite.com   # before a change: record how every page works
 rhythm soundcheck compare                         # after it: what broke
+rhythm echo up                                    # seal staging: nothing the site sends reaches anyone
+rhythm echo compare                               # after a change: what the site no longer sends
 ```
 
-New here? For security, follow **[Your first scan](Tuner-First-Scan)**. Before your next plugin update or deploy, follow **[Your first check](Soundcheck-First-Check)**.
+New here? For security, follow **[Your first scan](Tuner-First-Scan)**. Before your next plugin update or deploy, follow **[Your first check](Soundcheck-First-Check)**. To seal a staging site and check its emails, SMS and webhooks, follow **[Your first run](Echo-First-Run)**.
 
 ## Find your way
 
@@ -81,6 +93,35 @@ New here? For security, follow **[Your first scan](Tuner-First-Scan)**. Before y
 
 </td>
 </tr>
+<tr>
+<td width="25%" valign="top">
+
+### Use Echo
+- [Overview](Echo)
+- [Your first run](Echo-First-Run)
+- [Connectors](Echo-Install-Connectors)
+- [Sealing staging](Echo-Sealing-Staging)
+- [Messages and checks](Echo-Messages-And-Checks)
+- [Actions and compare](Echo-Actions-And-Compare)
+- [With Soundcheck](Echo-With-Soundcheck)
+- [Replay](Echo-Replay)
+- [Deliverability](Echo-Deliverability)
+
+</td>
+<td width="25%" valign="top">
+
+### Echo in depth
+- [CI](Echo-CI)
+- [Configuration](Echo-Configuration)
+- [API](Echo-API)
+- [CLI reference](Echo-CLI-Reference)
+- [FAQ and troubleshooting](Echo-FAQ)
+- [Benchmark](Echo-Benchmark)
+
+</td>
+<td width="25%" valign="top"></td>
+<td width="25%" valign="top"></td>
+</tr>
 </table>
 
 ## Current PHP advisories
@@ -92,10 +133,10 @@ New here? For security, follow **[Your first scan](Tuner-First-Scan)**. Before y
 
 | | |
 |---|---|
-| [Responsible use](Responsible-Use) | check only sites you own or may test; what Tuner and Soundcheck never do |
-| [Security policy](Security-Policy) | report a vulnerability in Rhythm, Tuner or Soundcheck privately |
+| [Responsible use](Responsible-Use) | check only sites you own or may test; what the tools never do; personal data in Echo's captures |
+| [Security policy](Security-Policy) | report a vulnerability in Rhythm, Tuner, Soundcheck or Echo privately |
 | [Contributing](Contributing) | set up, commit conventions, pull requests |
-| [Release process](Release-Process) | how releases and check packs ship |
+| [Release process](Release-Process) | how releases, check packs and Echo's npm and Composer packages ship |
 | [Architecture](Architecture) | how rhythm, the kit and the tools fit together |
 
-Repositories: [rhythm](https://github.com/RhythmShahriar/rhythm) · [tuner](https://github.com/RhythmShahriar/tuner) · [soundcheck](https://github.com/RhythmShahriar/soundcheck) · [community files](https://github.com/RhythmShahriar/.github)
+Repositories: [rhythm](https://github.com/RhythmShahriar/rhythm) · [tuner](https://github.com/RhythmShahriar/tuner) · [soundcheck](https://github.com/RhythmShahriar/soundcheck) · [echo](https://github.com/RhythmShahriar/echo) · [community files](https://github.com/RhythmShahriar/.github)

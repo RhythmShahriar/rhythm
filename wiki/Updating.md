@@ -1,4 +1,4 @@
-One command keeps `rhythm`, every installed tool and their data current. This page explains what `rhythm update` does, how downloads are verified, the once-a-day release notice, how Tuner refreshes its vulnerability data and checks on its own, and how Soundcheck keeps its browser current.
+One command keeps `rhythm`, every installed tool and their data current. This page explains what `rhythm update` does, how downloads are verified, the once-a-day release notice, how Tuner refreshes its vulnerability data and checks on its own, how Soundcheck keeps its browser current, and what Echo updates.
 
 ## Update everything
 
@@ -9,21 +9,23 @@ rhythm update
 It works in this order:
 
 1. **`rhythm` itself.**
-2. **Every installed tool**, found as `rhythm-<tool>` on your `PATH` (today: `rhythm-tuner` and `rhythm-soundcheck`).
-3. **Each tool's data**, by running `rhythm-<tool> update`. For Tuner that refreshes the [check pack](Tuner-Check-Packs) and the cached vulnerability data; for Soundcheck, the browser it uses (see [Soundcheck's browser](#soundchecks-browser)).
+2. **Every installed tool**, found as `rhythm-<tool>` on your `PATH` (today: `rhythm-tuner`, `rhythm-soundcheck` and `rhythm-echo`).
+3. **Each tool's data**, by running `rhythm-<tool> update`. For Tuner that refreshes the [check pack](Tuner-Check-Packs) and the cached vulnerability data; for Soundcheck, the browser it uses (see [Soundcheck's browser](#soundchecks-browser)). Echo has nothing to refresh (see [Echo](#echo)).
 
 ```text
 rhythm             0.1.0 (up to date)
 rhythm-tuner       0.3.0 → 0.3.1 ✔
 rhythm-soundcheck  1.0.0 (up to date)
+rhythm-echo        1.0.0 (up to date)
 Checks: built-in (rhythm-tuner 0.3.1); they're as new as pack 2026.10.23-154747
 Refreshed 29 vulnerability records
 Data: WPVulnerability (wpvulnerability.com, CC0)
 Cache: /home/you/.cache/rhythm/tuner/vulns
 Browser: installed Chrome at /usr/bin/google-chrome (updated with your system)
+Echo has nothing to refresh; provider recognizers update with the binary (rhythm update).
 ```
 
-The last line is Soundcheck's own `update`: it checked the browser it uses.
+The `Browser:` line is Soundcheck's own `update`, which checked the browser it uses; the last line is Echo's.
 
 Each binary is updated in place, wherever it is installed. A problem with one target is reported and the rest still run; the command exits `1` if anything failed and `0` otherwise.
 
@@ -37,6 +39,7 @@ rhythm update --check
 rhythm             0.1.0 (up to date)
 rhythm-tuner       0.3.0 → 0.3.1 available
 rhythm-soundcheck  1.0.0 (up to date)
+rhythm-echo        1.0.0 (up to date)
 ```
 
 `--check` reports what's out of date and changes nothing. It doesn't refresh tool data either.
@@ -71,14 +74,14 @@ If the directory isn't writable, for example `/usr/local/bin` after a root insta
 
 ## The "new release" notice
 
-When a newer Tuner or Soundcheck release is out, a scan or check ends with a line on stderr:
+When a newer Tuner, Soundcheck or Echo release is out, a scan, a check, or an Echo snapshot, compare or run ends with a line on stderr:
 
 ```text
 A new release of rhythm-tuner is available: 0.3.0 → 0.3.1
   run: rhythm update
 ```
 
-- Each tool asks GitHub at most **once a day**, in the background while it runs, and never delays the run for it. The answer is remembered in `update-check/rhythm-tuner.json` (or `rhythm-soundcheck.json`) under your config directory (`~/.config/rhythm` on Linux).
+- Each tool asks GitHub at most **once a day**, in the background while it runs, and never delays the run for it. The answer is remembered in `update-check/rhythm-tuner.json` (or `rhythm-soundcheck.json`, `rhythm-echo.json`) under your config directory (`~/.config/rhythm` on Linux).
 - The notice only appears with the terminal view, and not with `--quiet`.
 - It never installs anything. Rhythm doesn't update binaries silently; you run `rhythm update` when you choose to.
 
@@ -148,6 +151,19 @@ Cleared /home/you/.cache/rhythm/soundcheck/browser
 ```
 
 The next run downloads it again if no Chrome is installed. Soundcheck has no other cached data: snapshots and reports live in your project's `.soundcheck/` folder and are never touched by `update`.
+
+## Echo
+
+Echo keeps no downloaded data: the services it recognizes, its fakes and its checks are built into the binary, so `rhythm update` updating `rhythm-echo` is all it needs. `rhythm echo update` exists so `rhythm update` can call every tool the same way; it changes nothing and exits `0`:
+
+```text
+$ rhythm echo update
+Echo has nothing to refresh; provider recognizers update with the binary (rhythm update).
+```
+
+Echo's connectors update separately, with the site: the WordPress mu-plugin by running `rhythm echo install wordpress` again after updating Echo (it replaces its own file), the Laravel package with `composer update rhythmsh/echo-laravel`, and the Node package with `npm update @rhythmsh/echo`. The proxy's CA renews itself when it has less than 30 days left; clients then have to trust the new one.
+
+Snapshots and runs in `.echo/` are never touched by an update.
 
 ---
 <sub>← [Install](Install) · [Home](Home) · [Uninstall](Uninstall) →</sub>

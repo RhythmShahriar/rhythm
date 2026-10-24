@@ -1,4 +1,4 @@
-If you find a security vulnerability in `rhythm`, Tuner, Soundcheck or any Rhythm tool, please report it privately so it can be fixed before it's public. This page explains how, what to include, and what happens next.
+If you find a security vulnerability in `rhythm`, Tuner, Soundcheck, Echo or any Rhythm tool, please report it privately so it can be fixed before it's public. This page explains how, what to include, and what happens next.
 
 > [!WARNING]
 > Please don't report vulnerabilities in public issues, pull requests or discussions. A public report puts every user at risk until a fix ships.
@@ -11,6 +11,7 @@ Every repository has GitHub's private vulnerability reporting turned on. Open a 
 |---|---|
 | Tuner (`rhythm-tuner`, its checks, check packs, vulnerability matching, reports) | https://github.com/RhythmShahriar/tuner/security/advisories/new |
 | Soundcheck (`rhythm-soundcheck`, its browser handling, reports, flows, the GitHub Action) | https://github.com/RhythmShahriar/soundcheck/security/advisories/new |
+| Echo (`rhythm-echo`, its catcher, proxy and CA, the WordPress, Laravel and Node connectors, replay, the GitHub Action) | https://github.com/RhythmShahriar/echo/security/advisories/new |
 | `rhythm` (the CLI, `install`, `update`, the install scripts, the shared kit) | https://github.com/RhythmShahriar/rhythm/security/advisories/new |
 
 You can also reach the form from the repository's **Security** tab with the **Report a vulnerability** button. You need a GitHub account. The report is visible only to you and the maintainers.
@@ -28,18 +29,22 @@ Report it privately if it's a weakness in Rhythm's own code or release process, 
 - A way to make Soundcheck submit a form, click a control the destructive blocklist should skip, or run the leak test on a URL listed as production.
 - A test account's credentials, or a flow's `${env:…}` value, written unmasked to a report, a log or a file.
 - A way for a checked site to make Soundcheck read or write files outside its `.soundcheck` folder and cache, or reach the browser beyond the pages it checks.
+- A way for a message to leave a site Echo has sealed through a hook its connector covers, or for a sealed site to get a success answer to a live-mode payment call.
+- A way to make `rhythm echo replay` send to a production or public address it should refuse, or with a live key in reach.
+- A credential stored unmasked in a capture, a report or a log, or Echo's CA private key leaving its cache folder.
+- A way to use Echo's API or proxy from another machine without the token, or to use the proxy as an open relay.
 
 Not a vulnerability in Rhythm:
 
-- **A finding Tuner reports on your site**, or a change Soundcheck reports. That's the tool working; see Tuner's [Reading results](Tuner-Reading-Results) or Soundcheck's [Reading results](Soundcheck-Reading-Results).
-- **A false positive or a missed issue.** Open a normal [Tuner issue](https://github.com/RhythmShahriar/tuner/issues) or [Soundcheck issue](https://github.com/RhythmShahriar/soundcheck/issues), unless it reveals something exploitable in the tool itself.
+- **A finding Tuner reports on your site**, or a change Soundcheck or Echo reports. That's the tool working; see Tuner's [Reading results](Tuner-Reading-Results) or Soundcheck's [Reading results](Soundcheck-Reading-Results).
+- **A false positive or a missed issue.** Open a normal [Tuner](https://github.com/RhythmShahriar/tuner/issues), [Soundcheck](https://github.com/RhythmShahriar/soundcheck/issues) or [Echo](https://github.com/RhythmShahriar/echo/issues) issue, unless it reveals something exploitable in the tool itself.
 - **A vulnerability in WordPress, a plugin, a theme or PHP.** Report it to that project. If Tuner's data about it is wrong, that comes from [WPVulnerability](https://www.wpvulnerability.com/), wordpress.org or php.net.
 
 ## What to include
 
 A good report lets the issue be reproduced quickly:
 
-- The affected tool and version (`rhythm version`, `rhythm tuner --version`, `rhythm soundcheck --version`) and your OS and CPU.
+- The affected tool and version (`rhythm version`, `rhythm tuner --version`, `rhythm soundcheck --version`, `rhythm echo --version`) and your OS and CPU.
 - What the problem is and what an attacker could do with it.
 - Steps to reproduce: the exact command, and a minimal input such as a check file, a server response or a test page. Use your own test setup, never a third-party site.
 - Any logs or output, with real secrets removed.
@@ -55,7 +60,7 @@ There's no fixed response-time promise. Reports are handled as quickly as their 
 
 ## Testing safely
 
-When you research Rhythm's security, test against your own machines and your own test sites. Don't scan, or point Tuner or Soundcheck at, third-party sites to prove a point. The [Responsible Use](Responsible-Use) rules apply to security research too.
+When you research Rhythm's security, test against your own machines and your own test sites. Don't scan, or point Tuner, Soundcheck or Echo at, third-party sites to prove a point, and don't replay webhooks to services you don't run. The [Responsible Use](Responsible-Use) rules apply to security research too.
 
 ---
 <sub>← [Responsible use](Responsible-Use) · [Home](Home) · [Contributing](Contributing) →</sub>
