@@ -148,6 +148,13 @@ type explainTransport struct {
 	trust  *runOptions
 	signer string // the signer an extension's releases must carry; "" for any
 
+	// verifiedBy is who signed the checksums.txt last checked through
+	// this transport, and verifiedSums those checksums; both stay empty
+	// when no signature was checked.
+	verifiedBy   string
+	verifiedSums []byte
+	verifying    bool // rhythm verify: failures are worded for a check, not an install
+
 	// pinned answers these URLs from memory instead of the network. It
 	// holds the checksums.txt whose signature was checked (so kit/update
 	// tests the archive against exactly those bytes) and a cached archive.
@@ -560,6 +567,7 @@ type installItem struct {
 type lockedDownload struct {
 	sums    []byte
 	archive []byte
+	signer  string // who signed sums; "" when no signature was checked
 }
 
 // String is the item as the user would write it: tuner or tuner@0.3.1.
@@ -910,6 +918,7 @@ func installTool(ctx context.Context, it installItem, opt installOptions, stdout
 		return installResult{}, err
 	}
 	fmt.Fprintf(stdout, "Installed %s %s to %s\n", binary, rel.Version, dest)
+	reportTrust(stdout, u, rel.Release, writeTo, opt.quiet)
 	return installResult{note: pathNote(binary, dest)}, nil
 }
 
@@ -1003,6 +1012,9 @@ func checkAgainstLock(ctx context.Context, list []installItem, lock *lockFile, n
 			continue
 		}
 		u := updater(e.Repo, binary, "")
+		if et, ok := u.HTTP.Transport.(*explainTransport); ok {
+			et.signer = e.Signer // a locked signer must sign the release again
+		}
 		rel, err := resolveSpec(ctx, u, e.Version, 0)
 		var dl *lockedDownload
 		if err == nil {
@@ -1483,7 +1495,11 @@ func checkLocked(ctx context.Context, u *update.Updater, rel *update.Release, wa
 	if got := sha256.Sum256(archive); hex.EncodeToString(got[:]) != want {
 		return nil, &lockedMismatchError{archive: name}
 	}
-	return &lockedDownload{sums: sums, archive: archive}, nil
+	dl := &lockedDownload{sums: sums, archive: archive}
+	if t, ok := u.HTTP.Transport.(*explainTransport); ok {
+		dl.signer = t.verifiedBy
+	}
+	return dl, nil
 }
 
 // maxArchive is the largest archive checkLocked downloads, kit/update's
@@ -1663,7 +1679,7 @@ func addTrustFlags(fs *flag.FlagSet) trustFlags {
 func (f trustFlags) options(stderr io.Writer) *runOptions {
 	r := &runOptions{skipSignature: *f.skipSignature}
 	if r.skipSignature {
-		fmt.Fprintln(stderr, "warning: signature check skipped")
+		fmt.Fprintln(stderr, skipWarning)
 	}
 	if *f.cache || cacheFromEnv() {
 		if dir, err := config.CacheDir(selfName); err == nil {
@@ -1715,8 +1731,12 @@ func verifiedChecksums(ctx context.Context, u *update.Updater, rel *update.Relea
 		trust = t.trust
 	}
 	v, err := trust.activeVerifier()
+	verb, hint := "refusing to install", signatureHint
+	if t != nil && t.verifying {
+		verb, hint = "can't vouch for", verifyHint
+	}
 	refuse := func(format string, a ...any) error {
-		return fmt.Errorf("refusing to install %s %s: %s", u.Repo, rel.Version, fmt.Sprintf(format, a...))
+		return fmt.Errorf("%s %s %s: %s", verb, u.Repo, rel.Version, fmt.Sprintf(format, a...))
 	}
 	switch {
 	case err != nil:
@@ -1730,7 +1750,7 @@ func verifiedChecksums(ctx context.Context, u *update.Updater, rel *update.Relea
 	}
 	bundleURL, ok := rel.Assets[signatureAsset]
 	if !ok {
-		return nil, refuse("signature check failed: the release has no %s", signatureAsset)
+		return nil, refuse("signature check failed: the release has no %s%s", signatureAsset, hint)
 	}
 	bundle, err := releaseFile(ctx, u, bundleURL, signatureAsset, 1<<20)
 	if err != nil {
@@ -1738,10 +1758,13 @@ func verifiedChecksums(ctx context.Context, u *update.Updater, rel *update.Relea
 	}
 	signer, err := v.VerifyChecksums(ctx, u.Repo, rel.Version, sums, bundle)
 	if err != nil {
-		return nil, refuse("signature check failed: %v", err)
+		return nil, refuse("signature check failed: %v%s", err, hint)
 	}
-	if t != nil && t.signer != "" && signer != t.signer {
+	if t != nil && t.signer != "" && !signerMatches(t.signer, signer) {
 		return nil, refuse("signed by %s, not %s", signer, t.signer)
+	}
+	if t != nil {
+		t.verifiedBy, t.verifiedSums = signer, sums
 	}
 	return sums, nil
 }

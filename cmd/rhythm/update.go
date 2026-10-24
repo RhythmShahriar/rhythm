@@ -238,6 +238,7 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 			continue
 		}
 		fmt.Fprintf(human, "%-18s %s → %s ✔\n", t.binary, t.current, rel.Version)
+		reportTrust(human, u, rel.Release, t.real, *quiet)
 		// The data step talks to the new binary, which may have moved to
 		// kit/cli.Main; the line names the version now installed.
 		p, _ := probeVersionInfo(ctx, t.path, true)

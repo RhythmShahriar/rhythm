@@ -1,0 +1,33 @@
+{
+  "schema": "rhythm-verify/v1",
+  "targets": [
+    {
+      "name": "rhythm",
+      "version": "0.7.0",
+      "path": "$SANDBOX/bin/rhythm",
+      "repo": "RhythmShahriar/rhythm",
+      "signer": "https://github.com/RhythmShahriar/.github/.github/workflows/release-go.yml@refs/heads/master",
+      "source_ref": "refs/tags/v0.7.0",
+      "archive": "rhythm_$PLATFORM.tar.gz",
+      "archive_sha256": "<sha256>",
+      "binary_sha256": "<sha256>",
+      "cached": false,
+      "ok": true,
+      "error": ""
+    },
+    {
+      "name": "rhythm-tuner",
+      "version": "0.4.0",
+      "path": "$SANDBOX/bin/rhythm-tuner",
+      "repo": "RhythmShahriar/tuner",
+      "signer": "https://github.com/RhythmShahriar/.github/.github/workflows/release-go.yml@refs/heads/master",
+      "source_ref": "refs/tags/v0.4.0",
+      "archive": "rhythm-tuner_$PLATFORM.tar.gz",
+      "archive_sha256": "<sha256>",
+      "binary_sha256": "<sha256>",
+      "cached": false,
+      "ok": true,
+      "error": ""
+    }
+  ]
+}

@@ -69,7 +69,11 @@ func lockEntryFor(ctx context.Context, u *update.Updater, name string, rel *upda
 	if len(platforms) == 0 {
 		return lockEntry{}, fmt.Errorf("release %s: checksums.txt lists no %s archives", rel.Version, u.Binary)
 	}
-	return lockEntry{Name: name, Repo: u.Repo, Version: rel.Version, Platforms: platforms}, nil
+	e := lockEntry{Name: name, Repo: u.Repo, Version: rel.Version, Platforms: platforms}
+	if t, ok := u.HTTP.Transport.(*explainTransport); ok && t.verifiedBy != "" {
+		e.Signer = signerIdentity(t.verifiedBy)
+	}
+	return e, nil
 }
 
 const lockSynopsis = `Usage: rhythm lock [flags]

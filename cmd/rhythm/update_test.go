@@ -50,6 +50,9 @@ func TestMain(m *testing.M) {
 	for _, v := range []string{"HOME", "USERPROFILE", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "APPDATA", "LOCALAPPDATA", "RHYTHM_CONFIG_DIR", "RHYTHM_CACHE_DIR"} {
 		_ = os.Setenv(v, filepath.Join(home, strings.ToLower(v)))
 	}
+	// Most tests serve stand-in signatures, so they run with checksums
+	// only; the trust tests set a verifier themselves (see useCA).
+	newVerifier = nil
 	code := m.Run()
 	_ = os.RemoveAll(home)
 	cleanupBuilt()
@@ -1291,7 +1294,7 @@ func TestUpdateExtensionSignerWithoutVerifier(t *testing.T) {
 		t.Errorf("exit %d: %s", code, errs)
 	}
 	code, out, errs := runCmd("update", "zap", "--skip-signature")
-	if code != 0 || !strings.Contains(errs, "warning: signature check skipped") || !strings.Contains(s.content("rhythm-zap"), "1.1.0") {
+	if code != 0 || !strings.Contains(errs, skipWarning) || !strings.Contains(s.content("rhythm-zap"), "1.1.0") {
 		t.Errorf("exit %d\n%s%s", code, out, errs)
 	}
 }
@@ -1446,16 +1449,6 @@ func TestUpdateJSONNeedsCheck(t *testing.T) {
 	if len(s.api.requests()) != 0 {
 		t.Error("a usage error asked the API")
 	}
-}
-
-// fileSHA256 returns the lowercase hex sha256 of the file at p.
-func fileSHA256(p string) (string, error) {
-	data, err := os.ReadFile(p) //nolint:gosec // a test file
-	if err != nil {
-		return "", err
-	}
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:]), nil
 }
 
 // TestRollbackWithoutSidecar: a .prev whose .prev.json is gone still
