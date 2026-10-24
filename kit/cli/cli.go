@@ -17,6 +17,7 @@ import (
 
 // ParseInterspersed lets flags come before or after positional arguments:
 // `tool scan site.com --json` and `tool scan --json site.com` are the same.
+// Everything after a "--" is positional, even if it looks like a flag.
 func ParseInterspersed(fs *flag.FlagSet, args []string) ([]string, error) {
 	var pos []string
 	for {
@@ -25,6 +26,11 @@ func ParseInterspersed(fs *flag.FlagSet, args []string) ([]string, error) {
 		}
 		if fs.NArg() == 0 {
 			return pos, nil
+		}
+		// fs.Parse stops at "--" and drops it, which leaves no trace in
+		// fs.Args(); look at the argument just before the rest instead.
+		if used := len(args) - fs.NArg(); used > 0 && args[used-1] == "--" {
+			return append(pos, fs.Args()...), nil
 		}
 		pos = append(pos, fs.Arg(0))
 		args = fs.Args()[1:]
