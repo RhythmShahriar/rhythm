@@ -29,11 +29,11 @@ inputs:
     required: false
     default: ""
   locked:
-    description: Install the versions rhythm.lock pins (rhythm install --locked). The lock file is also part of the cache key.
+    description: Install the versions rhythm.lock pins (rhythm install --locked). The lock file is also part of the cache key. true, false, yes, no, 1 or 0; anything else fails the step before anything is installed.
     required: false
     default: "false"
   skip-signature:
-    description: Skip the signature checks, for a mirror you trust. Checksums are still checked.
+    description: Skip the signature checks, for a mirror you trust. Checksums are still checked. true, false, yes, no, 1 or 0 on every runner; anything else fails the step before anything is installed.
     required: false
     default: "false"
   token:
@@ -74,6 +74,8 @@ runs:
       env:
         INPUT_TOOLS: ${{ inputs.tools }}
         INPUT_VERSION: ${{ inputs.version }}
+        INPUT_LOCKED: ${{ inputs.locked }}
+        INPUT_SKIP_SIGNATURE: ${{ inputs.skip-signature }}
         INPUT_INSTALL_DIR: ${{ inputs.install-dir }}
         INPUT_WORKING_DIRECTORY: ${{ inputs.working-directory }}
       run: bash "$GITHUB_ACTION_PATH/setup.sh" prepare
@@ -101,7 +103,8 @@ runs:
         RHYTHM_INSTALL_DIR: ${{ steps.prepare.outputs.install-dir }}
         RHYTHM_VERSION: ${{ inputs.version }}
         RHYTHM_TOOLS: none
-        RHYTHM_SKIP_SIGNATURE: ${{ inputs.skip-signature == 'true' && '1' || '' }}
+        # prepare read skip-signature with the rule setup.sh uses.
+        RHYTHM_SKIP_SIGNATURE: ${{ steps.prepare.outputs.skip-signature }}
         GITHUB_TOKEN: ${{ inputs.token }}
       working-directory: ${{ inputs.working-directory }}
       run: |

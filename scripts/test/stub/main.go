@@ -19,7 +19,8 @@
 //	                               ./rhythm.lock)
 //	-X main.toolsBlock=yes         whether help has a "Tools:" block
 //
-// It logs its argv to $RHYTHM_TEST_LOG, checks every name before installing
+// install takes --skip-signature and only logs it. It logs its argv to
+// $RHYTHM_TEST_LOG, checks every name before installing
 // any (with rhythm's did-you-mean lines), fetches each tool's archive from
 // $RHYTHM_GITHUB_API so a test can make one 404, "installs" a tool by
 // copying itself to rhythm-<tool>(.exe) in --dir and notes when --dir isn't
@@ -151,6 +152,8 @@ func install(args []string, stdout, stderr io.Writer) int {
 				i++
 				dir = args[i]
 			}
+		case "--skip-signature":
+			// Logged with the rest of argv, which is all a test needs.
 		case "--quiet", "--dry-run":
 			if !has("dry-run") {
 				return badFlag(args[i], stderr)

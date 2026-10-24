@@ -5,8 +5,10 @@
 # against a fake release API on 127.0.0.1, so nothing reaches GitHub's
 # releases. The rhythm it installs is the stand-in from scripts/test/stub
 # that the installer tests use. It checks that the tools land on PATH,
-# that a second job restores the download cache and that a version
-# rhythm.lock doesn't pin fails the step.
+# that a second job restores the download cache, that a version
+# rhythm.lock doesn't pin fails the step and that skip-signature is read
+# the same way on every runner, a bad value failing before anything is
+# installed.
 name: setup-rhythm
 
 on:
@@ -146,3 +148,100 @@ jobs:
           set -eu
           [ "$MATCH" = tuner@0.3.1 ] || { echo "locked tool-versions is '$MATCH'"; exit 1; }
           [ "$OUTCOME" = failure ] || { echo "a locked mismatch ended in '$OUTCOME'"; exit 1; }
+
+  inputs:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Start the fake release API and log the stand-in's calls
+        shell: bash
+        run: |
+          bash setup/test/start-fake-api.sh
+          # The stand-in rhythm appends its argv here.
+          echo "RHYTHM_TEST_LOG=$RUNNER_TEMP/rhythm.log" >>"$GITHUB_ENV"
+      - id: bad-skip
+        continue-on-error: true
+        uses: ./setup
+        with:
+          tools: tuner
+          version: 0.7.0
+          skip-signature: maybe
+          token: ""
+          install-dir: ${{ runner.temp }}/bad
+      - id: bad-locked
+        continue-on-error: true
+        uses: ./setup
+        with:
+          tools: tuner
+          version: 0.7.0
+          locked: sometimes
+          token: ""
+          install-dir: ${{ runner.temp }}/bad
+      - name: Check bad values failed before anything was installed
+        shell: bash
+        env:
+          SKIP: ${{ steps.bad-skip.outcome }}
+          LOCKED: ${{ steps.bad-locked.outcome }}
+        run: |
+          set -eu
+          [ "$SKIP" = failure ] || { echo "skip-signature: maybe ended in '$SKIP'"; exit 1; }
+          [ "$LOCKED" = failure ] || { echo "locked: sometimes ended in '$LOCKED'"; exit 1; }
+          if [ -e "$RUNNER_TEMP/bad" ]; then
+            ls -la "$RUNNER_TEMP/bad"
+            echo "a bad input still installed something"
+            exit 1
+          fi
+          if [ -s "$RHYTHM_TEST_LOG" ]; then
+            cat "$RHYTHM_TEST_LOG"
+            echo "a bad input still ran rhythm"
+            exit 1
+          fi
+      # "Yes" is true under setup.sh's rule; the Windows installer step
+      # must see it the same way.
+      - id: skip
+        uses: ./setup
+        with:
+          tools: tuner
+          version: 0.7.0
+          skip-signature: "Yes"
+          token: ""
+          install-dir: ${{ runner.temp }}/skip
+      - name: Check the signature checks were skipped
+        shell: bash
+        run: |
+          set -eu
+          cat "$RHYTHM_TEST_LOG"
+          grep -q -- '^rhythm install .*--skip-signature' "$RHYTHM_TEST_LOG" || { echo "rhythm install wasn't given --skip-signature"; exit 1; }
+          if grep -q '^rhythm verify' "$RHYTHM_TEST_LOG"; then
+            echo "the installer checked rhythm's signature although skip-signature is Yes"
+            exit 1
+          fi
+          : >"$RHYTHM_TEST_LOG"
+      - id: checked
+        uses: ./setup
+        with:
+          tools: tuner
+          version: 0.7.0
+          skip-signature: "no"
+          token: ""
+          install-dir: ${{ runner.temp }}/checked
+      - name: Check the signature checks ran
+        shell: bash
+        run: |
+          set -eu
+          cat "$RHYTHM_TEST_LOG"
+          grep -q '^rhythm verify rhythm' "$RHYTHM_TEST_LOG" || { echo "the installer didn't run rhythm verify rhythm"; exit 1; }
+          if grep -q -- '--skip-signature' "$RHYTHM_TEST_LOG"; then
+            echo "skip-signature: no still skipped the checks"
+            exit 1
+          fi
