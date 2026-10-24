@@ -4,8 +4,9 @@ How `rhythm` and its tools are released and how a new tool is added, for maintai
 
 `rhythm` and each tool version independently with [semantic versioning](https://semver.org/). To release one:
 
-1. Make sure `master` is green in CI and has everything you want to ship.
-2. Tag the commit and push the tag:
+1. Make sure `master` is green in CI on Linux, macOS and Windows and has everything you want to ship.
+2. For `rhythm`, refresh the Sigstore trusted root the kit embeds and check the release config (see [Before a rhythm release](#before-a-rhythm-release)).
+3. Tag the commit and push the tag:
 
    ```sh
    git switch master && git pull
@@ -13,22 +14,36 @@ How `rhythm` and its tools are released and how a new tool is added, for maintai
    git push origin v0.3.2
    ```
 
-3. The repository's `release` workflow runs, builds every platform and publishes the GitHub release with notes generated from the commits.
-4. [Verify the release](#verify-a-release).
+4. The repository's `release` workflow runs, builds every platform and publishes the GitHub release with notes generated from the commits.
+5. [Verify the release](#verify-a-release).
 
-Any tag starting with `v` triggers a release, so only push tags you mean to ship. A tag with a suffix, like `v0.4.0-rc1`, is published as a **prerelease** (`release.prerelease: auto` in `.goreleaser.yaml`): GitHub never reports a prerelease as "latest", so `rhythm update` and the installers don't offer it. You can test it by downloading it directly.
+Any tag starting with `v` triggers a release, so only push tags you mean to ship. A tag with a suffix, like `v0.4.0-rc1`, is published as a **prerelease** (`release.prerelease: auto` in `.goreleaser.yaml`): GitHub never reports a prerelease as "latest", so `rhythm update` and the installers don't offer it. You can test it with `rhythm install tuner@0.4.0-rc1` or by downloading it directly.
 
 ## The release workflow
 
-Each repository's `.github/workflows/release.yml` runs on `push` of tags matching `v*` and calls the shared, reusable workflow [`release-go.yml`](https://github.com/RhythmShahriar/.github/blob/master/.github/workflows/release-go.yml) in `RhythmShahriar/.github`, with `contents: write` (to publish the release) and `id-token: write` (for keyless signing).
+Each repository's `.github/workflows/release.yml` runs on `push` of tags matching `v*` and calls the shared, reusable workflow [`release-go.yml`](https://github.com/RhythmShahriar/.github/blob/master/.github/workflows/release-go.yml) in `RhythmShahriar/.github`. The caller must grant all three permissions the workflow asks for, or GitHub refuses to start the release:
+
+```yaml
+jobs:
+  release:
+    uses: RhythmShahriar/.github/.github/workflows/release-go.yml@master
+    permissions:
+      contents: write       # publish the release
+      id-token: write       # keyless signing and attestations
+      attestations: write   # GitHub artifact attestations
+    secrets:
+      TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}   # optional, for package managers
+```
 
 `release-go.yml`:
 
-1. Checks out the full history, so GoReleaser can find the previous tag.
+1. Checks out the full history without keeping the token (`persist-credentials: false`), so GoReleaser can find the previous tag.
 2. Sets up Go from the repository's `go.mod`.
-3. Optionally links a checkout of `rhythm` with `go.work` (the `rhythm-kit` input; see [When the kit changes](#when-the-kit-changes)).
-4. Installs cosign.
-5. Runs `goreleaser release --clean`.
+3. Installs cosign v3.0.6 and syft v1.54.1.
+4. Runs GoReleaser v2.18.3 (`goreleaser release --clean`) with `GOWORK=off`, so the build uses exactly the kit version `go.mod` pins.
+5. Attests the build provenance of `checksums.txt`, every archive, SBOM and Linux package (`actions/attest-build-provenance`).
+
+Every action in it is pinned to a full commit SHA with its version in a comment. The tool versions are pinned too, so a moved tag upstream can't change what builds or signs a release. Dependabot keeps them current.
 
 GoReleaser reads the repository's [`.goreleaser.yaml`](https://github.com/RhythmShahriar/rhythm/blob/master/.goreleaser.yaml):
 
@@ -36,44 +51,88 @@ GoReleaser reads the repository's [`.goreleaser.yaml`](https://github.com/Rhythm
 |---|---|
 | Build | `linux`, `darwin`, `windows` × `amd64`, `arm64`; `CGO_ENABLED=0`, `-trimpath`; version stamped with `-X main.version` |
 | Archive | `<binary>_<os>_<arch>.tar.gz`, `.zip` on Windows, with README and LICENSE |
-| Checksums | `checksums.txt`, SHA-256 of every archive |
-| Sign | `cosign sign-blob` over `checksums.txt`, keyless, written to `checksums.txt.sigstore.json` |
+| SBOM | `<archive>.sbom.json`, SPDX 2.3 JSON written by syft for every archive |
+| Packages | `rhythm` only: `.deb`, `.rpm` and `.apk` for `amd64` and `arm64`, with the binary in `/usr/bin` and the license and README in `/usr/share/doc/rhythm` |
+| Checksums | `checksums.txt`, SHA-256 of every archive, SBOM and package |
+| Sign | `cosign sign-blob` over `checksums.txt`, keyless, written to `checksums.txt.sigstore.json` (the Sigstore bundle format cosign v3 writes) |
+| Package managers | `rhythm` only: a Homebrew cask, a Scoop manifest and a winget pull request, pushed with `TAP_GITHUB_TOKEN` (see [Package managers](#package-managers)) |
 | Notes | From GitHub, grouped into Features (`feat`), Fixes (`fix`), Performance (`perf`) and Other |
+
+Because SBOMs and packages are listed in `checksums.txt`, the one signature covers them too.
 
 ### The naming contract
 
 > [!IMPORTANT]
-> The archive names and `checksums.txt` are a contract. `kit/update` (used by `rhythm update` and `rhythm install`), `install.sh` and `install.ps1` look for exactly `<binary>_<os>_<arch>.tar.gz` (`.zip` on Windows) and `checksums.txt`. They refuse to install anything without a matching checksum line. Renaming the binary, the project or the archive template breaks installs and updates for every user.
+> The archive names, `checksums.txt` and `checksums.txt.sigstore.json` are a contract. `kit/update` (used by every rhythm command that installs), `install.sh` and `install.ps1` look for exactly `<binary>_<os>_<arch>.tar.gz` (`.zip` on Windows), `checksums.txt` and its signature at the tag `v<version>`. They refuse to install anything without a matching checksum line or a valid signature from `release-go.yml` for that repository and tag. Renaming the binary, the project, the archive template or the workflow breaks installs and updates for every user.
 
 Keep these in sync when adding a tool: the GoReleaser `project_name` must equal the binary name (`rhythm-<tool>`), so archives come out as `rhythm-<tool>_<os>_<arch>`.
 
+> [!WARNING]
+> The signing identity names `release-go.yml@refs/heads/master`, which is why every caller still uses the shared workflows `@master`. Moving them to a tag or SHA changes the identity users verify. It has to land in one change with the README, `.goreleaser.yaml`, both installers, [Verifying releases](Verifying-Releases) and the refs `kit/sigverify` accepts.
+
 ### CI checks before you tag
 
-The shared `ci-go.yml` workflow runs on every push to `master` and every pull request: `gofmt`, `go vet`, `golangci-lint`, `go test -race`, a build, `shellcheck` and `goreleaser check` to validate the release config. A clean CI run on the tagged commit is the best sign the release will build.
+The shared `ci-go.yml` workflow runs on every push to `master` and every pull request. On each runner in its `os` matrix: `go vet`, `go test -race`, a build and the optional benchmark. On Linux only: `gofmt`, `golangci-lint` v2.15.0, `shellcheck`, `actionlint`, the optional pinned-actions and writing-style checks, the kit pin check and `goreleaser check`. A separate job runs `govulncheck` and fails on a vulnerability in code the module calls.
+
+| Input | Default | Effect |
+|---|---|---|
+| `os` | `'["ubuntu-latest"]'` | JSON list of runners; `rhythm` uses Ubuntu, Windows and macOS. Check names become `go (<os>)`, so branch protection must name those. |
+| `pin-check` | `false` | fail when a third-party action isn't pinned to a 40-hex commit SHA (local actions and the shared workflows are exempt) |
+| `style` | `false` | run `check-style.py` (no em dashes, no comma before "and" or "but") |
+| `kit-pin-check` | `true` | fail when `go.mod` pins the kit more than one minor release behind the latest `rhythm` tag; skipped when there is no kit requirement |
+| `bench`, `bench-packages` | empty, `./...` | run one benchmark regexp once; a regexp that matches nothing gives a warning |
+| `tools-ref` | `master` | the ref of `RhythmShahriar/.github` the shared scripts load from |
+
+The old `rhythm-kit` input is gone: the kit is a normal `go.mod` requirement. A caller that still passes it gets an "invalid input" error from GitHub. `rhythm`'s own CI also runs the installer tests on all three systems (see [Contributing](Contributing#ci)) and a `packages` job that builds a snapshot release and checks it. A clean CI run on the tagged commit is the best sign the release will build.
+
+### Before a rhythm release
+
+| Target | Does |
+|---|---|
+| `make trusted-root` | refreshes `kit/sigverify/trusted_root.json` from Sigstore through TUF; commit the result |
+| `make release-check` | `goreleaser check` at v2.18.3 |
+| `make dist-check` | a snapshot release, then checks that every archive has an SBOM, every file is in `checksums.txt`, each package holds `/usr/bin/rhythm` and the winget manifests validate (needs syft on `PATH`) |
+| `make pins`, `make actionlint` | every third-party action pinned to a SHA; the workflows lint clean |
+| `make vuln` | `govulncheck` |
+
+To try the whole release workflow without publishing, run the **release-dry-run** workflow from the Actions tab on a branch. It calls `release-go.yml` with `snapshot: true`: it builds, signs and attests a snapshot and publishes nothing. It refuses to run on a tag, so a snapshot is never signed with a release tag as its source. Its attestations name the branch, which `gh attestation verify --source-ref refs/tags/v<version>` rejects.
+
+### Package managers
+
+The `rhythm` config also generates a Homebrew cask (`RhythmShahriar/homebrew-tap`), a Scoop manifest (`RhythmShahriar/scoop-bucket`) and a winget manifest (`RhythmShahriar.rhythm`, a pull request to `microsoft/winget-pkgs` from a fork). They are pushed only when the repository has the `TAP_GITHUB_TOKEN` secret, a fine-grained token with contents and pull-request write access on those repositories; without it they are generated into `dist/` and not uploaded. Prereleases are never pushed. Until those repositories and the secret exist, the `.deb`, `.rpm` and `.apk` assets and the installers are the way to install. The cask clears the quarantine flag on macOS, since the binaries aren't notarized.
+
+### Changing the shared workflows
+
+A change to `release-go.yml` or `ci-go.yml` can break every caller at once, since they all use `@master`. Merge in this order and say so in the release notes:
+
+1. **The callers first.** When the workflow will ask for a new permission (as `attestations: write` did), add it to `release.yml` in tuner, soundcheck, echo and rhythm. GitHub refuses to start a release that asks for more than its caller grants.
+2. **Tools behind on the kit.** `kit-pin-check` is on by default, so bump each tool's kit requirement (or set `kit-pin-check: false` as a stopgap) before the check lands, or its CI goes red.
+3. **Then `RhythmShahriar/.github`.**
+4. **Then the callers that use the new inputs.** `rhythm`'s `ci.yml` passes `os`, `pin-check`, `bench` and `bench-packages`, which a `ci-go.yml` without them rejects.
 
 ## When the kit changes
 
-Tools import the shared kit (`github.com/RhythmShahriar/rhythm/kit/...`) as a normal Go module, pinned in their `go.mod` (Tuner currently requires `github.com/RhythmShahriar/rhythm v0.1.0`, Soundcheck `v0.2.1`, Echo `v0.4.0`). A tool release builds against that pinned version, not against `rhythm`'s `master`. So when a tool needs a kit change, release in this order:
+Tools import the shared kit (`github.com/RhythmShahriar/rhythm/kit/...`) as a normal Go module, pinned in their `go.mod`. A tool release builds against that pinned version (`GOWORK=off`), never against `rhythm`'s `master`. So when a tool needs a kit change, release in this order:
 
-1. **Release `rhythm` first.** Merge the kit change and tag a new `rhythm` version, e.g. `v0.2.0`.
+1. **Tag the kit.** Merge the kit change and tag a new `rhythm` version, e.g. `v0.7.0`. The kit is part of the `rhythm` module, so this is a `rhythm` release.
 2. **Bump the tool.** In the tool repository:
 
    ```sh
-   go get github.com/RhythmShahriar/rhythm@v0.2.0
+   go get github.com/RhythmShahriar/rhythm@v0.7.0
    go mod tidy
-   git commit -am "build(deps): require rhythm v0.2.0"
+   git commit -am "build(deps): require rhythm v0.7.0"
    ```
 
 3. **Release the tool**, once that commit is green.
 
-Releasing `rhythm` first also means users who run `rhythm update` get the new `kit/update` logic in the router before any tool depends on it.
+Tagging the kit first also means users who run `rhythm update` get the new `kit/update` logic in the router before any tool depends on it. Keep every tool within one minor release of the latest kit: the kit pin check fails a tool that falls further behind, so kit security fixes can't silently stop reaching its users.
 
-<details>
-<summary>The <code>rhythm-kit</code> workflow input</summary>
+```console
+$ RHYTHM_KIT_LATEST=v0.6.0 sh .github/scripts/check-kit-pin.sh tuner/go.mod
+check-kit-pin: tuner/go.mod pins github.com/RhythmShahriar/rhythm v0.1.0 but the latest is v0.6.0; move to v0.5.0 or later
+```
 
-`ci-go.yml` and `release-go.yml` both accept `rhythm-kit: true`. It checks out `rhythm`'s default branch and links it with a `go.work` file outside the repository, so a tool can build against an untagged kit. It exists for a tool that doesn't yet require a tagged kit. Tuner doesn't use it; prefer tagging `rhythm` and pinning the version, so every release builds from a fixed, reproducible kit.
-
-</details>
+The check reads `go.mod` only, never `go.work`, takes the latest tag from `git ls-remote` (retried once after `RHYTHM_KIT_RETRY_DELAY` seconds, default 5) unless `RHYTHM_KIT_LATEST` is set and exits 0 when current, 1 when stale and 2 when it can't tell.
 
 ## Adding a new tool
 
@@ -83,9 +142,9 @@ Soundcheck is the worked example: a new repository, `RhythmShahriar/soundcheck`,
 
 - **Module and binary.** The module is `github.com/RhythmShahriar/<tool>` and the command lives in `cmd/rhythm-<tool>`. The binary must be `rhythm-<tool>`: the router runs `rhythm-<tool>` from the `PATH`.
 - **The kit.** Require a tagged `rhythm` for the kit (Soundcheck requires `v0.2.1`) and use it for the banner, theme, user folders, update notice and shared flags, so the tool looks and behaves like the others.
-- **The standard commands.** `version` (printing `rhythm-<tool> <version>`), `help`, the exit codes `0`, `1` (`--fail-on`), `2` (usage), `3` (couldn't run), `130` (interrupted) and `update`, which `rhythm update` calls after updating the binary to refresh the tool's data (for Soundcheck, its browser). An `update` with nothing to do should still exit `0`.
+- **The standard commands.** `version` (printing `rhythm-<tool> <version>`), `help`, the exit codes `0`, `1` (`--fail-on`), `2` (usage), `3` (couldn't run), `130` (interrupted) and `update`, which `rhythm update` calls after updating the binary to refresh the tool's data (for Soundcheck, its browser). An `update` with nothing to do should still exit `0`. `kit/cli.Main` gives a new tool all of these, plus `version --json`, `update --json` data packs and shell completion through `rhythm`; see [Extensions](Extensions#working-well-with-rhythm) for what each one buys.
 - **Responsible use.** A one-time notice through `kit/config.FirstRun` (Soundcheck's marker is `soundcheck-authorised-use`) and the background release check through `kit/update.Notice` with the tool's repository and binary.
-- **Release config.** Copy `.goreleaser.yaml`, `.github/workflows/release.yml` and `ci.yml` from an existing tool. Set `project_name` to the binary name so archives are named `rhythm-<tool>_<os>_<arch>`; see [the naming contract](#the-naming-contract).
+- **Release config.** Copy `.goreleaser.yaml`, `.github/workflows/release.yml` (with all three permissions) and `ci.yml` from an existing tool. Set `project_name` to the binary name so archives are named `rhythm-<tool>_<os>_<arch>`; see [the naming contract](#the-naming-contract). Copy rhythm's `sboms:` block too, so the tool's archives get SBOMs.
 - **Community files.** `make hooks` and the commit message hook, a README that links into this wiki, the license and private vulnerability reporting turned on in the repository's security settings.
 
 ### 2. Release the tool
@@ -94,19 +153,20 @@ Tag and push `v1.0.0` (or whatever the first version is) as in [Release a versio
 
 ### 3. Register it in the router
 
-The router only knows the tools listed in [`cmd/rhythm/main.go`](https://github.com/RhythmShahriar/rhythm/blob/master/cmd/rhythm/main.go): the `tools` map (name → repository), its `aliases` and the tools list in the help text. For Soundcheck and Echo:
+The router knows the tools listed in [`cmd/rhythm/tools.json`](https://github.com/RhythmShahriar/rhythm/blob/master/cmd/rhythm/tools.json). Add one entry:
 
-```go
-var tools = map[string]string{
-	"tuner":      "RhythmShahriar/tuner",
-	"soundcheck": "RhythmShahriar/soundcheck",
-	"echo":       "RhythmShahriar/echo",
+```json
+{
+  "name": "soundcheck",
+  "repo": "RhythmShahriar/soundcheck",
+  "aliases": ["sc"],
+  "description": "did my change break anything? whole-site before/after checks",
+  "default_install": true,
+  "min_rhythm": ""
 }
-
-var aliases = map[string]string{"t": "tuner", "sc": "soundcheck", "e": "echo"}
 ```
 
-To install it by default, add it to the installers' default `RHYTHM_TOOLS` (`tuner soundcheck echo` in `scripts/install.sh` and `scripts/install.ps1`) and to their "Get started" line. Then add the tool to the wiki: its pages, the sidebar, Home, Install, Updating, Uninstall and this page.
+`rhythm help`, did-you-mean, completion and `rhythm install` read it; `default_install: true` puts the tool in `rhythm install --defaults`, which the installers ask for their default list. Set `min_rhythm` when the tool needs a newer router than some users have. `go test ./cmd/rhythm` checks the file. The installers still carry a built-in list (`tuner soundcheck echo` in `scripts/install.sh` and `scripts/install.ps1`) for older routers and a "Get started" line per tool: add the tool to both. Then add the tool to the wiki: its pages, the sidebar, Home, Install, Updating, Uninstall and this page.
 
 ### 4. Release rhythm
 
@@ -122,7 +182,7 @@ rhythm (kit the tool needs)  →  the tool's first release  →  rhythm (registe
 2. **The tool**, requiring that `rhythm` version. For Echo, the one `v1.0.0` tag releases the binary and the npm package. `split-laravel.sh v1.0.0` then publishes the Laravel package (see [Echo's packages](#echos-packages)). A tool that others build on releases before them: Soundcheck `v1.1.0`, which imports Echo's `client` and `compare`, comes after Echo `v1.0.0`.
 3. **`rhythm` again**, registering the tool and installing it by default. For Echo, `v0.5.0` registers `echo` with the alias `e` and makes the installers default to `tuner soundcheck echo`.
 
-Registering a tool before it has a release breaks the installer: `rhythm install` finds no release and the installer stops (`installing <tool> failed`) for everyone using the default `RHYTHM_TOOLS`.
+Registering a tool as a default before it has a release breaks every fresh install: the installer installs the other tools, then ends with `Installed: tuner, soundcheck. Failed: echo (see above).` and exits 1 for everyone using the default `RHYTHM_TOOLS`.
 
 ## Echo's packages
 
@@ -175,7 +235,7 @@ If a checks change only behaves correctly on a newer `rhythm-tuner`, bump `min_t
 
 After the workflow finishes:
 
-1. **Assets.** The release has six archives, `checksums.txt` and `checksums.txt.sigstore.json`:
+1. **Assets.** The release has six archives, an SBOM for each, `checksums.txt` and `checksums.txt.sigstore.json`; a `rhythm` release also has two each of `.deb`, `.rpm` and `.apk`:
 
    ```sh
    gh release view v0.3.2 -R RhythmShahriar/tuner --json assets --jq '.assets[].name'
@@ -192,25 +252,30 @@ After the workflow finishes:
    Check pack   Pre-release  checks-latest   …
    ```
 
-3. **Signature.** Download `checksums.txt` and its bundle, then verify them as described in [Verifying Releases](Verifying-Releases):
+3. **Signature.** On a machine with the router, `rhythm install tuner@0.3.2 --dir "$(mktemp -d)"` should print `Signature ok  RhythmShahriar/tuner @ refs/tags/v0.3.2 (release-go.yml)`. By hand, download `checksums.txt` and its bundle and check them with cosign and gh as described in [Verifying releases](Verifying-Releases):
 
    ```sh
    gh release download v0.3.2 -R RhythmShahriar/tuner -p 'checksums.txt*'
    cosign verify-blob --bundle checksums.txt.sigstore.json \
-     --certificate-identity https://github.com/RhythmShahriar/.github/.github/workflows/release-go.yml@refs/heads/master \
      --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+     --certificate-identity https://github.com/RhythmShahriar/.github/.github/workflows/release-go.yml@refs/heads/master \
+     --certificate-github-workflow-repository RhythmShahriar/tuner \
+     --certificate-github-workflow-ref refs/tags/v0.3.2 \
      checksums.txt
+   gh attestation verify checksums.txt --repo RhythmShahriar/tuner \
+     --signer-workflow RhythmShahriar/.github/.github/workflows/release-go.yml \
+     --source-ref refs/tags/v0.3.2 --deny-self-hosted-runners
    ```
 
-4. **Update path.** On a machine with the previous version, `rhythm update --check` should offer the new one and `rhythm update` should install it:
+4. **Update path.** On a machine with the previous version, `rhythm update --check` should exit 10 and offer the new one. `rhythm update` should install it:
 
    ```text
    rhythm-tuner       0.3.1 → 0.3.2 available
    ```
 
-5. **Fresh install.** Run the installer in a clean environment, such as a throwaway container or VM. Then check `rhythm tuner --version`.
+5. **Fresh install.** Run the installer in a clean environment, such as a throwaway container or VM. Then check `rhythm list` (every tool `yes` under SIGNED) and `rhythm verify`.
 
-6. **Notes.** Read the generated release notes and edit them if a change needs more explanation, such as a breaking change.
+6. **Notes.** Read the generated release notes and edit them if a change needs more explanation, such as a breaking change or a [shared workflow change](#changing-the-shared-workflows) callers must follow.
 
 ---
 <sub>← [Contributing](Contributing) · [Home](Home) · [Architecture](Architecture) →</sub>
