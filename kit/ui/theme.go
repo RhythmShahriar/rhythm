@@ -1,8 +1,8 @@
 // Copyright (c) 2026 Rhythm Shahriar <me@rhy.io>
 // SPDX-License-Identifier: AGPL-3.0-only
 
-// Package ui holds the shared terminal theme, from the Rhythm brand tokens
-// (personal-portfolio/packages/brand/tokens.css): ink, paper and one dot.
+// Package ui holds the shared terminal theme, from the Rhythm brand
+// tokens: ink, paper and one dot.
 package ui
 
 import (
@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // Brand tokens.
@@ -86,17 +87,19 @@ func Panel(content string, color lipgloss.TerminalColor) string {
 		Padding(0, 2).MarginLeft(1).Render(content)
 }
 
-// Truncate shortens s to n cells, ending in "…".
+// Truncate shortens s to at most n terminal cells, ending in "…". Width
+// is counted in cells, so CJK characters and most emoji count as two, and
+// ANSI styling counts as none and is kept intact.
 func Truncate(s string, n int) string {
-	if r := []rune(s); len(r) > n {
-		return string(r[:max(0, n-1)]) + "…"
+	if n <= 0 {
+		return ""
 	}
-	return s
+	return ansi.Truncate(s, n, "…")
 }
 
-// Pad right-pads s with spaces to n cells (ANSI-aware).
+// Pad right-pads s with spaces to n terminal cells, counted like Truncate.
 func Pad(s string, n int) string {
-	if w := lipgloss.Width(s); w < n {
+	if w := ansi.StringWidth(s); w < n {
 		return s + strings.Repeat(" ", n-w)
 	}
 	return s
