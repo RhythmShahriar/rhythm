@@ -215,6 +215,8 @@ main() {
 		dir=$HOME/.local/bin
 	fi
 	mkdir -p "$dir" || die "can't create $dir"
+	# A relative folder would be wrong in a PATH hint and in what rhythm is told.
+	dir=$(CDPATH='' cd -- "$dir" && pwd) || die "can't open $dir"
 	if ! { cp "$tmp/rhythm" "$dir/.rhythm.new" && chmod 0755 "$dir/.rhythm.new" && mv -f "$dir/.rhythm.new" "$dir/rhythm"; }; then
 		die "can't write to $dir; set RHYTHM_INSTALL_DIR or rerun with sudo"
 	fi
