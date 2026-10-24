@@ -8,7 +8,9 @@ flowchart LR
   router -- "exec rhythm-tuner …" --> tuner["rhythm-tuner"]
   router -- "exec rhythm-soundcheck …" --> sc["rhythm-soundcheck"]
   router -- "exec rhythm-echo …" --> echo["rhythm-echo"]
-  router -. "install / update" .-> gh[("GitHub Releases")]
+  router -- "exec rhythm-&lt;name&gt; …" --> ext["extensions"]
+  router -. "install / update / verify / lock" .-> gh[("GitHub Releases")]
+  router -. "signature root (TUF)" .-> sigstore[("Sigstore")]
   tuner -. "check packs, update notice" .-> gh
   sc -. "update notice" .-> gh
   echo -. "update notice" .-> gh
@@ -18,13 +20,18 @@ flowchart LR
     ui["kit/ui<br/>theme"]
     config["kit/config<br/>user dirs"]
     update["kit/update<br/>verified installs"]
+    sigverify["kit/sigverify<br/>release signatures"]
     crawl["kit/crawl<br/>discovery"]
+    httpx["kit/httpx<br/>site-scoped HTTP"]
     rl["kit/ratelimit<br/>polite pacing"]
     cache["kit/cache<br/>disk cache"]
-    cli["kit/cli<br/>flag helpers"]
+    cli["kit/cli<br/>flags, help, tool skeleton"]
     secrets["kit/secrets<br/>masking"]
+    term["kit/term<br/>safe text"]
   end
   router --- update
+  router --- sigverify
+  router --- cli
   tuner --- ui
   tuner --- config
   tuner --- update
@@ -34,42 +41,91 @@ flowchart LR
 
 | Piece | Repository | Role |
 |---|---|---|
-| `rhythm` | [`RhythmShahriar/rhythm`](https://github.com/RhythmShahriar/rhythm) | Router CLI, `install`, `update`, install scripts |
+| `rhythm` | [`RhythmShahriar/rhythm`](https://github.com/RhythmShahriar/rhythm) | Router CLI and its commands (`install`, `update`, `list`, `verify`, `lock`, `bundle`, `ext`, `doctor`), the install scripts and the `setup` GitHub Action |
 | `kit/` | same repository, module `github.com/RhythmShahriar/rhythm` | Shared base every tool imports |
 | `rhythm-tuner` | [`RhythmShahriar/tuner`](https://github.com/RhythmShahriar/tuner) | WordPress & PHP security scanner |
 | `rhythm-soundcheck` | [`RhythmShahriar/soundcheck`](https://github.com/RhythmShahriar/soundcheck) | Whole-site before/after checks in a real browser |
 | `rhythm-echo` | [`RhythmShahriar/echo`](https://github.com/RhythmShahriar/echo) | Captures and compares what a site sends; seals staging. Also publishes the npm connector `@rhythmsh/echo` |
 | `rhythmsh/echo-laravel` | [`RhythmShahriar/echo-laravel`](https://github.com/RhythmShahriar/echo-laravel) | Echo's Laravel connector, split from `connectors/laravel` in the Echo repository for Packagist |
-| Shared workflows | [`RhythmShahriar/.github`](https://github.com/RhythmShahriar/.github) | Reusable CI, commit lint and release workflows, community files |
+| Shared workflows | [`RhythmShahriar/.github`](https://github.com/RhythmShahriar/.github) | Reusable CI, commit lint and release workflows, the writing-style, header and kit-pin scripts, community files |
 
 ## The router
 
-`rhythm` is deliberately thin. It follows the same extension model as `git` and `gh`:
+`rhythm` follows the same extension model as `git` and `gh`: it runs tools it doesn't contain.
 
-- `rhythm <tool> [args]` looks up `rhythm-<tool>` on your `PATH` and runs it with the remaining arguments, passing stdin, stdout and stderr straight through. The tool's exit code becomes `rhythm`'s exit code, so `rhythm tuner scan … --fail-on high` works in CI exactly like `rhythm-tuner scan … --fail-on high`.
-- **Aliases** are short names: `t` → `tuner`, `sc` → `soundcheck`, `e` → `echo`. They work for running and for `rhythm install`.
-- If the binary isn't found, a known tool gets `rhythm: tuner isn't installed` with the install command; an unknown name gets `rhythm: unknown tool "<name>"`.
-- `rhythm` handles four commands itself: `help`, `version`, `install <tool> [--dir]` and `update [--check]`. Anything else is treated as a tool name.
+- `rhythm <tool> [args]` looks up `rhythm-<tool>` on your `PATH` and runs it with the remaining arguments. On Linux and macOS it replaces itself with the tool (exec), so signals reach the tool directly and its exit code is rhythm's; on Windows it runs the tool as a child and waits. It sets `RHYTHM_INVOKED_AS` (`rhythm sc`) so the tool's help shows what you typed.
+- **Aliases** are short names: `t` → `tuner`, `sc` → `soundcheck`, `e` → `echo`. They work wherever a tool name does.
+- A name is checked before any lookup (`^[a-z0-9][a-z0-9-]{0,63}$`), so `rhythm /../evil` never reaches the file system. An unknown name gets a did-you-mean, a known tool that isn't installed exits 3 with the install command. See [Command reference](Command-Reference#running-a-tool).
+- Any other executable `rhythm-<name>` on the `PATH` runs too. [Extensions](Extensions) installed with `rhythm ext` are also updated, locked and verified.
 
-The router knows which tools exist (`tuner`, `soundcheck` and, from rhythm v0.5.0, `echo` with its alias `e`) and which GitHub repository each comes from, through a small table in [`cmd/rhythm/main.go`](https://github.com/RhythmShahriar/rhythm/blob/master/cmd/rhythm/main.go). `rhythm update` uses it to find installed tools on the `PATH`, update each binary, then run `rhythm-<tool> update` so each tool refreshes its own data. See [Updating](Updating).
+### Commands and the registry
+
+The commands live in [`cmd/rhythm`](https://github.com/RhythmShahriar/rhythm/tree/master/cmd/rhythm), one file each. Each registers itself in a command table, which `rhythm help`, did-you-mean and shell completion read. Completion reads each command's flags from its own `--help`. A name that isn't a command is a tool.
+
+The tools rhythm knows are data, in [`cmd/rhythm/tools.json`](https://github.com/RhythmShahriar/rhythm/blob/master/cmd/rhythm/tools.json), embedded at build time:
+
+```json
+{
+  "name": "echo",
+  "repo": "RhythmShahriar/echo",
+  "aliases": ["e"],
+  "description": "is my site still saying what it should? every email, SMS and webhook",
+  "default_install": true,
+  "min_rhythm": ""
+}
+```
+
+Help's Tools block, `rhythm install --defaults` (the tools with `default_install`), the installers' default tools and did-you-mean all come from it. A tool with a `min_rhythm` newer than the running rhythm is listed as `(needs rhythm >= 0.9.0)`. The file is validated when rhythm starts, so the tests catch unknown keys, duplicate names or aliases, bad names and a `repo` that isn't `owner/name`. Adding a tool is one entry here; see [Release process](Release-Process#adding-a-new-tool).
+
+### Installing and verifying
+
+`rhythm install`, `update`, `lock`, `bundle` and `verify` share one path through `kit/update` and `kit/sigverify`:
+
+```mermaid
+flowchart TD
+  A["Resolve the release<br/>latest, tool@version, --to, --min-age, rhythm.lock"] --> B["Download checksums.txt<br/>and checksums.txt.sigstore.json"]
+  B --> C{"Signature<br/>kit/sigverify"}
+  C -- "refused" --> X["install nothing"]
+  C -- "ok, signer recorded" --> D["Archive: cache or download,<br/>hashed while it streams"]
+  D --> E{"sha256 matches checksums.txt<br/>(and rhythm.lock)?"}
+  E -- "no" --> X
+  E -- "yes" --> F["Unpack the binary next to the old one"]
+  F --> G["Keep the old one as .prev,<br/>rename the new one into place"]
+  G --> H["Record the sha256 in verified.json"]
+```
+
+The signer is pinned per repository: rhythm and its tools must be signed by the shared `release-go.yml` workflow for that repository and tag; an extension by a workflow of its own repository. The Sigstore trusted root is refreshed through TUF on the first check of a command and falls back to the root built into rhythm when that fails or when `RHYTHM_OFFLINE` is set. See [Verifying releases](Verifying-Releases).
+
+Three internal packages hold the router's own formats:
+
+| Package | Holds |
+|---|---|
+| `internal/lock` | `rhythm.lock` (`rhythm-lock/v1`): strict reading, atomic writing, the search up to the git root, the diff `update --lock` prints; and `extensions.json` (`rhythm-extensions/v1`) |
+| `internal/bundle` | offline bundles (`rhythm-bundle/v1`): writing, validating the whole tar before anything is read and serving it to `kit/update` as a release source |
+| `internal/ext` | extension names and specs, the signer rule and the GitHub search |
+
+`rhythm update` uses the registry and `extensions.json` to find installed tools on the `PATH`, updates each binary, then runs `rhythm-<tool> update` so each tool refreshes its own data (`update --json` for tools on `kit/cli`, which report their data packs). Copies a package manager owns, including mise, asdf and Scoop shims, are left to that manager. See [Updating](Updating).
 
 ## The kit
 
-`kit/` is a Go module every tool imports, so every tool looks the same and installs and updates the same way.
+`kit/` is a Go module every tool imports, so every tool looks the same and installs and updates the same way. `kit.Version()` reports the kit version a program was built with.
 
 | Package | What it provides |
 |---|---|
-| `kit` | `Banner`, the standard header line: `♪ rhythm tuner  0.3.1` |
-| `kit/ui` | The terminal theme, built from the Rhythm brand tokens: **Ink** `#100F0D`, **Paper** `#FFFFFF` and one signal color, **Dot** `#FF7C52` (a deeper `#E8603A` on light backgrounds). Severities use conventional colors: critical red, high orange, medium yellow, low blue, ok green, muted gray. Built on Lip Gloss. |
-| `kit/config` | The per-user config directory (`~/.config/rhythm` or the OS equivalent) and `FirstRun`, which records one-time notices such as Tuner's responsible-use note |
-| `kit/update` | Finding the latest GitHub release, comparing semantic versions, downloading the `<binary>_<os>_<arch>` archive, verifying it against `checksums.txt` and swapping the binary atomically. Also the once-a-day update check, which honors `RHYTHM_NO_UPDATE_CHECK` and `CI`. Also `Notice`, which runs it in the background during a command. |
-| `kit/crawl` | Site discovery: `robots.txt`, sitemaps (indexes, gzip) and links (or none, with `NoFollow`, for a caller that follows links itself), URL normalization (tracking parameters, trailing slashes), same-site rules, the `DefaultExcludes` for admin, login, cart and logout URLs and grouping pages by URL pattern (`/product/{slug}`, `/?page_id={slug}`) so a large site is checked through samples. Its `Frontier` takes more pages while a browser renders them; the start page and pages listed by the user get past include, robots and grouping. |
-| `kit/ratelimit` | An even request pace per host that halves after `429` or `503` (down to one request every two seconds), `Retry-After` handling up to 30 s, backoff and `ParseTarget`, which turns `yoursite.com` or a URL into the site to check. |
-| `kit/cache` | A small on-disk JSON cache with a TTL and stale fallback when the network is down, plus atomic `WriteFile` and `WriteJSON`. |
-| `kit/cli` | Flag helpers shared by every tool: flags before or after positional arguments, comma-separated and repeatable list flags, usage errors that map to exit code 2, terminal detection. |
-| `kit/secrets` | Finding and masking credentials in text: cloud, payment and messaging provider keys (Stripe, Twilio, SendGrid, Mailgun, Resend, Postmark, Slack webhook URLs, `whsec_` secrets…), authorization headers, URLs with credentials, secret-looking keys in config, JSON and form bodies. `Redact` masks them in place, keeping a short prefix. |
+| `kit` | `Banner`, the standard header line: `♪ rhythm tuner  0.3.1`; `Version` |
+| `kit/ui` | The terminal theme, built from the Rhythm brand tokens: **Ink** `#100F0D`, **Paper** `#FFFFFF` and one signal color, **Dot** `#FF7C52` (a deeper `#E8603A` on light backgrounds). Severities use conventional colors: critical red, high orange, medium yellow, low blue, ok green, muted gray. Built on Lip Gloss. `Truncate` and `Pad` count terminal cells, so CJK text and emoji line up. |
+| `kit/config` | The per-user config and cache folders (`~/.config/rhythm`, `~/.cache/rhythm/<tool>` or the OS equivalents, moved with `RHYTHM_CONFIG_DIR` and `RHYTHM_CACHE_DIR`) and `FirstRun`, which records one-time notices such as Tuner's responsible-use note |
+| `kit/update` | Release lookup (`Latest`, `ByTag`, `Resolve` for `0.3.1`, `0.3` or `latest`, `MinAge` for a cooldown), the verified install (signature through a `Verifier`, `checksums.txt`, an expected sha256, size caps, a download cache, progress), the atomic swap with a `.prev` copy and `Rollback`, typed errors (`ErrUnreachable`, `ErrRateLimited`, `ErrNoRelease`, `ErrChecksum`, `ErrSignature`, `ErrTooNew`, `ErrOffline`), pluggable release sources and the once-a-day update check with `Notice`. Tokens follow the [one rule](Command-Reference#release-api-and-tokens) and only `https` is used. |
+| `kit/sigverify` | Checks the Sigstore bundle over a release's `checksums.txt`: Fulcio certificate, Rekor entry, timestamp, the OIDC issuer, the `release-go.yml` identity, the source repository and the tag. Reads both the current Sigstore bundle format and the older cosign one. Embeds a trusted root and refreshes it through TUF. `sigverifytest` signs fake releases for tests. |
+| `kit/crawl` | Site discovery: `robots.txt` (RFC 9309: an unreachable one allows only the start page), sitemaps on the site only (indexes, gzip, at most 1000 files) and links (or none, with `NoFollow`, for a caller that follows links itself), URL normalization, the same-site rule (host, scheme and port), case-insensitive include and exclude patterns, the `DefaultExcludes` for admin, login, logout, unsubscribe, confirm and nonce URLs and grouping pages by URL pattern (`/product/{slug}`) so a large site is checked through samples. Its `Frontier` takes more pages while a browser renders them. |
+| `kit/httpx` | One polite HTTP client for every tool: a per-host pace, retries that honor `Retry-After`, a 30 s timeout and 5 MB body cap by default, redirects only on the site, the user's `-H` headers sent only to the target host and a guard that refuses private and cloud-metadata addresses unless the target is one. A debug log with every header masked. |
+| `kit/ratelimit` | An even request pace per host that halves after `429` or `503` (down to one request every two seconds) and never speeds up on its own, `Retry-After` handling up to 30 s, backoff and `Validate` for rate flags. |
+| `kit/cache` | A small on-disk JSON cache with a TTL and stale fallback when the network is down, one fetch for concurrent callers, file names that never carry a key's credentials, plus atomic `WriteFile` and `WriteJSON`. |
+| `kit/cli` | The shared command-line skeleton: `Main` for a whole tool (commands, help, `version --json`, `update --json` data packs, completion, exit codes, the first-run note and the release notice), flag sets with gh-style help, did-you-mean (`Suggest`), `ParseFailOn` and the exit codes 0, 1, 2, 3 and 130. |
+| `kit/secrets` | Finding and masking credentials in text with 96 rules: cloud, payment, messaging, source-control and AI provider keys, JWTs, cookies, authorization and `x-*-token` headers, URLs with passwords, reset and magic-link tokens, form fields, env, YAML, JSON and PHP-serialized values, PEM private keys. `Redact` keeps at most four leading characters; `Rules` lists every rule. |
+| `kit/term` | Safe text from untrusted sources: control and bidi characters made visible or replaced for terminals, Markdown escaping, inline code and links for http(s) URLs only. |
 
-`kit/ui` also has the shared report pieces: severity badges, section rules and the summary panel. Soundcheck uses `kit/crawl`, `kit/ratelimit`, `kit/cache` and `kit/cli`; Echo uses `kit/ui`, `kit/cli`, `kit/cache`, `kit/config`, `kit/update` and `kit/secrets`; Tuner can adopt them when it moves to a newer kit.
+`kit/ui` also has the shared report pieces: severity badges, section rules and the summary panel. Soundcheck uses `kit/crawl`, `kit/ratelimit`, `kit/cache` and `kit/cli`; Echo uses `kit/ui`, `kit/cli`, `kit/cache`, `kit/config`, `kit/update` and `kit/secrets`. The tools adopt `kit/cli.Main`, `kit/httpx` and `kit/term` as they move to the newer kit. The kit's changes reach users only once a kit version is tagged and each tool moves to it.
 
 `kit/update` relies on a naming contract with every repository's GoReleaser config; see [Release Process](Release-Process#the-naming-contract).
 
@@ -77,10 +133,10 @@ The router knows which tools exist (`tuner`, `soundcheck` and, from rhythm v0.5.
 
 Each tool is its own repository, with its own version numbers, changelog and release cadence. A Tuner release doesn't need a `rhythm` release. The same goes the other way round. They share:
 
-- the release workflow and GoReleaser layout, so every release has the same archive names, `checksums.txt` and cosign signature;
-- the kit, pinned by version in each tool's `go.mod`.
+- the release workflow and GoReleaser layout, so every release has the same archive names, `checksums.txt`, Sigstore signature and attestations;
+- the kit, pinned by version in each tool's `go.mod`. CI fails a tool whose pin falls more than one minor release behind.
 
-When a kit change is needed by a tool, `rhythm` is released first and the tool bumps its requirement; see [Release Process](Release-Process#when-the-kit-changes). For local development the repositories sit side by side, linked by a `go.work` file; see [Contributing](Contributing#set-up).
+When a kit change is needed by a tool, the kit is tagged (it is a `rhythm` release) and the tool bumps its requirement; see [Release Process](Release-Process#when-the-kit-changes). For local development the repositories sit side by side, linked by a `go.work` file; see [Contributing](Contributing#set-up).
 
 ## Inside Tuner
 
