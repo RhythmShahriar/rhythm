@@ -6,6 +6,13 @@
 - [Uninstall](Uninstall)
 - [Verifying releases](Verifying-Releases)
 
+**rhythm in depth**
+- [Command reference](Command-Reference)
+- [Pinning and locking](Pinning-And-Locking)
+- [Offline installs](Offline-Installs)
+- [CI setup](CI-Setup)
+- [Extensions](Extensions)
+
 **Tuner**
 - [Overview](Tuner)
 - [Your first scan](Tuner-First-Scan)

@@ -31,6 +31,8 @@ rhythm echo up                                    # seal staging: nothing the si
 rhythm echo compare                               # after a change: what the site no longer sends
 ```
 
+In CI, `uses: RhythmShahriar/rhythm/setup@v0.7.0` does the same on GitHub Actions ([CI setup](CI-Setup)). Every release is signature checked before it is installed ([Verifying releases](Verifying-Releases)). `rhythm.lock` pins a project's versions for every laptop and pipeline ([Pinning and locking](Pinning-And-Locking)).
+
 New here? For security, follow **[Your first scan](Tuner-First-Scan)**. Before your next plugin update or deploy, follow **[Your first check](Soundcheck-First-Check)**. To seal a staging site and check its emails, SMS and webhooks, follow **[Your first run](Echo-First-Run)**.
 
 ## Find your way
@@ -44,6 +46,13 @@ New here? For security, follow **[Your first scan](Tuner-First-Scan)**. Before y
 - [Updating](Updating)
 - [Uninstall](Uninstall)
 - [Verifying releases](Verifying-Releases)
+
+### rhythm in depth
+- [Command reference](Command-Reference)
+- [Pinning and locking](Pinning-And-Locking)
+- [Offline installs](Offline-Installs)
+- [CI setup](CI-Setup)
+- [Extensions](Extensions)
 
 </td>
 <td width="25%" valign="top">
@@ -136,7 +145,8 @@ New here? For security, follow **[Your first scan](Tuner-First-Scan)**. Before y
 | [Responsible use](Responsible-Use) | check only sites you own or may test; what the tools never do; personal data in Echo's captures |
 | [Security policy](Security-Policy) | report a vulnerability in Rhythm, Tuner, Soundcheck or Echo privately |
 | [Contributing](Contributing) | set up, commit conventions, pull requests |
-| [Release process](Release-Process) | how releases, check packs and Echo's npm and Composer packages ship |
+| [Release process](Release-Process) | how releases, their signatures, attestations, SBOMs and packages, check packs and Echo's npm and Composer packages ship |
 | [Architecture](Architecture) | how rhythm, the kit and the tools fit together |
+| [Command reference](Command-Reference) | every `rhythm` command, flag, exit code, JSON document and environment variable |
 
 Repositories: [rhythm](https://github.com/RhythmShahriar/rhythm) · [tuner](https://github.com/RhythmShahriar/tuner) · [soundcheck](https://github.com/RhythmShahriar/soundcheck) · [echo](https://github.com/RhythmShahriar/echo) · [community files](https://github.com/RhythmShahriar/.github)

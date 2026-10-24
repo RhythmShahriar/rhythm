@@ -81,4 +81,4 @@ New checks arrive as a checksum-verified *check pack*, without a new binary. See
 | Fix a problem | [FAQ and troubleshooting](Tuner-FAQ) |
 
 ---
-<sub>← [Verifying releases](Verifying-Releases) · [Home](Home) · [Your first scan](Tuner-First-Scan) →</sub>
+<sub>← [Extensions](Extensions) · [Home](Home) · [Your first scan](Tuner-First-Scan) →</sub>
