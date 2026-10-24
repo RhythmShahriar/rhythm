@@ -87,6 +87,12 @@ type Command struct {
 	// other exit code and any other error when the run failed (exit 3).
 	// cli.ErrHelp, as ParseArgs returns it, exits 0.
 	Run func(ctx context.Context, args []string, stdout, stderr io.Writer) error
+
+	// Complete, when set, offers values for the word being typed after
+	// the command's name in shell completion: args are the words after
+	// the name, the last one being the word under the cursor (it may be
+	// empty). Flags are completed from the command's --help without it.
+	Complete func(args []string) []string
 }
 
 // DataPack is one piece of data a tool downloads and keeps, as reported
@@ -131,7 +137,8 @@ var noticeWait = 200 * time.Millisecond
 // rhythm-data/v1 document; exit 3 when it fails). Commands run under a
 // context canceled by Ctrl-C or SIGTERM, which exits 130. While a command
 // runs, Main checks for a newer release in the background, unless the
-// tool is offline and prints the notice at the end.
+// tool is offline and prints the notice at the end. The hidden
+// __complete command (CompleteCommand) answers shell completion.
 func Main(t Tool) int {
 	return t.main(os.Args[1:], os.Stdout, os.Stderr)
 }
@@ -159,6 +166,8 @@ func (t Tool) main(args []string, stdout, stderr io.Writer) int {
 		return t.version(prog, args[1:], stdout, stderr)
 	case name == "update" && t.Update != nil:
 		return t.update(ctx, prog, args[1:], stdout, stderr)
+	case name == CompleteCommand:
+		return t.complete(ctx, args[1:], stdout)
 	}
 
 	c, ok := t.command(args[0])
@@ -237,7 +246,7 @@ func exitFor(stderr io.Writer, prog, cmd string, err error) int {
 // check panics on a Tool that can't work, a bug every test of the tool's
 // main would hit.
 func (t Tool) check() {
-	reserved := map[string]bool{"help": true, "version": true}
+	reserved := map[string]bool{"help": true, "version": true, CompleteCommand: true}
 	if t.Update != nil {
 		reserved["update"] = true
 	}
