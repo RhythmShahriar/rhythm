@@ -76,8 +76,8 @@ func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 			// The server asked for less traffic: every later request
 			// to this host goes slower, retried or not.
 			lim.Slow()
-			if retryable && n < t.opts.Retries {
-				wait := ratelimit.RetryAfter(resp.Header.Get("Retry-After"), n)
+			wait := ratelimit.RetryAfter(resp.Header.Get("Retry-After"), n)
+			if retryable && n < t.opts.Retries && !pastDeadline(ctx, wait) {
 				// Drain a little so the connection can be reused.
 				_, _ = io.CopyN(io.Discard, resp.Body, 4<<10)
 				_ = resp.Body.Close()
@@ -141,6 +141,14 @@ func (t *transport) scopeHeaders(r *http.Request) {
 // offTarget are the headers that carry credentials and never leave the
 // target, whoever set them.
 var offTarget = []string{"Authorization", "Cookie", "Cookie2", "Proxy-Authorization"}
+
+// pastDeadline reports whether waiting d would run past ctx's deadline
+// (the client's Timeout). Then the retry would only end in a timeout, so
+// the server's answer is returned instead.
+func pastDeadline(ctx context.Context, d time.Duration) bool {
+	dl, ok := ctx.Deadline()
+	return ok && time.Until(dl) <= d
+}
 
 // idempotent reports whether a request with method may be sent again.
 func idempotent(method string) bool {

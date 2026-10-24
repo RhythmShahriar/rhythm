@@ -257,7 +257,7 @@ func TestRetryAfterHonored(t *testing.T) {
 			fmt.Fprint(w, "ok")
 		}
 	}))
-	c := New(Options{Target: mustURL(t, srv.URL), Retries: 2})
+	c := New(Options{Target: mustURL(t, srv.URL), Retries: 2, Timeout: time.Minute})
 	clock := withClock(c)
 	resp, err := get(t, c, srv.URL)
 	if err != nil {
@@ -270,6 +270,27 @@ func TestRetryAfterHonored(t *testing.T) {
 	}
 	if want := []time.Duration{7 * time.Second, 30 * time.Second}; fmt.Sprint(clock.waits) != fmt.Sprint(want) {
 		t.Errorf("waits = %v, want %v", clock.waits, want)
+	}
+}
+
+// A Retry-After that runs past the client's Timeout is not waited out:
+// the server's 429 comes back instead of a timeout error.
+func TestRetryAfterPastTimeout(t *testing.T) {
+	var hits int
+	srv := serve(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		w.Header().Set("Retry-After", "30")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	c := New(Options{Target: mustURL(t, srv.URL), Retries: 2, Timeout: 5 * time.Second})
+	clock := withClock(c)
+	resp, err := get(t, c, srv.URL)
+	if err != nil {
+		t.Fatalf("err = %v, want the 429", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusTooManyRequests || hits != 1 || len(clock.waits) != 0 {
+		t.Errorf("status %d after %d requests, waits %v", resp.StatusCode, hits, clock.waits)
 	}
 }
 

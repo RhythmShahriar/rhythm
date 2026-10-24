@@ -54,8 +54,11 @@ type Options struct {
 	// Rate is requests per second per host; 0 means unlimited until a
 	// server answers 429 or 503 (see ratelimit.New).
 	Rate float64
-	// Timeout bounds each request including redirects and reading the
-	// body. 0 means DefaultTimeout and a negative value means none.
+	// Timeout bounds each request including redirects, retries, the
+	// waits between them and reading the body. 0 means DefaultTimeout
+	// and a negative value means none. A Retry-After that would run past
+	// it is not waited out: the 429 or 503 is returned instead, so the
+	// caller sees the server's answer and not a timeout.
 	Timeout time.Duration
 	// MaxBody is the most bytes read from a response body; reading past
 	// it returns ErrBodyTooLarge. 0 means DefaultMaxBody and a negative
