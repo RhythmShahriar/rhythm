@@ -153,14 +153,15 @@ $BaseUrl = "http://127.0.0.1:$((Get-Content $PortFile).Trim())"
 
 # Stand-ins for cosign and gh, each in its own folder so a case can have
 # either. They log their argv to $FAKE_SIG_LOG. cosign exits
-# $FAKE_COSIGN_EXIT; gh is logged in unless FAKE_GH_AUTH=1 and its
-# attestation check exits 1 when FAKE_GH_EXIT=1.
+# $FAKE_COSIGN_EXIT; gh is logged in unless FAKE_GH_AUTH=1, has
+# --source-ref unless FAKE_GH_OLD=1 and its attestation check exits 1 when
+# FAKE_GH_EXIT=1.
 $CosignBin = Join-Path $Work 'cosignbin'
 $GhBin = Join-Path $Work 'ghbin'
 New-Item -ItemType Directory -Force -Path $CosignBin, $GhBin | Out-Null
 if ($OnWindows) {
     [IO.File]::WriteAllText((Join-Path $CosignBin 'cosign.cmd'), "@echo off`r`necho cosign %*>>`"%FAKE_SIG_LOG%`"`r`nif `"%FAKE_COSIGN_EXIT%`"==`"1`" (echo Error: none of the expected identities matched what was in the certificate 1>&2& exit /b 1)`r`nexit /b 0`r`n", $Utf8)
-    [IO.File]::WriteAllText((Join-Path $GhBin 'gh.cmd'), "@echo off`r`nif `"%~1 %~2`"==`"auth status`" (if `"%FAKE_GH_AUTH%`"==`"1`" (exit /b 1) else (exit /b 0))`r`nif `"%~1 %~2 %~3`"==`"attestation verify --help`" (echo       --source-ref string& exit /b 0)`r`necho gh %*>>`"%FAKE_SIG_LOG%`"`r`nif `"%FAKE_GH_EXIT%`"==`"1`" (echo Error: no attestations found 1>&2& exit /b 1)`r`nexit /b 0`r`n", $Utf8)
+    [IO.File]::WriteAllText((Join-Path $GhBin 'gh.cmd'), "@echo off`r`nif `"%~1 %~2`"==`"auth status`" (if `"%FAKE_GH_AUTH%`"==`"1`" (exit /b 1) else (exit /b 0))`r`nif `"%~1 %~2 %~3`"==`"attestation verify --help`" (if `"%FAKE_GH_OLD%`"==`"1`" (exit /b 0) else (echo       --source-ref string& exit /b 0))`r`necho gh %*>>`"%FAKE_SIG_LOG%`"`r`nif `"%FAKE_GH_EXIT%`"==`"1`" (echo Error: no attestations found 1>&2& exit /b 1)`r`nexit /b 0`r`n", $Utf8)
 }
 else {
     [IO.File]::WriteAllText((Join-Path $CosignBin 'cosign'), @'
@@ -173,7 +174,7 @@ exit "${FAKE_COSIGN_EXIT:-0}"
 #!/bin/sh
 case "$*" in
 "auth status") exit "${FAKE_GH_AUTH:-0}" ;;
-"attestation verify --help") echo '      --source-ref string' && exit 0 ;;
+"attestation verify --help") [ "${FAKE_GH_OLD:-}" = 1 ] || echo '      --source-ref string'; exit 0 ;;
 esac
 printf 'gh %s\n' "$*" >>"$FAKE_SIG_LOG"
 [ "${FAKE_GH_EXIT:-0}" = 0 ] || echo 'Error: no attestations found' >&2
@@ -194,7 +195,8 @@ New-Item -ItemType Directory -Force -Path $NoGh | Out-Null
 $Vars = 'RHYTHM_GITHUB_API', 'RHYTHM_INSTALL_DIR', 'RHYTHM_VERSION', 'RHYTHM_TOOLS', 'RHYTHM_ARCH',
 'RHYTHM_TEST_LOG', 'GITHUB_TOKEN', 'RHYTHM_GITHUB_TOKEN', 'MOCK_LOG', 'TEMP', 'TMP', 'TMPDIR',
 'PATH', 'GH_TOKEN', 'GH_CONFIG_DIR', 'RHYTHM_SKIP_SIGNATURE', 'RHYTHM_TEST_VERIFY',
-'FAKE_SIG_LOG', 'FAKE_COSIGN_EXIT', 'FAKE_GH_AUTH', 'FAKE_GH_EXIT', 'RHYTHM_TEST_DEFAULTS', 'RHYTHM_LOCKED'
+'FAKE_SIG_LOG', 'FAKE_COSIGN_EXIT', 'FAKE_GH_AUTH', 'FAKE_GH_EXIT', 'FAKE_GH_OLD', 'RHYTHM_TEST_DEFAULTS', 'RHYTHM_LOCKED',
+'RHYTHM_TEST_ALREADY', 'RHYTHM_INSTALL_TIMEOUT'
 
 # Set-Var sets an environment variable, or deletes it for $null. PowerShell
 # would pass $null to .NET as '', which .NET 9 and later keep as a value.
@@ -580,12 +582,19 @@ function Case-signature_gh {
     Assert-Out 'rhythm install: gh found no attestation that RhythmShahriar/rhythm v0.7.0 made this checksums.txt; nothing was installed.'
     Assert-NoInstall 'a failed attestation'
 
-    # gh without a login can't ask for attestations.
+    # gh without a login can't ask for attestations; one without
+    # --source-ref can't pin the tag. The line says which.
     Clear-SigLog
     Invoke-Install @{ PATH = "$GhBin$Sep$SysPath"; FAKE_GH_AUTH = '1' }
     Assert-Code 0
-    Assert-Out 'signature not checked here (no cosign or gh); rhythm will verify itself and every tool it installs'
+    Assert-Out 'signature not checked here (gh is not logged in); rhythm will verify itself and every tool it installs'
+    Assert-NoOut 'no cosign or gh'
+    Assert-NoOut 'warning: signature'
     if ((Get-SigLog).Count) { Fail 'gh ran without a login' }
+    Invoke-Install @{ PATH = "$GhBin$Sep$SysPath"; FAKE_GH_OLD = '1' }
+    Assert-Code 0
+    Assert-Out 'signature not checked here (gh is too old to pin the tag); rhythm will verify itself and every tool it installs'
+    if ((Get-SigLog).Count) { Fail 'gh ran without --source-ref' }
 }
 
 function Case-signature_none {
@@ -597,8 +606,19 @@ function Case-signature_none {
     # cosign can't check a release without a bundle; gh isn't there.
     Invoke-Install @{ PATH = "$CosignBin$Sep$SysPath"; RHYTHM_VERSION = '9.0.4' }
     Assert-Code 0
-    Assert-Out 'signature not checked here (the release has no checksums.txt.sigstore.json); rhythm will verify itself'
+    Assert-Out 'warning: signature not checked here (the release has no checksums.txt.sigstore.json); rhythm will verify itself and every tool it installs'
     if ((Get-SigLog).Count) { Fail 'cosign ran without a bundle' }
+
+    # The same with a gh that can't be used names both reasons.
+    Invoke-Install @{ PATH = "$CosignBin$Sep$GhBin$Sep$SysPath"; RHYTHM_VERSION = '9.0.4'; FAKE_GH_AUTH = '1' }
+    Assert-Code 0
+    Assert-Out 'warning: signature not checked here (the release has no checksums.txt.sigstore.json and gh is not logged in);'
+
+    # gh still checks a release without a bundle.
+    Invoke-Install @{ PATH = "$CosignBin$Sep$GhBin$Sep$SysPath"; RHYTHM_VERSION = '9.0.4' }
+    Assert-Code 0
+    Assert-Out 'Signature ok  RhythmShahriar/rhythm @ refs/tags/v9.0.4 (gh attestation)'
+    Assert-NoOut 'signature not checked'
 }
 
 function Case-skip_signature {

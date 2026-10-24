@@ -183,10 +183,14 @@ main() {
 
 	# verify_signature checks that checksums.txt was signed by rhythm's
 	# release workflow for tag $tag, with cosign or else gh, whichever is
-	# installed. Without either it says so and goes on: once installed,
-	# rhythm checks itself and every tool it installs.
+	# installed and usable. Without either it says why and goes on: once
+	# installed, rhythm checks itself and every tool it installs. A release
+	# with no bundle while cosign is there makes that line a warning, since
+	# whoever can change a release or mirror can delete the bundle. It isn't
+	# fatal: releases from before signing have none and gh may still check.
 	verify_signature() {
-		why="no cosign or gh"
+		why=
+		nobundle=
 		if command -v cosign >/dev/null 2>&1; then
 			if [ -s "$tmp/checksums.txt.sigstore.json" ]; then
 				if cosign verify-blob --bundle "$tmp/checksums.txt.sigstore.json" \
@@ -202,10 +206,21 @@ main() {
 				die "cosign says checksums.txt wasn't signed for $REPO $tag; nothing was installed"
 			fi
 			why="the release has no checksums.txt.sigstore.json"
+			nobundle=yes
 		fi
 		# gh needs a login to ask for attestations and --source-ref to pin the tag.
-		if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1 &&
-			gh attestation verify --help 2>&1 | grep -q -- --source-ref; then
+		gh_why=
+		if ! command -v gh >/dev/null 2>&1; then
+			why=${why:-no cosign or gh}
+			gh_why=none
+		elif ! gh auth status >/dev/null 2>&1; then
+			gh_why="gh is not logged in"
+		elif ! gh attestation verify --help 2>&1 | grep -q -- --source-ref; then
+			gh_why="gh is too old to pin the tag"
+		fi
+		if [ -n "$gh_why" ]; then
+			[ "$gh_why" = none ] || why=${why:+$why and }$gh_why
+		else
 			if gh attestation verify "$tmp/checksums.txt" --repo "$REPO" \
 				--signer-workflow "$WORKFLOW" --source-ref "refs/tags/$tag" >"$tmp/verify.out" 2>&1; then
 				say "Signature ok  $REPO @ refs/tags/$tag (gh attestation)"
@@ -214,7 +229,12 @@ main() {
 			cat "$tmp/verify.out" >&2
 			die "gh found no attestation that $REPO $tag made this checksums.txt; nothing was installed. Releases from before attestations have none: install cosign to check those"
 		fi
-		say "signature not checked here ($why); rhythm will verify itself and every tool it installs"
+		msg="signature not checked here ($why); rhythm will verify itself and every tool it installs"
+		if [ -n "$nobundle" ]; then
+			warn "$msg"
+		else
+			say "$msg"
+		fi
 	}
 
 	# first_step prints a first command to try with tool $1, by its name or

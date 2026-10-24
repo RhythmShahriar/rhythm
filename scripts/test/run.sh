@@ -79,8 +79,9 @@ fi
 
 # Stand-ins for cosign and gh, each in its own folder so a case can have
 # either. They log their argv to $FAKE_SIG_LOG. cosign exits
-# $FAKE_COSIGN_EXIT; gh is logged in unless FAKE_GH_AUTH=1 and its
-# attestation check exits $FAKE_GH_EXIT.
+# $FAKE_COSIGN_EXIT; gh is logged in unless FAKE_GH_AUTH=1, has
+# --source-ref unless FAKE_GH_OLD=1 and its attestation check exits
+# $FAKE_GH_EXIT.
 mkdir -p "$work/cosignbin" "$work/ghbin"
 cat >"$work/cosignbin/cosign" <<'EOF'
 #!/bin/sh
@@ -93,7 +94,7 @@ cat >"$work/ghbin/gh" <<'EOF'
 case "$*" in
 "auth status") exit "${FAKE_GH_AUTH:-0}" ;;
 "attestation verify --help")
-	echo '      --source-ref string   Enforce that the git ref associated with the source repository matches the provided value'
+	[ "${FAKE_GH_OLD:-}" = 1 ] || echo '      --source-ref string   Enforce that the git ref associated with the source repository matches the provided value'
 	exit 0
 	;;
 esac
@@ -559,13 +560,20 @@ case_signature_gh() {
 	expect_out "rhythm install: gh found no attestation that RhythmShahriar/rhythm v0.7.0 made this checksums.txt; nothing was installed."
 	expect_no_install "a failed attestation"
 
-	# gh without a login can't ask for attestations.
+	# gh without a login can't ask for attestations; one without
+	# --source-ref can't pin the tag. The line says which.
 	rm -f "$cdir/sig.log"
 	install FAKE_GH_AUTH=1
+	expect_code 0
+	expect_out "signature not checked here (gh is not logged in); rhythm will verify itself and every tool it installs"
+	expect_no_out "no cosign or gh"
+	expect_no_out "warning: signature"
+	[ ! -e "$cdir/sig.log" ] || fail "gh ran without a login"
+	install FAKE_GH_OLD=1
 	path=
 	expect_code 0
-	expect_out "signature not checked here (no cosign or gh); rhythm will verify itself and every tool it installs"
-	[ ! -e "$cdir/sig.log" ] || fail "gh ran without a login"
+	expect_out "signature not checked here (gh is too old to pin the tag); rhythm will verify itself and every tool it installs"
+	[ ! -e "$cdir/sig.log" ] || fail "gh ran without --source-ref"
 }
 
 case_signature_none() {
@@ -579,8 +587,23 @@ case_signature_none() {
 	install RHYTHM_VERSION=9.0.4
 	path=
 	expect_code 0
-	expect_out "signature not checked here (the release has no checksums.txt.sigstore.json); rhythm will verify itself"
+	expect_out "warning: signature not checked here (the release has no checksums.txt.sigstore.json); rhythm will verify itself and every tool it installs"
 	[ ! -e "$cdir/sig.log" ] || fail "cosign ran without a bundle"
+
+	# The same with a gh that can't be used names both reasons.
+	path=$work/cosignbin:$work/ghbin:$syspath
+	install RHYTHM_VERSION=9.0.4 FAKE_GH_AUTH=1
+	path=
+	expect_code 0
+	expect_out "warning: signature not checked here (the release has no checksums.txt.sigstore.json and gh is not logged in);"
+
+	# gh still checks a release without a bundle.
+	path=$work/cosignbin:$work/ghbin:$syspath
+	install RHYTHM_VERSION=9.0.4
+	path=
+	expect_code 0
+	expect_out "Signature ok  RhythmShahriar/rhythm @ refs/tags/v9.0.4 (gh attestation)"
+	expect_no_out "signature not checked"
 }
 
 case_skip_signature() {

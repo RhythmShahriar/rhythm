@@ -124,11 +124,15 @@
     }
 
     # Test-Signature checks that checksums.txt was signed by rhythm's release
-    # workflow for $Tag, with cosign or else gh, whichever is installed.
-    # Without either it says so and goes on: once installed, rhythm checks
-    # itself and every tool it installs.
+    # workflow for $Tag, with cosign or else gh, whichever is installed and
+    # usable. Without either it says why and goes on: once installed, rhythm
+    # checks itself and every tool it installs. A release with no bundle
+    # while cosign is there makes that line a warning, since whoever can
+    # change a release or mirror can delete the bundle. It isn't fatal:
+    # releases from before signing have none and gh may still check.
     function Test-Signature([string]$SumsFile, [string]$BundleFile) {
-        $Why = 'no cosign or gh'
+        $Why = ''
+        $NoBundle = $false
         if (Get-Command cosign -CommandType Application -ErrorAction SilentlyContinue) {
             if ($BundleFile) {
                 $R = Invoke-Exe 'cosign' @('verify-blob', '--bundle', $BundleFile,
@@ -142,17 +146,24 @@
                 throw "rhythm install: cosign says checksums.txt wasn't signed for $Repo $Tag; nothing was installed"
             }
             $Why = 'the release has no checksums.txt.sigstore.json'
+            $NoBundle = $true
         }
         # gh needs a login to ask for attestations and --source-ref to pin the tag.
-        if ((Get-Command gh -CommandType Application -ErrorAction SilentlyContinue) -and
-            (Invoke-Exe 'gh' @('auth', 'status')).Code -eq 0 -and
-            (Invoke-Exe 'gh' @('attestation', 'verify', '--help')).Out -match '--source-ref') {
+        $GhWhy = ''
+        if (-not (Get-Command gh -CommandType Application -ErrorAction SilentlyContinue)) {
+            $GhWhy = if ($Why) { 'none' } else { 'no cosign or gh' }
+        }
+        elseif ((Invoke-Exe 'gh' @('auth', 'status')).Code -ne 0) { $GhWhy = 'gh is not logged in' }
+        elseif ((Invoke-Exe 'gh' @('attestation', 'verify', '--help')).Out -notmatch '--source-ref') { $GhWhy = 'gh is too old to pin the tag' }
+        if (-not $GhWhy) {
             $R = Invoke-Exe 'gh' @('attestation', 'verify', $SumsFile, '--repo', $Repo, '--signer-workflow', $Workflow, '--source-ref', "refs/tags/$Tag")
             if ($R.Code -eq 0) { Write-Host "Signature ok  $Repo @ refs/tags/$Tag (gh attestation)"; return }
             if ($R.Out) { Write-Host $R.Out }
             throw "rhythm install: gh found no attestation that $Repo $Tag made this checksums.txt; nothing was installed. Releases from before attestations have none: install cosign to check those"
         }
-        Write-Host "signature not checked here ($Why); rhythm will verify itself and every tool it installs"
+        if ($GhWhy -and $GhWhy -ne 'none') { $Why = if ($Why) { "$Why and $GhWhy" } else { $GhWhy } }
+        $Msg = "signature not checked here ($Why); rhythm will verify itself and every tool it installs"
+        if ($NoBundle) { Write-Host "warning: $Msg" } else { Write-Host $Msg }
     }
 
     # Install-Rhythm puts the new rhythm.exe in place without a moment where
