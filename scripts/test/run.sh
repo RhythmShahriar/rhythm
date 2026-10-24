@@ -113,6 +113,16 @@ case_default() {
 	expect_out "Installed rhythm 0.6.0 to $cdir/bin"
 }
 
+case_none() {
+	for v in none NONE ' None ' ''; do
+		rm -rf "${cdir:?}/bin"
+		install RHYTHM_TOOLS="$v"
+		expect_code 0
+		expect_file rhythm
+		expect_tools
+	done
+}
+
 case_some() {
 	install RHYTHM_TOOLS='soundcheck  echo'
 	expect_code 0
@@ -181,7 +191,7 @@ case_github_token() {
 
 	# A mirror never sees GITHUB_TOKEN.
 	: >"$work/requests.log"
-	install GITHUB_TOKEN=gh-test-secret RHYTHM_TOOLS=
+	install GITHUB_TOKEN=gh-test-secret RHYTHM_TOOLS=none
 	expect_code 0
 	requests | grep -q 'releases/latest auth=-$' || fail "the mirror wasn't asked for the release"
 	! requests | grep -qF gh-test-secret || fail "GITHUB_TOKEN reached the mirror"
@@ -189,7 +199,7 @@ case_github_token() {
 
 case_rhythm_token() {
 	: >"$work/requests.log"
-	install GITHUB_TOKEN=gh-test-secret RHYTHM_GITHUB_TOKEN=mirror-test-secret RHYTHM_TOOLS=
+	install GITHUB_TOKEN=gh-test-secret RHYTHM_GITHUB_TOKEN=mirror-test-secret RHYTHM_TOOLS=none
 	expect_code 0
 	requests | grep -q 'releases/latest auth=Bearer mirror-test-secret$' ||
 		fail "RHYTHM_GITHUB_TOKEN wasn't sent to the mirror"
@@ -197,7 +207,7 @@ case_rhythm_token() {
 	! requests | grep '/dl/' | grep -qF mirror-test-secret || fail "the token went to a download"
 	expect_no_out mirror-test-secret
 
-	install RHYTHM_GITHUB_TOKEN='bad"token' RHYTHM_TOOLS=
+	install RHYTHM_GITHUB_TOKEN='bad"token' RHYTHM_TOOLS=none
 	expect_code 1
 	expect_out "the GitHub token has a character curl can't send in a header"
 }
@@ -214,7 +224,7 @@ case_rate_limit() {
 	expect_out "couldn't fetch the release from GitHub ($base/status/500/repos/RhythmShahriar/rhythm/releases/latest): HTTP 500"
 }
 
-cases=${*:-default some truncated proto http_refused http_download_refused github_token
+cases=${*:-default none some truncated proto http_refused http_download_refused github_token
 rhythm_token rate_limit}
 script='' path=''
 for case in $cases; do

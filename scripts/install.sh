@@ -8,7 +8,7 @@
 # Environment:
 #   RHYTHM_INSTALL_DIR   where to install (default ~/.local/bin, or /usr/local/bin as root)
 #   RHYTHM_VERSION       a specific version, e.g. 0.5.0 (default: latest)
-#   RHYTHM_TOOLS         tools to install as well (default "tuner soundcheck echo"; set empty for none)
+#   RHYTHM_TOOLS         tools to install as well (default "tuner soundcheck echo"; "none" for none)
 #   RHYTHM_GITHUB_API    GitHub API base, for mirrors (default https://api.github.com).
 #                        It must be https; plain http is accepted only for 127.0.0.1, ::1 and localhost.
 #   GITHUB_TOKEN         sent to api.github.com only, to lift the anonymous rate limit
@@ -191,9 +191,16 @@ main() {
 	installed=$("$dir/rhythm" --version) || die "the installed $dir/rhythm doesn't run"
 	say "Installed $installed to $dir"
 
-	for tool in ${RHYTHM_TOOLS-$DEFAULT_TOOLS}; do
+	# An unset RHYTHM_TOOLS means the defaults; "none", in any case, means none.
+	tools=${RHYTHM_TOOLS-$DEFAULT_TOOLS}
+	if [ "$(lower "$(printf '%s' "$tools" | tr -d ' \t\n')")" = none ]; then
+		tools=
+	fi
+	set -f
+	for tool in $tools; do
 		"$dir/rhythm" install "$tool" --dir "$dir" >&2 || die "installing $tool failed"
 	done
+	set +f
 
 	case ":$PATH:" in
 	*":$dir:"*) ;;

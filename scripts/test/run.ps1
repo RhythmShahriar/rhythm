@@ -204,6 +204,20 @@ function Case-default {
     Assert-Out "Installed rhythm 0.6.0 to $(Join-Path $script:CaseDir 'bin')"
 }
 
+function Case-none {
+    # Before PowerShell 7.5 setting a variable to '' deletes it, so 'none'
+    # is the only way to ask for no tools there.
+    $Values = @('none', 'NONE', ' None ')
+    if ($PSVersionTable.PSVersion -ge [Version]'7.5' -and $Shell -eq 'pwsh') { $Values += '' }
+    foreach ($V in $Values) {
+        Remove-Item -Recurse -Force (Join-Path $script:CaseDir 'bin') -ErrorAction SilentlyContinue
+        Invoke-Install @{ RHYTHM_TOOLS = $V }
+        Assert-Code 0
+        Assert-File 'rhythm.exe'
+        Assert-Tools
+    }
+}
+
 function Case-some {
     Invoke-Install @{ RHYTHM_TOOLS = 'soundcheck  echo' }
     Assert-Code 0
@@ -239,7 +253,7 @@ function Case-github_token {
 
     # A mirror never sees GITHUB_TOKEN.
     Clear-Requests
-    Invoke-Install @{ GITHUB_TOKEN = 'gh-test-secret' }
+    Invoke-Install @{ GITHUB_TOKEN = 'gh-test-secret'; RHYTHM_TOOLS = 'none' }
     Assert-Code 0
     if (-not (Get-Requests | Where-Object { $_ -match 'releases/latest auth=-$' })) { Fail "the mirror wasn't asked for the release" }
     if (Get-Requests | Where-Object { $_.Contains('gh-test-secret') }) { Fail 'GITHUB_TOKEN reached the mirror' }
@@ -247,7 +261,7 @@ function Case-github_token {
 
 function Case-rhythm_token {
     Clear-Requests
-    Invoke-Install @{ GITHUB_TOKEN = 'gh-test-secret'; RHYTHM_GITHUB_TOKEN = 'mirror-test-secret' }
+    Invoke-Install @{ GITHUB_TOKEN = 'gh-test-secret'; RHYTHM_GITHUB_TOKEN = 'mirror-test-secret'; RHYTHM_TOOLS = 'none' }
     Assert-Code 0
     if (-not (Get-Requests | Where-Object { $_ -match 'releases/latest auth=Bearer mirror-test-secret$' })) {
         Fail "RHYTHM_GITHUB_TOKEN wasn't sent to the mirror"
@@ -269,8 +283,88 @@ function Case-rate_limit {
     Assert-Out "couldn't fetch the release from GitHub ($BaseUrl/status/500/repos/RhythmShahriar/rhythm/releases/latest): HTTP 500"
 }
 
+function Case-running_exe {
+    # Windows can't overwrite a running rhythm.exe; the install must end with
+    # the new one in place all the same.
+    Invoke-Install @{ RHYTHM_VERSION = '0.5.0'; RHYTHM_TOOLS = 'none' }
+    Assert-Code 0
+    $Held = Start-Process -FilePath (Get-Bin 'rhythm.exe') -ArgumentList 'hold' -PassThru
+    try {
+        Start-Sleep -Milliseconds 300
+        if ($Held.HasExited) { Fail "the held rhythm.exe didn't keep running" }
+        Invoke-Install @{ RHYTHM_TOOLS = 'none' }
+        Assert-Code 0
+        if ((Get-Version) -ne 'rhythm 0.6.0') { Fail "rhythm.exe is $(Get-Version), want rhythm 0.6.0" }
+        if (Get-ChildItem (Join-Path $script:CaseDir 'bin') -Filter 'rhythm.exe.new-*') { Fail 'a rhythm.exe.new-* file was left behind' }
+    }
+    finally {
+        Stop-Process -Id $Held.Id -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# Preludes that make Move-Item fail the way Windows does with a running
+# rhythm.exe, so every platform runs install.ps1's fallback swap.
+$Locked = @'
+function Move-Item {
+    [CmdletBinding()] param([string]$LiteralPath, [string]$Destination, [switch]$Force)
+    if ($Force) { throw 'the file is in use' }
+    Microsoft.PowerShell.Management\Move-Item -LiteralPath $LiteralPath -Destination $Destination
+}
+'@
+$Stuck = @'
+function Move-Item {
+    [CmdletBinding()] param([string]$LiteralPath, [string]$Destination, [switch]$Force)
+    if ($Force -or $LiteralPath -like '*.new-*') { throw 'the file is in use' }
+    Microsoft.PowerShell.Management\Move-Item -LiteralPath $LiteralPath -Destination $Destination
+}
+'@
+
+function Case-swap_fallback {
+    # When rhythm.exe can't be overwritten, it is renamed away and the new
+    # one moves in.
+    Invoke-Install @{ RHYTHM_VERSION = '0.5.0'; RHYTHM_TOOLS = 'none' }
+    Assert-Code 0
+    Invoke-Install @{ RHYTHM_TOOLS = 'none' } $Locked
+    Assert-Code 0
+    if ((Get-Version) -ne 'rhythm 0.6.0') { Fail "rhythm.exe is $(Get-Version), want rhythm 0.6.0" }
+    $Left = @(Get-ChildItem (Join-Path $script:CaseDir 'bin') | Where-Object { $_.Name -like 'rhythm.exe.*' } | ForEach-Object { $_.Name })
+    if ($Left.Count) { Fail "the swap left $($Left -join ' ') behind" }
+}
+
+function Case-swap_restore {
+    # When the new rhythm.exe can't move in either, the old one comes back.
+    Invoke-Install @{ RHYTHM_VERSION = '0.5.0'; RHYTHM_TOOLS = 'none' }
+    Assert-Code 0
+    Invoke-Install @{ RHYTHM_TOOLS = 'none' } $Stuck
+    Assert-Code 1
+    Assert-Out "rhythm install: can't replace $(Get-Bin 'rhythm.exe'); the old rhythm is still there"
+    if ((Get-Version) -ne 'rhythm 0.5.0') { Fail "rhythm.exe is $(Get-Version), want the old rhythm 0.5.0" }
+    $Left = @(Get-ChildItem (Join-Path $script:CaseDir 'bin') | Where-Object { $_.Name -like 'rhythm.exe.*' } | ForEach-Object { $_.Name })
+    if ($Left.Count) { Fail "the swap left $($Left -join ' ') behind" }
+}
+
+function Case-readonly_dir {
+    # The install fails with a clear error and keeps the old rhythm.exe.
+    # Windows has no read-only folders; root ignores the mode.
+    if ($OnWindows -or ((& id -u) -eq '0')) { Write-Host "skip $($script:Case)"; return }
+    Invoke-Install @{ RHYTHM_VERSION = '0.5.0'; RHYTHM_TOOLS = 'none' }
+    Assert-Code 0
+    $Bin = Join-Path $script:CaseDir 'bin'
+    & chmod 555 $Bin
+    try {
+        Invoke-Install @{ RHYTHM_TOOLS = 'none' }
+        Assert-Code 1
+        Assert-Out "rhythm install: can't write to $Bin"
+        if ((Get-Version) -ne 'rhythm 0.5.0') { Fail "rhythm.exe is $(Get-Version), want the old rhythm 0.5.0" }
+    }
+    finally {
+        & chmod 755 $Bin
+    }
+}
+
 if (-not $Cases.Count) {
-    $Cases = 'default', 'some', 'http_refused', 'http_download_refused', 'github_token', 'rhythm_token', 'rate_limit'
+    $Cases = 'default', 'none', 'some', 'http_refused', 'http_download_refused', 'github_token', 'rhythm_token',
+    'rate_limit', 'running_exe', 'swap_fallback', 'swap_restore', 'readonly_dir'
 }
 # Installing on Windows adds the folder to the user PATH; put it back after.
 $UserPath = if ($OnWindows) { [Environment]::GetEnvironmentVariable('Path', 'User') } else { $null }

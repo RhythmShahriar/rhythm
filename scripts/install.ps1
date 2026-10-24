@@ -7,7 +7,7 @@
 # Environment:
 #   RHYTHM_INSTALL_DIR   where to install (default %LOCALAPPDATA%\Programs\rhythm)
 #   RHYTHM_VERSION       a specific version, e.g. 0.5.0 (default: latest)
-#   RHYTHM_TOOLS         tools to install as well (default "tuner soundcheck echo"; set empty for none)
+#   RHYTHM_TOOLS         tools to install as well (default "tuner soundcheck echo"; "none" for none)
 #   RHYTHM_GITHUB_API    GitHub API base, for mirrors (default https://api.github.com).
 #                        It must be https; plain http is accepted only for 127.0.0.1, ::1 and localhost.
 #   GITHUB_TOKEN         sent to api.github.com only, to lift the anonymous rate limit
@@ -84,6 +84,63 @@ if (-not $Sums) { throw 'rhythm install: the release has no checksums.txt; refus
 Assert-Https $Archive.browser_download_url
 Assert-Https $Sums.browser_download_url
 
+# Install-Rhythm puts the new rhythm.exe in place without a moment where
+# there is none. It copies to a temp name in the same folder and moves that
+# over the old file. A running rhythm.exe can't be overwritten but can be
+# renamed, so if the move fails the old file goes to rhythm.exe.old first
+# and comes back if the new one still can't move in. kit/update swaps the
+# same way.
+function Install-Rhythm([string]$Source, [string]$Dest) {
+    $New = "$Dest.new-$([Guid]::NewGuid().ToString('N').Substring(0, 8))"
+    try {
+        Copy-Item -LiteralPath $Source -Destination $New -Force
+    }
+    catch {
+        Remove-Item -LiteralPath $New -Force -ErrorAction SilentlyContinue
+        throw "rhythm install: can't write to $(Split-Path $Dest); set RHYTHM_INSTALL_DIR to a folder you own"
+    }
+    try {
+        Move-Item -LiteralPath $New -Destination $Dest -Force
+        return
+    }
+    catch {
+        $Why = $_.Exception.Message
+    }
+    if (-not (Test-Path -LiteralPath $Dest)) {
+        # Nothing to rename away: a fresh install, or -Force removed the old
+        # file before the move failed. One more plain move.
+        try {
+            Move-Item -LiteralPath $New -Destination $Dest
+            return
+        }
+        catch {
+            Remove-Item -LiteralPath $New -Force -ErrorAction SilentlyContinue
+            throw "rhythm install: can't create $Dest ($Why)"
+        }
+    }
+    # A previous swap may have left a rhythm.exe.old that is still running.
+    $Old = "$Dest.old"
+    Remove-Item -LiteralPath $Old -Force -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $Old) { $Old = "$Dest.old-$([Guid]::NewGuid().ToString('N').Substring(0, 8))" }
+    try {
+        Move-Item -LiteralPath $Dest -Destination $Old
+    }
+    catch {
+        Remove-Item -LiteralPath $New -Force -ErrorAction SilentlyContinue
+        throw "rhythm install: can't replace $Dest; close any running rhythm and try again ($($_.Exception.Message))"
+    }
+    try {
+        Move-Item -LiteralPath $New -Destination $Dest
+    }
+    catch {
+        $Why = $_.Exception.Message
+        Move-Item -LiteralPath $Old -Destination $Dest -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $New -Force -ErrorAction SilentlyContinue
+        throw "rhythm install: can't replace $Dest; the old rhythm is still there ($Why)"
+    }
+    Remove-Item -LiteralPath $Old -Force -ErrorAction SilentlyContinue
+}
+
 $Tmp = Join-Path ([IO.Path]::GetTempPath()) ([Guid]::NewGuid().ToString())
 New-Item -ItemType Directory -Path $Tmp | Out-Null
 try {
@@ -99,7 +156,7 @@ try {
 
     Expand-Archive -Path $Zip -DestinationPath $Tmp -Force
     New-Item -ItemType Directory -Force -Path $Dir | Out-Null
-    Copy-Item -Path (Join-Path $Tmp 'rhythm.exe') -Destination (Join-Path $Dir 'rhythm.exe') -Force
+    Install-Rhythm (Join-Path $Tmp 'rhythm.exe') (Join-Path $Dir 'rhythm.exe')
 }
 finally {
     Remove-Item -Recurse -Force $Tmp -ErrorAction SilentlyContinue
@@ -123,8 +180,13 @@ if (-not $Installed) {
 }
 Write-Host "Installed $Installed to $Dir"
 
-$Tools = if ($null -ne $env:RHYTHM_TOOLS) { $env:RHYTHM_TOOLS } else { $DefaultTools }
-foreach ($Tool in ($Tools -split '\s+' | Where-Object { $_ })) {
+# An unset RHYTHM_TOOLS means the defaults. Windows PowerShell 5.1 can't set
+# a variable to '' (that deletes it), so "none" is the way to ask for none
+# there.
+$ToolList = if ($null -ne $env:RHYTHM_TOOLS) { $env:RHYTHM_TOOLS } else { $DefaultTools }
+$Tools = @($ToolList -split '\s+' | Where-Object { $_ })
+if ($Tools.Count -eq 1 -and $Tools[0] -eq 'none') { $Tools = @() }
+foreach ($Tool in $Tools) {
     & $Rhythm install $Tool --dir $Dir
     if ($LASTEXITCODE -ne 0) { throw "rhythm install: installing $Tool failed" }
 }
