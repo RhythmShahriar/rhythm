@@ -266,17 +266,29 @@
     # The tools that were installed, by name rather than alias, for the
     # closing lines.
     $Done = @()
+    # The PATH message comes once, at the end. A router that has --quiet
+    # leaves out its own PATH notes; an older one prints one per tool,
+    # filtered here.
+    $Quiet = @()
+    if ($Todo.Count -and (Invoke-Native @('install', '--help')).Out -match '--quiet') { $Quiet = @('--quiet') }
     foreach ($Tool in $Todo) {
-        & $Rhythm install $Tool --dir $Dir
-        if ($LASTEXITCODE -ne 0) { throw "rhythm install: installing $Tool failed" }
+        $R = Invoke-Native (@('install', $Tool, '--dir', $Dir) + $Quiet)
+        $Lines = @($R.Out -split "`n" | Where-Object { $_ -and $_ -notmatch "^Note: .* isn't on your PATH\.$" })
+        if ($Lines.Count) { Write-Host ($Lines -join "`n") }
+        if ($R.Code -ne 0) { throw "rhythm install: installing $Tool failed" }
         $Done += Get-ToolName $Tool
     }
 
+    # A terminal keeps the PATH it started with, so a folder that is new to
+    # the user PATH, or not yet in this session's, needs a new terminal.
     if ($OnWindows) {
         $UserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
         if (-not (($UserPath -split ';') -contains $Dir)) {
             [Environment]::SetEnvironmentVariable('Path', (($UserPath, $Dir) -join ';').TrimStart(';'), 'User')
-            Write-Host "Added $Dir to your PATH. Open a new terminal to use rhythm."
+            Write-Host "Added $Dir to your user PATH. Open a new terminal to use rhythm."
+        }
+        elseif (-not (($env:Path -split ';') -contains $Dir)) {
+            Write-Host "$Dir is on your user PATH. Open a new terminal to use rhythm."
         }
     }
     # A first command for each tool installed. The targets are local, since

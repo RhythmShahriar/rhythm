@@ -274,6 +274,40 @@ function Case-some {
     }
 }
 
+# Assert-PathLines checks that the output mentions PATH exactly $Count
+# times, and that the one mention is $Text.
+function Assert-PathLines([int]$Count, [string]$Text = '') {
+    $Lines = @($script:Out -split "`n" | Where-Object { $_.Contains('PATH') })
+    if ($Lines.Count -ne $Count) { Fail "$($Lines.Count) lines mention PATH, want $Count" }
+    if ($Text) { Assert-Out $Text }
+}
+
+function Case-path_note {
+    # The router's own PATH notes never show: --quiet for a router that has
+    # it, filtered for one that doesn't. On Windows the installer says once
+    # that the user PATH changed.
+    $Bin = Join-Path $script:CaseDir 'bin'
+    $Log = Join-Path $script:CaseDir 'argv.log'
+    Invoke-Install
+    Assert-Code 0
+    Assert-NoOut "isn't on your PATH"
+    if (-not (Select-String -Path $Log -SimpleMatch "rhythm install echo --dir $Bin --quiet" -Quiet)) { Fail "the router wasn't told --quiet" }
+    if ($OnWindows) { Assert-PathLines 1 "Added $Bin to your user PATH. Open a new terminal to use rhythm." } else { Assert-PathLines 0 }
+    if ($OnWindows) {
+        Invoke-Install
+        Assert-Code 0
+        Assert-PathLines 1 "$Bin is on your user PATH. Open a new terminal to use rhythm."
+    }
+
+    Remove-Item -LiteralPath $Log
+    Invoke-Install @{ RHYTHM_VERSION = '0.5.0' }
+    Assert-Code 0
+    Assert-Tools 'tuner', 'soundcheck', 'echo'
+    Assert-NoOut "isn't on your PATH"
+    if (Select-String -Path $Log -SimpleMatch -Pattern '--quiet' -Quiet) { Fail '--quiet went to a router without it' }
+    Assert-PathLines $(if ($OnWindows) { 1 } else { 0 })
+}
+
 function Case-bad_checksum {
     Invoke-Install @{ RHYTHM_VERSION = '9.0.2' }
     Assert-Code 1
@@ -305,7 +339,7 @@ function Case-relative_dir {
     Assert-Tools 'tuner'
     $Bin = Join-Path $script:CaseDir 'bin'
     Assert-Out "Installed rhythm 0.6.0 to $Bin"
-    if (-not (Select-String -Path (Join-Path $script:CaseDir 'argv.log') -SimpleMatch "rhythm install tuner --dir $Bin" -Quiet)) {
+    if (-not (Select-String -Path (Join-Path $script:CaseDir 'argv.log') -SimpleMatch "rhythm install tuner --dir $Bin --quiet" -Quiet)) {
         Fail "rhythm wasn't given the absolute folder"
     }
 }
@@ -503,7 +537,7 @@ function Case-readonly_dir {
 }
 
 if (-not $Cases.Count) {
-    $Cases = 'default', 'none', 'some', 'bad_checksum', 'no_checksums', 'missing_dir', 'relative_dir', 'truncated', 'http_refused', 'http_download_refused', 'github_token', 'rhythm_token',
+    $Cases = 'default', 'none', 'some', 'path_note', 'bad_checksum', 'no_checksums', 'missing_dir', 'relative_dir', 'truncated', 'http_refused', 'http_download_refused', 'github_token', 'rhythm_token',
     'rate_limit', 'old_router', 'old_router_named', 'router_without_dry_run', 'router_without_tools_block',
     'unknown_tool', 'running_exe', 'swap_fallback', 'swap_restore', 'readonly_dir'
 }

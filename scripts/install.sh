@@ -153,6 +153,25 @@ main() {
 		esac
 	}
 
+	# path_hint says how to put $dir on PATH in the user's shell. zsh, the
+	# macOS default, never reads ~/.profile; a macOS terminal starts bash as
+	# a login shell, which reads ~/.bash_profile and not ~/.bashrc.
+	path_hint() {
+		case ${SHELL:-} in
+		*/fish | fish)
+			say "Add $dir to your PATH: fish_add_path '$dir'"
+			return
+			;;
+		*/zsh | zsh) rc=.zshrc ;;
+		*/bash | bash)
+			rc=.bashrc
+			[ "$os" != darwin ] || rc=.bash_profile
+			;;
+		*) rc=.profile ;;
+		esac
+		say "Add $dir to your PATH, then open a new terminal: echo 'export PATH=\"$dir:\$PATH\"' >> ~/$rc"
+	}
+
 	command -v curl >/dev/null 2>&1 || die "curl is required"
 	command -v tar >/dev/null 2>&1 || die "tar is required"
 
@@ -273,15 +292,34 @@ main() {
 			warn "$installed doesn't know $tool; skipped"
 		fi
 	done
+	# The PATH hint comes once, at the end. A router that has --quiet leaves
+	# out its own PATH notes; an older one prints one per tool, filtered here.
+	quiet=
+	if [ -n "$todo" ] && "$dir/rhythm" install --help 2>&1 | grep -q -- --quiet; then
+		quiet=--quiet
+	fi
 	done_tools=
 	for tool in $todo; do
-		"$dir/rhythm" install "$tool" --dir "$dir" >&2 || die "installing $tool failed"
+		ok=yes
+		# shellcheck disable=SC2086 # $quiet is empty or one flag
+		"$dir/rhythm" install "$tool" --dir "$dir" $quiet >"$tmp/install.out" || ok=
+		grep -v "^Note: .* isn't on your PATH\.\$" "$tmp/install.out" >&2 || :
+		[ -n "$ok" ] || die "installing $tool failed"
 		done_tools="$done_tools $(tool_name "$tool")"
 	done
 
 	case ":$PATH:" in
-	*":$dir:"*) ;;
-	*) say "Add $dir to your PATH, e.g.: echo 'export PATH=\"$dir:\$PATH\"' >> ~/.profile" ;;
+	*":$dir:"*)
+		# The router never checks rhythm itself, and with --quiet it doesn't
+		# say when a copy of a tool comes first on PATH either.
+		for b in rhythm ${quiet:+$done_tools}; do
+			[ "$b" = rhythm ] || b=rhythm-$b
+			found=$(command -v "$b" 2>/dev/null) || continue
+			[ "$found" = "$dir/$b" ] ||
+				say "Note: $found comes first on your PATH; remove it to use this install."
+		done
+		;;
+	*) path_hint ;;
 	esac
 	if [ -n "$done_tools" ]; then
 		say "Get started:"

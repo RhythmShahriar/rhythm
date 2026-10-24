@@ -136,6 +136,7 @@ case_default() {
 	expect_tools tuner soundcheck echo
 	expect_out "Installed rhythm 0.6.0 to $cdir/bin"
 	grep -qx 'rhythm install --dry-run tuner' "$cdir/argv.log" || fail "the router wasn't asked about tuner"
+	grep -qx "rhythm install echo --dir $cdir/bin --quiet" "$cdir/argv.log" || fail "the router wasn't told --quiet"
 	expect_started tuner soundcheck echo
 }
 
@@ -203,7 +204,7 @@ case_relative_dir() {
 	expect_file rhythm
 	expect_tools tuner
 	expect_out "Installed rhythm 0.6.0 to $cdir/bin"
-	grep -qx "rhythm install tuner --dir $cdir/bin" "$cdir/argv.log" || fail "rhythm wasn't given the absolute folder"
+	grep -qx "rhythm install tuner --dir $cdir/bin --quiet" "$cdir/argv.log" || fail "rhythm wasn't given the absolute folder"
 }
 
 case_unwritable_dir() {
@@ -218,6 +219,84 @@ case_unwritable_dir() {
 	chmod 0755 "$cdir/ro"
 	expect_code 1
 	expect_out "rhythm install: can't create $cdir/ro/bin"
+}
+
+# expect_path_hint checks that the output has exactly one line about PATH,
+# and that it is $1.
+expect_path_hint() {
+	n=$(grep -c PATH "$cdir/out" || :)
+	[ "$n" = 1 ] || fail "$n lines mention PATH, want 1"
+	expect_out "$1"
+}
+
+case_path_hint() {
+	export_line="Add $cdir/bin to your PATH, then open a new terminal: echo 'export PATH=\"$cdir/bin:\$PATH\"' >>"
+	for spec in /bin/zsh:.zshrc /usr/local/bin/zsh:.zshrc /bin/bash:.bashrc /bin/dash:.profile :.profile; do
+		install SHELL="${spec%%:*}"
+		expect_code 0
+		expect_path_hint "$export_line ~/${spec#*:}"
+	done
+
+	install SHELL=/usr/bin/fish
+	expect_code 0
+	expect_path_hint "Add $cdir/bin to your PATH: fish_add_path '$cdir/bin'"
+
+	# No SHELL at all, as in env -i. bash fills it in from the user's
+	# login shell, so only the line count is certain there.
+	install
+	expect_code 0
+	# shellcheck disable=SC2016,SC2086 # expanded by $shell, split on purpose
+	if [ -z "$(env -i $shell -c 'echo "${SHELL:-}"')" ]; then
+		expect_path_hint "$export_line ~/.profile"
+	else
+		expect_path_hint "$export_line ~/."
+	fi
+
+	# An older router prints its own note for each tool; it is filtered.
+	rm -f "$cdir/argv.log"
+	install RHYTHM_VERSION=0.5.0 SHELL=/bin/zsh
+	expect_code 0
+	expect_tools tuner soundcheck echo
+	expect_path_hint "$export_line ~/.zshrc"
+	! grep -q 'install .*--quiet' "$cdir/argv.log" || fail "--quiet went to a router without it"
+}
+
+case_path_hint_macos() {
+	# A macOS terminal starts bash as a login shell, which reads ~/.bash_profile.
+	mkdir -p "$work/darwin"
+	# shellcheck disable=SC2016 # $1 belongs to the stand-in
+	printf '#!/bin/sh\ncase $1 in -s) echo Darwin ;; *) echo arm64 ;; esac\n' >"$work/darwin/uname"
+	chmod 0755 "$work/darwin/uname"
+	path=$work/darwin:/usr/local/bin:/usr/bin:/bin
+	# busybox sh runs its own uname applet whatever PATH says.
+	# shellcheck disable=SC2086 # split on purpose
+	if [ "$(env -i PATH="$path" $shell -c 'uname -s')" != Darwin ]; then
+		path=
+		echo "skip $case: $shell ignores a uname on PATH"
+		return
+	fi
+	install SHELL=/bin/bash
+	path=
+	expect_code 0
+	expect_path_hint "echo 'export PATH=\"$cdir/bin:\$PATH\"' >> ~/.bash_profile"
+}
+
+case_path_ok() {
+	path=$cdir/bin:/usr/local/bin:/usr/bin:/bin
+	install SHELL=/bin/zsh
+	path=
+	expect_code 0
+	expect_no_out PATH
+
+	# A rhythm found first on PATH would shadow the new one.
+	mkdir -p "$cdir/old"
+	printf '#!/bin/sh\necho rhythm 0.1.0\n' >"$cdir/old/rhythm"
+	chmod 0755 "$cdir/old/rhythm"
+	path=$cdir/old:$cdir/bin:/usr/local/bin:/usr/bin:/bin
+	install SHELL=/bin/zsh
+	path=
+	expect_code 0
+	expect_path_hint "Note: $cdir/old/rhythm comes first on your PATH; remove it to use this install."
 }
 
 # truncate writes the first $1 percent of install.sh to $2.
@@ -368,7 +447,7 @@ case_readme() {
 	! grep -qi 'other identity' "$readme" || fail "README claims other identities are rejected"
 }
 
-cases=${*:-default none some bad_checksum no_checksums missing_dir relative_dir unwritable_dir truncated proto http_refused http_download_refused github_token
+cases=${*:-default none some path_hint path_hint_macos path_ok bad_checksum no_checksums missing_dir relative_dir unwritable_dir truncated proto http_refused http_download_refused github_token
 rhythm_token rate_limit old_router old_router_named router_without_dry_run
 router_without_tools_block unknown_tool readme}
 script='' path=''
