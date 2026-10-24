@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -66,6 +67,10 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stdout, "%-18s %s (development build, not updated)\n", t.binary, t.current)
 			continue
 		}
+		if rep.nets.skip(t.binary, os.Getenv("RHYTHM_GITHUB_API")) {
+			rep.failed = append(rep.failed, t.binary)
+			continue
+		}
 		u := updater(t.repo, t.binary, t.current)
 		rel, err := u.Latest(ctx)
 		if err != nil {
@@ -102,6 +107,7 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "rhythm: update interrupted")
 		return exitInterrupted
 	}
+	rep.nets.print(stderr)
 	if len(rep.failed) > 0 {
 		fmt.Fprintln(stderr, rep.summary(*checkOnly))
 		return 1
@@ -134,15 +140,19 @@ type updateReport struct {
 	updated  int      // binaries replaced, or found outdated with --check
 	upToDate int      // binaries already on the latest release
 	failed   []string // "rhythm-tuner" for a binary, "rhythm-tuner data" for its data
+	nets     netReport
 }
 
-// fail records a failed binary update. An error caused by Ctrl-C isn't a
-// failure to report: the command ends with "interrupted" instead.
+// fail records a failed binary update. A network problem is held back
+// and said once for every binary it hit. An error caused by Ctrl-C isn't
+// a failure to report: the command ends with "interrupted" instead.
 func (r *updateReport) fail(ctx context.Context, stderr io.Writer, binary string, err error) {
 	if ctx.Err() != nil {
 		return
 	}
-	fmt.Fprintf(stderr, "%-18s %v\n", binary, err)
+	if !r.nets.add(binary, err) {
+		fmt.Fprintf(stderr, "%-18s %s\n", binary, describe(err))
+	}
 	r.failed = append(r.failed, binary)
 }
 

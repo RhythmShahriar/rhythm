@@ -10,13 +10,18 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/RhythmShahriar/rhythm/kit/update"
 )
@@ -77,13 +82,221 @@ func parseArgs(fs *flag.FlagSet, args []string, stdout, stderr io.Writer) (pos [
 	return pos, 0, true
 }
 
+// defaultAPI is the release API rhythm asks unless RHYTHM_GITHUB_API
+// names a mirror.
+const defaultAPI = "https://api.github.com"
+
 func updater(repo, binary, current string) *update.Updater {
+	api := os.Getenv("RHYTHM_GITHUB_API") // a mirror or GitHub Enterprise; default api.github.com
 	return &update.Updater{
 		Repo:      repo,
 		Binary:    binary,
 		Current:   current,
 		UserAgent: fmt.Sprintf("rhythm/%s (+https://rythm.sh)", version),
-		API:       os.Getenv("RHYTHM_GITHUB_API"), // a mirror or GitHub Enterprise; default api.github.com
+		API:       api,
+		HTTP: &http.Client{
+			Timeout:   5 * time.Minute, // kit/update's own default
+			Transport: &explainTransport{base: http.DefaultTransport, api: apiOrDefault(api), repo: repo},
+		},
+	}
+}
+
+// apiOrDefault returns api, or defaultAPI when it is empty.
+func apiOrDefault(api string) string {
+	if api == "" {
+		return defaultAPI
+	}
+	return strings.TrimSuffix(api, "/")
+}
+
+// explainTransport turns the release API's rate limit and a missing
+// release into errors rhythm can explain. kit/update on its own reports
+// both as a bare HTTP status, which says nothing about the fix.
+type explainTransport struct {
+	base http.RoundTripper
+	api  string // the API base asked, without a trailing slash
+	repo string
+}
+
+func (t *explainTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := t.base.RoundTrip(req)
+	if err != nil {
+		return nil, err
+	}
+	h := resp.Header
+	switch code := resp.StatusCode; {
+	case (code == http.StatusForbidden || code == http.StatusTooManyRequests) &&
+		(h.Get("X-RateLimit-Remaining") == "0" || h.Get("Retry-After") != ""):
+		_ = resp.Body.Close()
+		e := &rateLimitedError{api: t.api, tokenSent: req.Header.Get("Authorization") != ""}
+		if n, err := strconv.ParseInt(h.Get("X-RateLimit-Reset"), 10, 64); err == nil && n > 0 {
+			e.reset = time.Unix(n, 0)
+		} else if secs, err := strconv.Atoi(h.Get("Retry-After")); err == nil && secs >= 0 {
+			e.reset = time.Now().Add(time.Duration(secs) * time.Second)
+		}
+		return nil, e
+	case code == http.StatusNotFound && strings.HasPrefix(req.URL.String(), t.api+"/repos/") &&
+		strings.HasSuffix(req.URL.Path, "/releases/latest"):
+		_ = resp.Body.Close()
+		return nil, &noReleaseError{api: t.api, repo: t.repo}
+	}
+	return resp, nil
+}
+
+// rateLimitedError is a 403 or 429 that the release API marks as rate
+// limiting.
+type rateLimitedError struct {
+	api       string
+	tokenSent bool      // a token was sent, so suggesting one won't help
+	reset     time.Time // when the limit lifts; zero when the API didn't say
+}
+
+func (e *rateLimitedError) Error() string { return e.explain("") }
+
+// explain words the limit for the binaries it stopped, e.g. "GitHub rate
+// limit reached for rhythm-tuner; set GITHUB_TOKEN (resets 14:05)".
+func (e *rateLimitedError) explain(binaries string) string {
+	var b strings.Builder
+	tokenVar := "GITHUB_TOKEN" //nolint:gosec // a variable name, not a credential
+	if e.api == defaultAPI {
+		b.WriteString("GitHub rate limit reached")
+	} else {
+		// GITHUB_TOKEN is kept for GitHub itself; a mirror gets its own.
+		fmt.Fprintf(&b, "rate limit reached at %s", e.api)
+		tokenVar = "RHYTHM_GITHUB_TOKEN" //nolint:gosec // a variable name, not a credential
+	}
+	if binaries != "" {
+		b.WriteString(" for " + binaries)
+	}
+	if !e.tokenSent {
+		b.WriteString("; set " + tokenVar)
+	}
+	if !e.reset.IsZero() {
+		layout := "15:04"
+		if time.Until(e.reset) >= 24*time.Hour {
+			layout = "Jan 2 15:04"
+		}
+		fmt.Fprintf(&b, " (resets %s)", e.reset.Local().Format(layout))
+	}
+	return b.String()
+}
+
+// noReleaseError is a 404 from the release API for a repository.
+type noReleaseError struct {
+	api, repo string
+}
+
+func (e *noReleaseError) Error() string {
+	if e.api == defaultAPI {
+		return e.repo + " has no published releases yet"
+	}
+	// A mirror that lacks the repository is usually the wrong mirror.
+	return fmt.Sprintf("mirror %s has no release for %s; check RHYTHM_GITHUB_API", e.api, e.repo)
+}
+
+// describe returns err's message for the failure line. kit/update hands
+// back the transport's errors inside Go's url.Error, whose `Get "<url>":`
+// prefix would bury rhythm's explanation.
+func describe(err error) string {
+	var nr *noReleaseError
+	if errors.As(err, &nr) {
+		return nr.Error()
+	}
+	return err.Error()
+}
+
+// netProblem explains err when it is about the network or the release
+// service, not the one binary that hit it, so it reads the same for every
+// binary. key groups identical problems, host is the host they block
+// ("" when they block nothing else) and text words the problem for the
+// comma-separated binaries it hit.
+func netProblem(err error) (key, host string, text func(binaries string) string, ok bool) {
+	var rl *rateLimitedError
+	if errors.As(err, &rl) {
+		return "rate " + rl.api, hostOf(rl.api), rl.explain, true
+	}
+	var op *net.OpError
+	var dns *net.DNSError
+	var ne net.Error
+	unreachable := errors.As(err, &op) || errors.As(err, &dns) || (errors.As(err, &ne) && ne.Timeout())
+	if !unreachable {
+		return "", "", nil, false
+	}
+	var ue *url.Error
+	switch {
+	case errors.As(err, &ue):
+		host = hostOf(ue.URL)
+	case dns != nil:
+		host = dns.Name
+	default:
+		return "", "", nil, false
+	}
+	return "reach " + host, host, func(binaries string) string {
+		return fmt.Sprintf("can't reach %s for %s; check network, proxy or RHYTHM_GITHUB_API", host, binaries)
+	}, true
+}
+
+// hostOf returns the host[:port] of rawURL, or rawURL when it doesn't
+// parse.
+func hostOf(rawURL string) string {
+	if u, err := url.Parse(rawURL); err == nil && u.Host != "" {
+		return u.Host
+	}
+	return rawURL
+}
+
+// netReport collects the network problems of one run, so each is said
+// once with every binary it hit instead of once per binary.
+type netReport struct {
+	keys    []string // in the order they first happened
+	byKey   map[string]*netGroup
+	blocked map[string]string // host -> key of the problem that blocks it
+}
+
+type netGroup struct {
+	binaries []string
+	text     func(binaries string) string
+}
+
+// add records err for binary when it is a network problem and reports
+// whether it was one. The caller prints other errors itself.
+func (r *netReport) add(binary string, err error) bool {
+	key, host, text, ok := netProblem(err)
+	if !ok {
+		return false
+	}
+	if r.byKey == nil {
+		r.byKey, r.blocked = map[string]*netGroup{}, map[string]string{}
+	}
+	g := r.byKey[key]
+	if g == nil {
+		g = &netGroup{text: text}
+		r.byKey[key] = g
+		r.keys = append(r.keys, key)
+	}
+	g.binaries = append(g.binaries, binary)
+	if host != "" {
+		r.blocked[host] = key
+	}
+	return true
+}
+
+// skip reports whether api is already known to be unreachable or rate
+// limited in this run. If so it counts binary as hit too. Asking again
+// would only repeat the wait or spend the limit.
+func (r *netReport) skip(binary, api string) bool {
+	key, ok := r.blocked[hostOf(apiOrDefault(api))]
+	if ok {
+		r.byKey[key].binaries = append(r.byKey[key].binaries, binary)
+	}
+	return ok
+}
+
+// print writes one line per problem.
+func (r *netReport) print(w io.Writer) {
+	for _, k := range r.keys {
+		g := r.byKey[k]
+		fmt.Fprintln(w, g.text(strings.Join(g.binaries, ", ")))
 	}
 }
 
@@ -165,20 +378,28 @@ func cmdInstall(args []string, stdout, stderr io.Writer) int {
 	ctx, stop := signalContext()
 	defer stop()
 	var installed, failed []string
+	var nets netReport
 	offPath := false
 	for _, tool := range list {
+		binary := "rhythm-" + tool
+		if nets.skip(binary, os.Getenv("RHYTHM_GITHUB_API")) {
+			failed = append(failed, binary)
+			continue
+		}
 		note, err := installTool(ctx, tool, opt, stdout)
 		if ctx.Err() != nil {
 			fmt.Fprintln(stderr, "rhythm: install interrupted")
 			return exitInterrupted
 		}
-		binary := "rhythm-" + tool
 		var me *managedError
 		switch {
+		case err == nil:
 		case errors.As(err, &me):
 			fmt.Fprintln(stderr, err)
-		case err != nil:
-			fmt.Fprintf(stderr, "%-18s %v\n", binary, err)
+		case nets.add(binary, err):
+			// said once for every binary it hit, below
+		default:
+			fmt.Fprintf(stderr, "%-18s %s\n", binary, describe(err))
 		}
 		if err != nil {
 			failed = append(failed, binary)
@@ -196,6 +417,7 @@ func cmdInstall(args []string, stdout, stderr io.Writer) int {
 	if offPath {
 		fmt.Fprintf(stdout, "Note: %s isn't on your PATH.\n", opt.dir)
 	}
+	nets.print(stderr)
 	if len(failed) > 0 {
 		if len(list) > 1 {
 			fmt.Fprintf(stderr, "Installed %d, failed %d: %s\n", len(installed), len(failed), strings.Join(failed, ", "))

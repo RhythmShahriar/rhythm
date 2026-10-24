@@ -11,6 +11,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -18,6 +19,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -525,5 +527,121 @@ func TestUpdateLeavesManagedInstalls(t *testing.T) {
 	// The data is the tool's own; Homebrew doesn't refresh it.
 	if !s.ranUpdate("rhythm-tuner") {
 		t.Error("the managed tool's data refresh didn't run")
+	}
+}
+
+// closedPort returns a loopback URL nothing listens on.
+func closedPort(t *testing.T) string {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := l.Addr().String()
+	l.Close()
+	return "http://" + addr
+}
+
+func TestUpdateUnreachableSaidOnce(t *testing.T) {
+	installed, latest := allTools()
+	s := newSandbox(t, installed, latest)
+	fakeSelf(t, s.stub(t, "rhythm", "0.1.0", ""), "0.1.0")
+	api := closedPort(t)
+	t.Setenv("RHYTHM_GITHUB_API", api)
+
+	code, _, errs := runCmd("update", "--no-data")
+	want := "can't reach " + strings.TrimPrefix(api, "http://") +
+		" for rhythm, rhythm-echo, rhythm-soundcheck, rhythm-tuner; check network, proxy or RHYTHM_GITHUB_API\n" +
+		"Updated 0, up to date 0, failed 4: rhythm, rhythm-echo, rhythm-soundcheck, rhythm-tuner\n"
+	if code != 1 || errs != want {
+		t.Errorf("exit %d\n%s\nwant\n%s", code, errs, want)
+	}
+}
+
+// rateLimited serves 403 with X-RateLimit-Remaining: 0 and counts requests.
+func rateLimited(t *testing.T) (*httptest.Server, *atomic.Int32) {
+	t.Helper()
+	var n atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n.Add(1)
+		w.Header().Set("X-RateLimit-Remaining", "0")
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &n
+}
+
+func TestUpdateRateLimitSaidOnce(t *testing.T) {
+	installed, latest := allTools()
+	newSandbox(t, installed, latest)
+	srv, n := rateLimited(t)
+	t.Setenv("RHYTHM_GITHUB_API", srv.URL)
+
+	code, _, errs := runCmd("update", "--check")
+	want := "rate limit reached at " + srv.URL + " for rhythm-echo, rhythm-soundcheck, rhythm-tuner; set RHYTHM_GITHUB_TOKEN\n"
+	if code != 1 || !strings.HasPrefix(errs, want) || strings.Count(errs, "\n") != 2 {
+		t.Errorf("exit %d\n%s", code, errs)
+	}
+	// Once limited, rhythm stops asking.
+	if got := n.Load(); got != 1 {
+		t.Errorf("%d requests after the limit", got)
+	}
+}
+
+func TestRateLimitedWording(t *testing.T) {
+	soon, later := time.Now().Add(time.Hour), time.Now().Add(72*time.Hour)
+	for _, tc := range []struct {
+		e    rateLimitedError
+		want string
+	}{
+		{rateLimitedError{api: defaultAPI}, "GitHub rate limit reached for rhythm, rhythm-tuner; set GITHUB_TOKEN"},
+		{rateLimitedError{api: defaultAPI, tokenSent: true}, "GitHub rate limit reached for rhythm, rhythm-tuner"},
+		{rateLimitedError{api: "https://mirror.example"}, "rate limit reached at https://mirror.example for rhythm, rhythm-tuner; set RHYTHM_GITHUB_TOKEN"},
+		{rateLimitedError{api: defaultAPI, tokenSent: true, reset: soon}, "GitHub rate limit reached for rhythm, rhythm-tuner (resets " + soon.Format("15:04") + ")"},
+		{rateLimitedError{api: defaultAPI, tokenSent: true, reset: later}, "GitHub rate limit reached for rhythm, rhythm-tuner (resets " + later.Format("Jan 2 15:04") + ")"},
+	} {
+		if got := tc.e.explain("rhythm, rhythm-tuner"); got != tc.want {
+			t.Errorf("got  %q\nwant %q", got, tc.want)
+		}
+	}
+}
+
+func TestRateLimitNeedsTheHeader(t *testing.T) {
+	// A plain 403 (a private repository, a blocked token) is not a rate
+	// limit. It reads as a plain status.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	t.Cleanup(srv.Close)
+	t.Setenv("RHYTHM_GITHUB_API", srv.URL)
+	_, err := updater(tools["tuner"], "rhythm-tuner", "").Latest(context.Background())
+	if _, _, _, ok := netProblem(err); ok || err == nil || !strings.Contains(err.Error(), "HTTP 403") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestMissingReleaseNamesTheMirror(t *testing.T) {
+	_, latest := allTools()
+	delete(latest, tools["echo"])
+	s := newSandbox(t, nil, latest)
+	code, _, errs := runCmd("install", "echo", "--dir", s.bin)
+	want := "rhythm-echo        mirror " + s.api.URL + " has no release for RhythmShahriar/echo; check RHYTHM_GITHUB_API\n"
+	if code != 1 || errs != want {
+		t.Errorf("exit %d\n%q\nwant\n%q", code, errs, want)
+	}
+	if got := (&noReleaseError{api: defaultAPI, repo: "RhythmShahriar/echo"}).Error(); got != "RhythmShahriar/echo has no published releases yet" {
+		t.Errorf("default API: %q", got)
+	}
+}
+
+func TestInstallUnreachableSaidOnce(t *testing.T) {
+	s := newSandbox(t, nil, nil)
+	api := closedPort(t)
+	t.Setenv("RHYTHM_GITHUB_API", api)
+	code, out, errs := runCmd("install", "tuner", "echo", "--dir", s.bin)
+	want := "can't reach " + strings.TrimPrefix(api, "http://") + " for rhythm-tuner, rhythm-echo; check network, proxy or RHYTHM_GITHUB_API\n" +
+		"Installed 0, failed 2: rhythm-tuner, rhythm-echo\n"
+	if code != 1 || out != "" || errs != want {
+		t.Errorf("exit %d\n%s%s", code, out, errs)
 	}
 }
