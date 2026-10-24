@@ -208,6 +208,9 @@ To keep the whole `.echo/runs/` folder (each run's JSON and HTML), upload it you
 
 Start with `fail-on: broke`. CHANGED is often intended (a new subject line), so `changed` suits a team that reviews every message change before release.
 
+> [!TIP]
+> On GitHub Actions, `uses: RhythmShahriar/rhythm/setup@v0.7.0` with `tools: echo` installs rhythm and Echo with signatures checked, caches the downloads and puts them on `PATH`; it can also install the versions a `rhythm.lock` pins. See [CI setup](CI-Setup).
+
 ## Other CI systems
 
 Nothing above needs GitHub except the action itself. In GitLab CI, Jenkins or a cron job, install Echo, start it in the background, run your command:

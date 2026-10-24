@@ -172,7 +172,7 @@ Pass the test account from repository secrets, so the leak test and login flows 
           against: https://yoursite.com
 ```
 
-`args` is split on spaces, without honoring quotes, so it can't carry a value that contains a space, such as a basic auth header. For staging behind basic auth, install Soundcheck and run it in a `run` step instead:
+`args` is split on spaces, without honoring quotes, so it can't carry a value that contains a space, such as a basic auth header. For staging behind basic auth, install Soundcheck and run it in a `run` step instead (or install it with the [setup-rhythm action](CI-Setup), `tools: soundcheck`):
 
 ```yaml
       - name: Install Soundcheck
