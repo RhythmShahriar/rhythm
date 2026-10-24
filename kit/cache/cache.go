@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 // Package cache is a small on-disk cache for data a tool fetches from the
-// network: fresh entries are reused, stale ones refreshed, and when the
+// network: fresh entries are reused and stale ones refreshed. When the
 // network is down the last good copy is used.
 package cache
 
@@ -23,7 +23,7 @@ import (
 )
 
 // ErrOffline means the data isn't cached and the store is offline.
-var ErrOffline = errors.New("not cached, and offline mode is on")
+var ErrOffline = errors.New("not cached and offline mode is on")
 
 // Store caches JSON-encodable values under
 // Dir/<kind>/<readable prefix of key>-<hash of key>.json.

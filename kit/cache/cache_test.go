@@ -46,6 +46,9 @@ func TestLoad(t *testing.T) {
 	if _, _, err := Load(&Store{Dir: t.TempDir(), Offline: true}, ctx, "k", "a", fetch); !errors.Is(err, ErrOffline) {
 		t.Errorf("offline without cache: %v", err)
 	}
+	if got := ErrOffline.Error(); got != "not cached and offline mode is on" {
+		t.Errorf("ErrOffline = %q", got)
+	}
 	// One lookup per key per store.
 	s := &Store{}
 	n := 0
