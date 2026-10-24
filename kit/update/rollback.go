@@ -41,10 +41,10 @@ type swapInfo struct {
 }
 
 // Rollback swaps the binary at dest with dest.prev, the one the last
-// install or rollback replaced, and returns the versions it went from and
+// install or rollback replaced. It returns the versions it went from and
 // to (either "" when the sidecar doesn't know). A second Rollback swaps
-// back. It returns ErrNoPrevious when there is no dest.prev, and refuses
-// a dest.prev whose sha256 no longer matches the one recorded when it was
+// back. It returns ErrNoPrevious when there is no dest.prev. It refuses a
+// dest.prev whose sha256 no longer matches the one recorded when it was
 // set aside.
 //
 // dest always holds a whole, working binary: if a rename fails half way
@@ -138,7 +138,7 @@ func swapViaOld(dest, prev string) error {
 	}
 	if err := rename(old, prev); err != nil {
 		// Put everything back. If that fails too, dest stays the previous
-		// version, which works, and the other binary stays at .old.
+		// version (which works) while the other binary stays at .old.
 		if uerr := rename(dest, prev); uerr != nil {
 			return errors.Join(err, fmt.Errorf("restoring %s: %w; the replaced binary is at %s", dest, uerr, old))
 		}
@@ -179,8 +179,7 @@ func dropPrev(dest string) {
 }
 
 // snapshot makes a hard link to path under a temp name in the same
-// directory, or a copy where links aren't supported, and returns its
-// name. Either way a later rename of it is atomic.
+// directory (a copy where links aren't supported) and returns its name. Either way a later rename of it is atomic.
 func snapshot(path string) (string, error) {
 	f, err := createTemp(filepath.Dir(path), "."+filepath.Base(path)+".prev-*")
 	if err != nil {

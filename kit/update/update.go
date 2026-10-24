@@ -406,8 +406,8 @@ var (
 // the binary it replaces as dest.prev for Rollback. On Unix that one
 // rename is atomic and dest.prev is a hard link (or copy) made before it.
 // On Windows a running executable can't be overwritten but can be renamed
-// away, so dest moves to dest.old first, moves back if the new binary
-// can't take its place, and becomes dest.prev once it has.
+// away: dest moves to dest.old first, moves back if the new binary can't
+// take its place and becomes dest.prev once it has.
 func replace(dest string, r io.Reader, info swapInfo) error {
 	removeStaleOld(dest)
 	tmp, err := createTemp(filepath.Dir(dest), "."+filepath.Base(dest)+".new-*")
@@ -438,7 +438,7 @@ func replace(dest string, r io.Reader, info swapInfo) error {
 		var keep string
 		if !fresh {
 			if keep, err = snapshot(dest); err != nil {
-				dropPrev(dest) // no rollback this time, but never a stale one
+				dropPrev(dest) // no rollback this time; never a stale one
 				keep = ""
 			} else {
 				defer func() { _ = os.Remove(keep) }()
@@ -470,8 +470,8 @@ func replace(dest string, r io.Reader, info swapInfo) error {
 		return fmt.Errorf("replacing %s: %w", dest, err)
 	}
 	if moved {
-		// .old is the running binary when a tool updates itself; Windows
-		// lets it be renamed, and if it can't, removeStaleOld clears it
+		// .old is the running binary when a tool updates itself. Windows
+		// lets it be renamed; if that fails, removeStaleOld clears it
 		// next time.
 		rec.ReplacedAt = time.Now().UTC()
 		keepPrev(dest, old, rec)
