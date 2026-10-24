@@ -501,9 +501,98 @@ case_readme() {
 	! grep -qi 'other identity' "$readme" || fail "README claims other identities are rejected"
 }
 
+# readme_commands prints the rhythm commands README's Commands table names,
+# one per line: the word after "rhythm" in each row's first cell.
+readme_commands() {
+	awk '/^## /{ on = ($0 == "## Commands") } on && /^\| `rhythm [a-z]/ { sub(/[^a-z-].*/, "", $3); print $3 }' "$1" | sort -u
+}
+
+# help_commands prints the commands in the Commands block of `rhythm help`.
+help_commands() {
+	awk '/^Commands:/ { on = 1; next } on && /^[^ ]/ { on = 0 } on && $1 == "rhythm" && $2 ~ /^[a-z]/ { print $2 }' "$1" | sort -u
+}
+
+# check_commands fails for a command that help ($2) lists and README ($1)
+# doesn't, and says which README commands this build doesn't have yet.
+check_commands() {
+	help_commands "$2" >"$cdir/help.cmds"
+	readme_commands "$1" >"$cdir/readme.cmds"
+	[ -s "$cdir/help.cmds" ] || fail "no commands in the router's help"
+	[ -s "$cdir/readme.cmds" ] || fail "no commands in README's Commands table"
+	while read -r c; do
+		grep -qx "$c" "$cdir/help.cmds" || echo "skip $case: this build's help doesn't list rhythm $c"
+	done <"$cdir/readme.cmds"
+	while read -r c; do
+		grep -qx "$c" "$cdir/readme.cmds" || return 1
+	done <"$cdir/help.cmds"
+}
+
+case_readme_commands() {
+	if ! command -v go >/dev/null 2>&1; then
+		echo "skip $case: go isn't on PATH"
+		return
+	fi
+	(cd "$here/../.." && GOWORK=off go build -o "$cdir/rhythm" ./cmd/rhythm) || fail "go build ./cmd/rhythm failed"
+	"$cdir/rhythm" help >"$cdir/help.txt" 2>&1 || fail "rhythm help failed"
+	check_commands "$here/../../README.md" "$cdir/help.txt" || fail "README's Commands table lacks a command rhythm help lists"
+
+	# The check itself: a command missing from README fails it.
+	printf 'Commands:\n  rhythm install <tool>   download a tool\n  rhythm zap   not in README\n' >"$cdir/help-extra.txt"
+	! check_commands "$here/../../README.md" "$cdir/help-extra.txt" >/dev/null || fail "a command missing from README passed"
+}
+
+# check_links runs the wiki checker's relative-link rule over a README:
+# every relative link, href, src and srcset names a file that exists, and
+# every #anchor a heading in the README.
+check_links() {
+	python3 -I - "$here/../check-wiki.py" "$1" <<'EOF'
+import importlib.util
+import os
+import re
+import sys
+
+sys.dont_write_bytecode = True  # no __pycache__ in scripts/
+spec = importlib.util.spec_from_file_location("check_wiki", sys.argv[1])
+wiki = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(wiki)
+readme = sys.argv[2]
+root = os.path.dirname(readme)
+anchors = wiki.headings(readme)
+targets = list(wiki.links(readme))
+with open(readme, encoding="utf-8") as f:
+    for no, line in enumerate(f, 1):
+        targets += [(no, t) for t in re.findall(r'\b(?:src|srcset)="([^"]+)"', line)]
+bad = 0
+for no, target in targets:
+    if re.match(r"^[a-z][a-z0-9+.-]*:", target) or target.startswith(("/", "mailto:")):
+        continue  # external
+    name, _, anchor = target.partition("#")
+    if name and not os.path.exists(os.path.join(root, name)):
+        print(f"README.md:{no}: link to missing file {name!r}")
+        bad += 1
+    elif not name and anchor not in anchors:
+        print(f"README.md:{no}: no heading #{anchor}")
+        bad += 1
+sys.exit(1 if bad else 0)
+EOF
+}
+
+case_readme_links() {
+	check_links "$here/../../README.md" || fail "README has a broken relative link"
+
+	# The check itself: a missing file and a missing heading both fail it.
+	mkdir -p "$cdir/docs"
+	printf '# Top\n\n[ok](#top) [gone](docs/missing.svg)\n' >"$cdir/README.md"
+	! check_links "$cdir/README.md" >/dev/null || fail "a link to a missing file passed"
+	printf '# Top\n\n<img src="docs">[ok](#top) [gone](#nowhere)\n' >"$cdir/README.md"
+	! check_links "$cdir/README.md" >/dev/null || fail "a link to a missing heading passed"
+	printf '# Top\n\n<img src="docs">[ok](#top) [web](https://example.invalid/x)\n' >"$cdir/README.md"
+	check_links "$cdir/README.md" || fail "a good README failed"
+}
+
 cases=${*:-default none some commas typo tool_fails path_hint path_hint_macos path_ok bad_checksum no_checksums missing_dir relative_dir unwritable_dir truncated proto http_refused http_download_refused github_token
 rhythm_token rate_limit old_router old_router_named router_without_dry_run
-router_without_tools_block unknown_tool readme}
+router_without_tools_block unknown_tool readme readme_commands readme_links}
 script='' path=''
 for case in $cases; do
 	cdir=$work/cases/$case
