@@ -22,7 +22,14 @@ refreshes each tool's data (such as Tuner's vulnerability database).
 Name tools, or rhythm itself, to update only those.
 
 Exit status: 0 when everything worked, 1 when anything failed, 2 for a
-usage error and 130 when interrupted.`
+usage error and 130 when interrupted. With --check: 0 when everything is
+current, 10 when an update is available and 1 when a check failed, so
+"if rhythm update --check" reads as "if everything is current".`
+
+// exitOutdated is rhythm update --check's exit status when at least one
+// target has a newer release. It is far from the 0 to 3 that rhythm and
+// its tools use, so a script can tell "behind" from "broken".
+const exitOutdated = 10
 
 // cmdUpdate updates rhythm itself, then each installed tool, then each
 // tool's data (e.g. Tuner's vulnerability database).
@@ -113,8 +120,12 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 	}
 	rep.nets.print(stderr)
 	if len(rep.failed) > 0 {
+		// A failed check wins over "outdated": the answer is incomplete.
 		fmt.Fprintln(stderr, rep.summary(*checkOnly))
 		return 1
+	}
+	if *checkOnly && rep.updated > 0 {
+		return exitOutdated
 	}
 	return 0
 }

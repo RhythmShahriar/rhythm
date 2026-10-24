@@ -11,6 +11,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -658,4 +659,79 @@ func TestUpdateProgressOnATerminal(t *testing.T) {
 	if code != 0 || !strings.Contains(errs, "\rDownloading rhythm-tuner 0.2.0  ") || !strings.HasSuffix(errs, "\r\x1b[K") {
 		t.Errorf("exit %d: %q", code, errs)
 	}
+}
+
+func TestUpdateCheckExitStatus(t *testing.T) {
+	t.Run("outdated", func(t *testing.T) {
+		installed, latest := allTools()
+		s := newSandbox(t, installed, latest)
+		code, out, errs := runCmd("update", "--check")
+		if code != exitOutdated || errs != "" {
+			t.Errorf("exit %d\n%s%s", code, out, errs)
+		}
+		if strings.Contains(s.content("rhythm-tuner"), "0.2.0") {
+			t.Error("--check changed a binary")
+		}
+	})
+	t.Run("one outdated", func(t *testing.T) {
+		installed, latest := allTools()
+		latest[tools["echo"]], latest[tools["soundcheck"]] = "0.1.0", "0.1.0"
+		newSandbox(t, installed, latest)
+		if code, out, errs := runCmd("update", "--check"); code != exitOutdated {
+			t.Errorf("exit %d\n%s%s", code, out, errs)
+		}
+	})
+	t.Run("current", func(t *testing.T) {
+		installed, latest := allTools()
+		for repo := range latest {
+			latest[repo] = "0.1.0"
+		}
+		newSandbox(t, installed, latest)
+		if code, out, errs := runCmd("update", "--check"); code != 0 {
+			t.Errorf("exit %d\n%s%s", code, out, errs)
+		}
+	})
+	t.Run("network error wins", func(t *testing.T) {
+		installed, latest := allTools()
+		s := newSandbox(t, installed, latest)
+		// Echo's release lookup has its connection dropped; the others
+		// are outdated.
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.Contains(r.URL.Path, "/echo/") {
+				conn, _, err := w.(http.Hijacker).Hijack()
+				if err == nil {
+					conn.Close()
+				}
+				return
+			}
+			r.URL.Scheme, r.URL.Host = "http", strings.TrimPrefix(s.api.URL, "http://")
+			resp, err := http.Get(r.URL.String())
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			defer resp.Body.Close()
+			w.WriteHeader(resp.StatusCode)
+			_, _ = io.Copy(w, resp.Body)
+		}))
+		t.Cleanup(srv.Close)
+		t.Setenv("RHYTHM_GITHUB_API", srv.URL)
+		code, out, errs := runCmd("update", "--check")
+		if code != 1 || !strings.Contains(errs, "failed 1: rhythm-echo") {
+			t.Errorf("exit %d\n%s%s", code, out, errs)
+		}
+	})
+	t.Run("plain update is 0", func(t *testing.T) {
+		installed, latest := allTools()
+		newSandbox(t, installed, latest)
+		if code, out, errs := runCmd("update", "--no-data"); code != 0 {
+			t.Errorf("exit %d\n%s%s", code, out, errs)
+		}
+	})
+	t.Run("help", func(t *testing.T) {
+		_, out, _ := runCmd("update", "--help")
+		if !strings.Contains(out, "10 when an update is available") {
+			t.Errorf("help doesn't explain exit 10:\n%s", out)
+		}
+	})
 }
