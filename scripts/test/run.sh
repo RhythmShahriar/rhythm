@@ -49,11 +49,15 @@ sh "$here/mkfake.sh" "$work/srv"
 python3 -I "$here/server.py" "$work/srv" "$work/requests.log" "${RHYTHM_TEST_PORT:-0}" 2>"$work/server.err" &
 server=$!
 i=0
+# Up to 30 s: a cold python3 on a loaded macOS runner is slow to start.
 until [ -s "$work/srv/.port" ]; do
 	i=$((i + 1))
-	if [ $i -gt 100 ] || ! kill -0 "$server" 2>/dev/null; then
+	why=
+	kill -0 "$server" 2>/dev/null || why="it exited"
+	[ $i -le 300 ] || why="no port after 30 s"
+	if [ -n "$why" ]; then
 		cat "$work/server.err" >&2
-		echo "the fake API didn't start" >&2
+		echo "the fake API didn't start: $why" >&2
 		exit 1
 	fi
 	sleep 0.1
