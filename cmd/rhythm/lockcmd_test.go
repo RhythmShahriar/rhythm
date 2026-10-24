@@ -707,9 +707,28 @@ func TestInstallLockedMissingPlatform(t *testing.T) {
 
 func TestInstallLockedNeedsALock(t *testing.T) {
 	s, _ := pinSandbox(t)
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The message says what was looked in: outside a repository, this
+	// folder only; inside one, every folder up to its root.
 	code, _, errs := runCmd("install", "--locked", "--dir", s.bin)
-	if code != 1 || !strings.Contains(errs, "rhythm: no rhythm.lock in this folder or its parents up to the repository root; write one with: rhythm lock") {
+	if code != 1 || !strings.HasPrefix(errs, "rhythm: no rhythm.lock in "+cwd) || !strings.HasSuffix(errs, "; write one with: rhythm lock\n") ||
+		strings.Contains(errs, "repository root") && !strings.Contains(errs, "or its parents up to") {
 		t.Errorf("exit %d\n%s", code, errs)
+	}
+	if err := os.Mkdir(".git", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"install", "--locked", "--dir", s.bin}, {"update", "--lock"}, {"bundle", "--locked", "-o", "b.tar.gz"}} {
+		code, _, errs = runCmd(args...)
+		if want := "rhythm: no rhythm.lock in " + cwd + ", the root of its git repository; write one with: rhythm lock\n"; code != 1 || errs != want {
+			t.Errorf("%v: exit %d\n%s\nwant\n%s", args, code, errs, want)
+		}
+	}
+	if err := os.Remove(".git"); err != nil {
+		t.Fatal(err)
 	}
 	if err := os.WriteFile(lockFileName, []byte(`{"schema":"rhythm-lock/v2","tools":[]}`), 0o644); err != nil {
 		t.Fatal(err)

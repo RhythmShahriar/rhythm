@@ -87,10 +87,12 @@ Commit `rhythm.lock`. Any problem (a development build of a tool, a version that
 
 ### Where rhythm looks for it
 
-`rhythm install --locked`, `rhythm update --lock` and `rhythm bundle` use the nearest `rhythm.lock` in the current folder or a parent, up to and including the root of the git repository (a `.git` folder or file, so worktrees and submodules stop there too). Outside a repository only the current folder counts, so a stray lock in your home folder never applies. Without one:
+`rhythm install --locked`, `rhythm update --lock` and `rhythm bundle` use the nearest `rhythm.lock` in the current folder or a parent, up to and including the root of the git repository (a `.git` folder or file, so worktrees and submodules stop there too). Outside a repository only the current folder counts, so a stray lock in your home folder never applies. Without one, the message names what was checked:
 
 ```text
-rhythm: no rhythm.lock in this folder or its parents up to the repository root; write one with: rhythm lock
+rhythm: no rhythm.lock in /home/me/site/web or its parents up to the repository root /home/me/site; write one with: rhythm lock
+rhythm: no rhythm.lock in /home/me/site, the root of its git repository; write one with: rhythm lock
+rhythm: no rhythm.lock in /tmp/scratch, which isn't in a git repository, so no other folder was checked; write one with: rhythm lock
 ```
 
 ### The lock file

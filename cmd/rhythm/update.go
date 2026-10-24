@@ -576,7 +576,7 @@ func updateScope(command string, names []string, selfOnly bool, exts []extension
 func updateLock(want map[string]bool, checkOnly bool, age minAge, stdout, stderr io.Writer) int {
 	path, err := findLock(".")
 	if errors.Is(err, errNoLock) {
-		fmt.Fprintf(stderr, "rhythm: no %s in this folder or its parents up to the repository root; write one with: rhythm lock\n", lockFileName)
+		fmt.Fprintf(stderr, "rhythm: %v; write one with: rhythm lock\n", err)
 		return 1
 	}
 	var old *lockFile

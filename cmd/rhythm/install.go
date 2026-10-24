@@ -970,7 +970,7 @@ func pinData(ctx context.Context, it installItem, lock *lockFile, dir string, st
 func lockedScope(named []installItem, stdout, stderr io.Writer) (*lockFile, string, []installItem, int) {
 	path, err := findLock(".")
 	if errors.Is(err, errNoLock) {
-		fmt.Fprintf(stderr, "rhythm: no %s in this folder or its parents up to the repository root; write one with: rhythm lock\n", lockFileName)
+		fmt.Fprintf(stderr, "rhythm: %v; write one with: rhythm lock\n", err)
 		return nil, "", nil, 1
 	}
 	var lock *lockFile
