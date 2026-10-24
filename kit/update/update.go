@@ -190,6 +190,7 @@ func (u *Updater) Install(ctx context.Context, rel *Release, dest string) error 
 		return fmt.Errorf("release %s has no checksums.txt; refusing to install unverified binaries", rel.Version)
 	}
 
+	removeStaleOld(dest)
 	sums, err := u.download(ctx, sumsURL, 1<<20)
 	if err != nil {
 		return fmt.Errorf("downloading checksums: %w", err)
@@ -299,9 +300,19 @@ func fromZip(archive []byte, bin string) ([]byte, error) {
 	return nil, fmt.Errorf("no %s in the archive", bin)
 }
 
-// replace writes data next to dest and renames it into place. On Windows a
-// running executable can't be overwritten, but it can be renamed away.
+// Seams for tests: rename lets them inject failures, and useOldSwap
+// forces the Windows path on every OS.
+var (
+	rename     = os.Rename
+	useOldSwap = runtime.GOOS == "windows"
+)
+
+// replace writes data next to dest and renames it into place. On Unix that
+// one rename is atomic. On Windows a running executable can't be
+// overwritten but can be renamed away, so dest moves to dest.old first and
+// moves back if the new binary can't take its place.
 func replace(dest string, data []byte) error {
+	removeStaleOld(dest)
 	dir := filepath.Dir(dest)
 	tmp, err := os.CreateTemp(dir, "."+filepath.Base(dest)+".new-*")
 	if err != nil {
@@ -321,14 +332,36 @@ func replace(dest string, data []byte) error {
 	if err := os.Chmod(tmp.Name(), 0o755); err != nil { //nolint:gosec // an executable must be executable
 		return err
 	}
-	if runtime.GOOS == "windows" {
-		old := dest + ".old"
-		_ = os.Remove(old)
-		if err := os.Rename(dest, old); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
+	if !useOldSwap {
+		return rename(tmp.Name(), dest)
 	}
-	return os.Rename(tmp.Name(), dest)
+	old := dest + ".old"
+	_ = os.Remove(old)
+	moved := true
+	if err := rename(dest, old); err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("replacing %s: %w", dest, err)
+		}
+		moved = false // a fresh install: nothing to move away
+	}
+	if err := rename(tmp.Name(), dest); err != nil {
+		if moved {
+			if rerr := rename(old, dest); rerr != nil {
+				return fmt.Errorf("replacing %s: %w", dest, errors.Join(err, fmt.Errorf("restoring %s: %w", old, rerr)))
+			}
+		}
+		return fmt.Errorf("replacing %s: %w", dest, err)
+	}
+	return nil
+}
+
+// removeStaleOld deletes the dest.old a previous Windows update left
+// behind. It only does so while dest exists, so it never deletes the last
+// copy of a binary.
+func removeStaleOld(dest string) {
+	if _, err := os.Stat(dest); err == nil {
+		_ = os.Remove(dest + ".old")
+	}
 }
 
 // IsRelease reports whether v is a release version (not "dev").
