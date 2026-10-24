@@ -1,13 +1,6 @@
 // Copyright (c) 2026 Rhythm Shahriar <me@rhy.io>
 // SPDX-License-Identifier: AGPL-3.0-only
 
-// Package update installs and updates Rhythm binaries from GitHub Releases.
-//
-// Release archives are named <binary>_<os>_<arch>.tar.gz (.zip on Windows)
-// with a checksums.txt alongside, as GoReleaser publishes them. Every
-// download is verified against checksums.txt before anything is replaced,
-// and the binary is swapped atomically so a failed update never leaves a
-// broken install.
 package update
 
 import (
@@ -36,7 +29,10 @@ const (
 	maxBinary  = 2 * maxArchive
 )
 
-// Updater checks for and installs releases of one binary.
+// Updater checks for and installs releases of one binary. The zero
+// value of every field but Repo and Binary is a working default. An
+// Updater is safe for concurrent use as long as its fields are not
+// changed meanwhile.
 //
 // It reads these environment variables:
 //
@@ -54,13 +50,13 @@ const (
 // accepted for loopback hosts, for tests. A token is never sent on a
 // redirect to another host and never logged.
 type Updater struct {
-	Repo      string // e.g. RhythmShahriar/tuner
-	Binary    string // e.g. rhythm-tuner
-	Current   string // running version; "dev" builds never update
-	UserAgent string
-	HTTP      *http.Client
-	API       string // GitHub API base; default https://api.github.com
-	OS, Arch  string // default runtime.GOOS, runtime.GOARCH
+	Repo      string       // GitHub owner/name, e.g. RhythmShahriar/tuner
+	Binary    string       // binary and archive prefix, e.g. rhythm-tuner
+	Current   string       // running version; "dev" builds never update
+	UserAgent string       // default rhythm-update/<Binary>
+	HTTP      *http.Client // default: 5 minute timeout, proxy from the environment
+	API       string       // GitHub API base; default https://api.github.com (RHYTHM_GITHUB_API in the tools)
+	OS, Arch  string       // platform to install for; default runtime.GOOS, runtime.GOARCH
 
 	// Offline makes the Updater never touch the network: Check and Notice
 	// stay quiet and Latest and Install return ErrOffline. Tools set it
@@ -88,10 +84,12 @@ func envOffline() bool {
 	return v != "" && v != "0"
 }
 
-// Release is one published release and its downloadable assets.
+// Release is one published release and its downloadable assets, as
+// Latest returns it. Install needs the platform archive and checksums.txt
+// among the Assets.
 type Release struct {
 	Version string            // without the leading v
-	Assets  map[string]string // name → download URL
+	Assets  map[string]string // asset name → https download URL
 }
 
 // Latest fetches the newest published release.

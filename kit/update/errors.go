@@ -21,10 +21,12 @@ type ErrUnreachable struct {
 	Err  error
 }
 
+// Error names the host and suggests what to check.
 func (e *ErrUnreachable) Error() string {
 	return fmt.Sprintf("can't reach %s; check your network, proxy or RHYTHM_GITHUB_API", e.Host)
 }
 
+// Unwrap returns the cause, for errors.Is and errors.As.
 func (e *ErrUnreachable) Unwrap() error { return e.Err }
 
 // ErrRateLimited means the release API answered 403 or 429 with
@@ -36,6 +38,7 @@ type ErrRateLimited struct {
 	Err      error     // the HTTP status
 }
 
+// Error says when the limit lifts and which token would help.
 func (e *ErrRateLimited) Error() string {
 	var b strings.Builder
 	tokenVar := "GITHUB_TOKEN" //nolint:gosec // a variable name, not a credential
@@ -54,6 +57,7 @@ func (e *ErrRateLimited) Error() string {
 	return b.String()
 }
 
+// Unwrap returns the cause, for errors.Is and errors.As.
 func (e *ErrRateLimited) Unwrap() error { return e.Err }
 
 // resetTime shows t as a clock time, with the date when it isn't within
@@ -75,6 +79,7 @@ type ErrNoRelease struct {
 	Err  error  // the HTTP status
 }
 
+// Error names the mirror when there is one.
 func (e *ErrNoRelease) Error() string {
 	if e.API == "" || e.API == defaultAPI {
 		return e.Repo + " has no published releases yet"
@@ -82,6 +87,7 @@ func (e *ErrNoRelease) Error() string {
 	return fmt.Sprintf("mirror %s has no release for %s", e.API, e.Repo)
 }
 
+// Unwrap returns the cause, for errors.Is and errors.As.
 func (e *ErrNoRelease) Unwrap() error { return e.Err }
 
 // ErrChecksum means a downloaded archive does not match its expected
@@ -91,6 +97,7 @@ type ErrChecksum struct {
 	Want, Got string // hex sha256
 }
 
+// Error says nothing was changed.
 func (e *ErrChecksum) Error() string {
 	return e.Asset + ": checksum mismatch; the download may be corrupt or tampered with, nothing was changed"
 }
@@ -101,6 +108,7 @@ type StatusError struct {
 	Code int
 }
 
+// Error is "HTTP <code>".
 func (e *StatusError) Error() string { return "HTTP " + strconv.Itoa(e.Code) }
 
 // netError turns a failed request into ErrUnreachable when the network,
