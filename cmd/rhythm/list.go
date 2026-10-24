@@ -39,8 +39,9 @@ Shows rhythm, every installed tool and any other rhythm-* program on
 your PATH, with the version each reports, the latest release and where
 it is. "(3rd)" marks a program that isn't one of rhythm's tools.
 
-Exit status: 0 when the list was shown, 2 for a usage error and 130 when
-interrupted. A release that couldn't be looked up shows "?".`
+Exit status: 0 when the list was shown, 1 when rhythm's config folder
+can't be read, 2 for a usage error and 130 when interrupted. A release
+that couldn't be looked up shows "?".`
 
 // listEntry is one row of rhythm list.
 type listEntry struct {
@@ -68,10 +69,18 @@ func cmdList(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "rhythm: list takes no names (got %q)\n", pos[0])
 		return exitUsage
 	}
+	// The extensions on record decide the SIGNED column, so a config
+	// folder rhythm can't read fails here, as it does for ext list and
+	// update, instead of showing every signature as missing.
+	exts, err := readExtensions()
+	if err != nil {
+		fmt.Fprintln(stderr, "rhythm:", err)
+		return 1
+	}
 	ctx, stop := signalContext()
 	defer stop()
 	*offline = *offline || offlineOn(os.Getenv(offlineEnv))
-	entries, nets := listEntries(ctx, *offline)
+	entries, nets := listEntries(ctx, *offline, exts)
 	if ctx.Err() != nil {
 		fmt.Fprintln(stderr, "rhythm: list interrupted")
 		return exitInterrupted
@@ -98,7 +107,7 @@ func cmdList(args []string, stdout, stderr io.Writer) int {
 // listEntries finds rhythm, the installed tools and third-party rhythm-*
 // programs and, unless offline, looks up the latest releases. Problems
 // reaching the release API are collected in the netReport.
-func listEntries(ctx context.Context, offline bool) ([]listEntry, *netReport) {
+func listEntries(ctx context.Context, offline bool, exts []extension) ([]listEntry, *netReport) {
 	// Third-party programs are asked for their versions alongside the
 	// registry tools, so hung ones cost the probe timeout once in all.
 	var others []target
@@ -137,10 +146,8 @@ func listEntries(ctx context.Context, offline bool) ([]listEntry, *netReport) {
 	// An extension rhythm installed has a signature on record, like the
 	// registry's tools; any other rhythm-* program isn't checked.
 	installed := map[string]bool{}
-	if exts, err := readExtensions(); err == nil {
-		for _, x := range exts {
-			installed[x.Name] = true
-		}
+	for _, x := range exts {
+		installed[x.Name] = true
 	}
 	for _, t := range others {
 		e := listEntry{name: t.tool, binary: t.binary, version: t.current, signed: "-", path: t.path, thirdParty: true}

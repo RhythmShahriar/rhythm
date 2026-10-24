@@ -100,6 +100,28 @@ func TestListOffline(t *testing.T) {
 	}
 }
 
+// A relative RHYTHM_CONFIG_DIR fails list the way it fails ext list and
+// update, before any lookup, instead of showing every signature as "no".
+func TestListBadConfigDir(t *testing.T) {
+	s := listSandbox(t)
+	t.Setenv("RHYTHM_CONFIG_DIR", "rel")
+	want := "rhythm: RHYTHM_CONFIG_DIR must be an absolute path, got \"rel\"\n"
+	for _, args := range [][]string{{"list"}, {"list", "--json"}, {"ext", "list"}} {
+		code, out, errs := runCmd(args...)
+		if code != 1 || out != "" || errs != want {
+			t.Errorf("%v: exit %d\nstdout %q\nstderr %q", args, code, out, errs)
+		}
+	}
+	if r := s.api.requests(); len(r) != 0 {
+		t.Errorf("list asked the API: %v", r)
+	}
+	// An absolute folder still lists.
+	t.Setenv("RHYTHM_CONFIG_DIR", filepath.Join(s.dir, "config"))
+	if code, out, errs := runCmd("list", "--offline"); code != 0 || !strings.Contains(out, "tuner") {
+		t.Errorf("absolute: exit %d\n%s%s", code, out, errs)
+	}
+}
+
 func TestListLookupFailure(t *testing.T) {
 	listSandbox(t)
 	api := closedPort(t)
