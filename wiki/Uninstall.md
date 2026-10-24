@@ -1,6 +1,47 @@
 Removing Rhythm means deleting the binaries, then, if you like, the cache and settings folders. Nothing else is installed: no services, no background jobs, no system-wide settings. If you used Echo, also remove its connectors from your sites and stop trusting its certificate authority wherever you added it.
 
-## Linux
+## With rhythm uninstall
+
+```sh
+rhythm uninstall --all rhythm --purge   # every tool, their caches and rhythm itself
+```
+
+`rhythm uninstall` removes the tools you name, or every tool with `--all`:
+
+```console
+$ rhythm uninstall tuner --purge
+Removed /home/me/.local/bin/rhythm-tuner
+Removed /home/me/.local/bin/rhythm-tuner.prev
+Removed /home/me/.local/bin/rhythm-tuner.prev.json
+Removed /home/me/.cache/rhythm/tuner
+$ rhythm uninstall tuner
+rhythm-tuner       isn't installed
+```
+
+| Flag | Effect |
+|---|---|
+| `--all` | remove every installed tool; add `rhythm` to remove rhythm itself too (last) |
+| `--purge` | also remove each tool's cache folder (Tuner's vulnerability data and check pack, Soundcheck's Chromium, Echo's CA) and its saved update check, even for a tool that is already gone |
+
+For each tool it removes the copy that runs (the first on your `PATH`, plus the file a link points to), plus the `.prev`, `.prev.json` and `.old` files updates leave next to it. If another copy is still on your `PATH` afterwards it says `Note: another rhythm-tuner is still on your PATH at /usr/local/bin/rhythm-tuner`. A tool that isn't installed is not an error.
+
+| Message | Exit |
+|---|---|
+| `rhythm: to remove rhythm itself, run: rhythm uninstall --all rhythm` | 2 |
+| `usage: rhythm uninstall <tool>... [--purge] [--all]; name a tool, or use --all` | 2 |
+| `rhythm: unknown tool "tunr" (did you mean tuner?)`<br>`  known: rhythm, echo, soundcheck, tuner` | 2, nothing removed |
+| `rhythm-tuner is managed by Homebrew; remove it with: brew uninstall rhythm-tuner` | 1, nothing removed, not even with `--purge` |
+| `rhythm-echo        can't remove /usr/local/bin/rhythm-echo; rerun with sudo` | 1 |
+
+A tool a package manager installed is left to it, with the right command (`brew uninstall`, `nix profile remove`, `mise uninstall`, `asdf uninstall`, `scoop uninstall`, `winget uninstall`). On Windows the running `rhythm.exe` can't delete itself; it is renamed and the line says `(rhythm.exe.old is left; delete it once this command ends)`.
+
+`--purge` keeps the `seen/` markers, so a tool you remove isn't announced as new by the next `rhythm update`. Extensions go with `rhythm ext remove <name>`; see [Extensions](Extensions). Then remove the install folder from your `PATH` if you added it. Delete the settings folder if you like (see [below](#whats-in-the-cache-and-settings-folders)).
+
+## By hand
+
+With rhythm 0.6.0 or older, or if `rhythm` is already gone, delete the files yourself.
+
+### Linux
 
 ```sh
 rm ~/.local/bin/rhythm ~/.local/bin/rhythm-*     # or /usr/local/bin, or your RHYTHM_INSTALL_DIR
@@ -9,7 +50,7 @@ rm -r ~/.cache/rhythm ~/.config/rhythm           # optional: cache and settings
 
 If you set `XDG_CACHE_HOME` or `XDG_CONFIG_HOME`, the folders are `$XDG_CACHE_HOME/rhythm` and `$XDG_CONFIG_HOME/rhythm` instead.
 
-## macOS
+### macOS
 
 ```sh
 rm ~/.local/bin/rhythm ~/.local/bin/rhythm-*     # or /usr/local/bin, or your RHYTHM_INSTALL_DIR
@@ -19,7 +60,7 @@ rm -r ~/Library/Caches/rhythm "$HOME/Library/Application Support/rhythm"   # opt
 > [!NOTE]
 > On macOS the cache and settings live under `~/Library`, not `~/.cache` and `~/.config`.
 
-## Windows
+### Windows
 
 1. Delete the install folder, `%LOCALAPPDATA%\Programs\rhythm` (or your `RHYTHM_INSTALL_DIR`). It holds `rhythm.exe`, the tools and any `.exe.old` files left by updates.
 2. Remove that folder from your **user** `PATH`: **Settings → System → About → Advanced system settings → Environment Variables**, select `Path` under *User variables*, choose **Edit** and delete the entry.
@@ -35,7 +76,7 @@ $path = ([Environment]::GetEnvironmentVariable('Path', 'User') -split ';' | Wher
 Remove-Item -Recurse -Force "$env:LOCALAPPDATA\rhythm", "$env:APPDATA\rhythm" -ErrorAction SilentlyContinue
 ```
 
-## Installed with Go
+### Installed with Go
 
 ```sh
 rm "$(go env GOPATH)/bin/rhythm" "$(go env GOPATH)/bin/rhythm-tuner" "$(go env GOPATH)/bin/rhythm-soundcheck" "$(go env GOPATH)/bin/rhythm-echo"
@@ -59,7 +100,9 @@ Both are safe to delete at any time. Tuner downloads what it needs again on the 
 | cache `soundcheck/browser/` | The Chromium Soundcheck downloaded, when no Chrome is installed; often the largest item |
 | cache `echo/ca/` | Echo's certificate authority for its HTTPS proxy: `ca.pem` and its private key `ca-key.pem` |
 | settings `update-check/` | When each tool last looked for a new release, for the [once-a-day notice](Updating#the-new-release-notice) |
-| settings `seen/` | Markers for notices shown once, such as the tools' responsible-use notes |
+| settings `seen/` | Markers for notices shown once, such as the tools' responsible-use notes and `New tool available` |
+| settings `extensions.json`, `verified.json` | The extensions `rhythm ext` installed and the signature checks behind the SIGNED column |
+| cache `rhythm/tuf/`, `rhythm/downloads/` | The Sigstore trusted root and the archives `--cache` keeps |
 
 To clear only Tuner's cache, run `rhythm tuner update --clear`. To delete only Soundcheck's Chromium, run `rhythm soundcheck update --clear`.
 
