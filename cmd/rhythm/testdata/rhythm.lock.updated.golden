@@ -1,0 +1,35 @@
+{
+  "schema": "rhythm-lock/v1",
+  "rhythm": {
+    "name": "rhythm",
+    "repo": "RhythmShahriar/rhythm",
+    "version": "0.8.0",
+    "platforms": {
+      "darwin_arm64": "$SHA(rhythm 0.8.0)",
+      "linux_amd64": "$SHA(rhythm 0.8.0)",
+      "windows_amd64": "$SHA(rhythm 0.8.0)"
+    }
+  },
+  "tools": [
+    {
+      "name": "soundcheck",
+      "repo": "RhythmShahriar/soundcheck",
+      "version": "0.4.2",
+      "platforms": {
+        "darwin_arm64": "$SHA(rhythm-soundcheck 0.4.2)",
+        "linux_amd64": "$SHA(rhythm-soundcheck 0.4.2)",
+        "windows_amd64": "$SHA(rhythm-soundcheck 0.4.2)"
+      }
+    },
+    {
+      "name": "tuner",
+      "repo": "RhythmShahriar/tuner",
+      "version": "0.4.0",
+      "platforms": {
+        "darwin_arm64": "$SHA(rhythm-tuner 0.4.0)",
+        "linux_amd64": "$SHA(rhythm-tuner 0.4.0)",
+        "windows_amd64": "$SHA(rhythm-tuner 0.4.0)"
+      }
+    }
+  ]
+}

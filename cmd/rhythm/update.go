@@ -23,10 +23,15 @@ Updates rhythm and the installed tools to their latest releases, then
 refreshes each tool's data (such as Tuner's vulnerability database).
 Name tools, or rhythm itself, to update only those.
 
+--lock updates rhythm.lock instead of the installed binaries: it looks up
+the latest release of everything the lock pins, prints what changed and
+rewrites the lock. With --check it only prints the changes.
+
 Exit status: 0 when everything worked, 1 when anything failed, 2 for a
 usage error and 130 when interrupted. With --check: 0 when everything is
-current, 10 when an update is available and 1 when a check failed, so
-"if rhythm update --check" reads as "if everything is current".`
+current, 10 when an update is available (or rhythm.lock is behind, with
+--lock) and 1 when a check failed, so "if rhythm update --check" reads as
+"if everything is current".`
 
 // exitOutdated is rhythm update --check's exit status when at least one
 // target has a newer release. It is far from the 0 to 3 that rhythm and
@@ -42,12 +47,17 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 	selfOnly := flags.Bool("self-only", false, "update only rhythm itself")
 	noData := flags.Bool("no-data", false, "skip refreshing the tools' data")
 	quiet := flags.Bool("quiet", false, "print only updates, problems and the tools' own output")
+	toLock := flags.Bool("lock", false, "update rhythm.lock to the latest releases instead of the binaries")
 	names, code, ok := parseArgs(flags, args, stdout, stderr)
 	if !ok {
 		return code
 	}
-	if *asJSON && !*checkOnly {
+	switch {
+	case *asJSON && !*checkOnly:
 		fmt.Fprintln(stderr, "rhythm: --json works with --check only")
+		return exitUsage
+	case *asJSON && *toLock:
+		fmt.Fprintln(stderr, "rhythm: --json doesn't work with --lock; the lock is JSON already")
 		return exitUsage
 	}
 	// Names are checked before anything touches the network, so a typo
@@ -55,6 +65,9 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 	want, code := updateScope(names, *selfOnly, stderr)
 	if code != 0 {
 		return code
+	}
+	if *toLock {
+		return updateLock(want, *checkOnly, stdout, stderr)
 	}
 	// With --json, stdout carries the JSON alone; the lines people read
 	// move to stderr.
@@ -314,4 +327,99 @@ func updateScope(names []string, selfOnly bool, stderr io.Writer) (map[string]bo
 		return nil, exitUsage
 	}
 	return want, 0
+}
+
+// updateLock is rhythm update --lock: it moves each program rhythm.lock
+// pins (or those in want) to its latest release, prints the changes and,
+// unless checkOnly, rewrites the lock. Data pins are kept; rhythm lock
+// records new ones after an update.
+func updateLock(want map[string]bool, checkOnly bool, stdout, stderr io.Writer) int {
+	path, err := findLock(".")
+	if errors.Is(err, errNoLock) {
+		fmt.Fprintf(stderr, "rhythm: no %s in this folder or its parents up to the repository root; write one with: rhythm lock\n", lockFileName)
+		return 1
+	}
+	var old *lockFile
+	if err == nil {
+		old, err = readLock(path)
+	}
+	if err != nil {
+		fmt.Fprintln(stderr, "rhythm:", err)
+		return 1
+	}
+	for name := range want {
+		if old.entry(name) == nil {
+			fmt.Fprintf(stderr, "rhythm: %s doesn't lock %s\n", lockFileName, name)
+			return 1
+		}
+	}
+	next, err := old.clone()
+	if err != nil {
+		fmt.Fprintln(stderr, "rhythm:", err)
+		return 1
+	}
+
+	ctx, stop := signalContext()
+	defer stop()
+	var rep updateReport
+	for _, e := range next.entries() {
+		if ctx.Err() != nil {
+			break
+		}
+		if want != nil && !want[e.Name] {
+			continue
+		}
+		binary := binaryName(e.Name)
+		if rep.nets.skip(binary, os.Getenv("RHYTHM_GITHUB_API")) {
+			rep.failed = append(rep.failed, binary)
+			continue
+		}
+		u := updater(e.Repo, binary, e.Version)
+		rel, err := resolveSpec(ctx, u, "", 0)
+		if err != nil {
+			rep.fail(ctx, stderr, binary, err)
+			continue
+		}
+		if !update.Newer(e.Version, rel.Version) {
+			rep.upToDate++
+			continue
+		}
+		bumped, err := lockEntryFor(ctx, u, e.Name, rel.Release)
+		if err != nil {
+			rep.fail(ctx, stderr, binary, err)
+			continue
+		}
+		bumped.Data, bumped.Source = e.Data, e.Source
+		*e = bumped
+		rep.updated++
+	}
+	if ctx.Err() != nil {
+		fmt.Fprintln(stderr, "rhythm: update interrupted")
+		return exitInterrupted
+	}
+	rep.nets.print(stderr)
+	changes := lockDiff(old, next)
+	for _, line := range changes {
+		fmt.Fprintln(stdout, line)
+	}
+	if len(rep.failed) > 0 {
+		fmt.Fprintln(stderr, rep.summary(checkOnly))
+		if !checkOnly {
+			fmt.Fprintf(stderr, "rhythm: %s not written\n", path)
+		}
+		return 1
+	}
+	switch {
+	case len(changes) == 0:
+		fmt.Fprintln(stdout, path, "is current")
+		return 0
+	case checkOnly:
+		return exitOutdated
+	}
+	if err := next.write(path); err != nil {
+		fmt.Fprintln(stderr, "rhythm:", err)
+		return 1
+	}
+	fmt.Fprintln(stdout, "Updated", path)
+	return 0
 }

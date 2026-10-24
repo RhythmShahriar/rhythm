@@ -6,6 +6,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -17,7 +18,9 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -204,17 +207,24 @@ func (e *rateLimitedError) explain(binaries string) string {
 	return b.String()
 }
 
-// noReleaseError is a 404 from the release API for a repository.
+// noReleaseError is a 404 from the release API for a repository, or a
+// version it has no release for.
 type noReleaseError struct {
 	api, repo string
+	version   string // the tag or spec asked for, e.g. v0.9.9 or 0.9.*; "" for the latest
 }
 
 func (e *noReleaseError) Error() string {
-	if e.api == defaultAPI {
+	switch {
+	case e.api == defaultAPI && e.version == "":
 		return e.repo + " has no published releases yet"
+	case e.api == defaultAPI:
+		return e.repo + " has no release " + e.version
+	case e.version == "":
+		// A mirror that lacks the repository is usually the wrong mirror.
+		return fmt.Sprintf("mirror %s has no release for %s; check RHYTHM_GITHUB_API", e.api, e.repo)
 	}
-	// A mirror that lacks the repository is usually the wrong mirror.
-	return fmt.Sprintf("mirror %s has no release for %s; check RHYTHM_GITHUB_API", e.api, e.repo)
+	return fmt.Sprintf("mirror %s has no release %s for %s; check RHYTHM_GITHUB_API", e.api, e.version, e.repo)
 }
 
 // describe returns err's message for the failure line. kit/update hands
@@ -344,11 +354,16 @@ func exe(name string) string {
 	return name
 }
 
-const installSynopsis = `Usage: rhythm install <tool>... [flags]
+const installSynopsis = `Usage: rhythm install <tool>[@version]... [flags]
 
 Downloads the latest release of each tool and installs it next to rhythm.
 Separate names with spaces or commas; "none" installs nothing. A tool
 that fails doesn't stop the others.
+
+Pin a version with tool@version: tuner@0.3.1 installs exactly 0.3.1 and
+tuner@0.3 the newest 0.3.x. --locked installs the versions rhythm.lock
+pins (see rhythm lock), checking each archive against its locked sha256;
+it installs nothing unless every tool matches.
 
 Exit status: 0 when every tool was installed, 1 when any failed, 2 for a
 usage error and 130 when interrupted.`
@@ -362,6 +377,22 @@ type installOptions struct {
 	progress io.Writer // where the download progress line goes; nil for none
 }
 
+// installItem is one tool to install: its registry name, the version
+// asked for ("" for the latest) and, once looked up, the release.
+type installItem struct {
+	tool string
+	spec string
+	rel  *pickedRelease
+}
+
+// String is the item as the user would write it: tuner or tuner@0.3.1.
+func (it installItem) String() string {
+	if it.spec == "" {
+		return it.tool
+	}
+	return it.tool + "@" + it.spec
+}
+
 func cmdInstall(args []string, stdout, stderr io.Writer) int {
 	flags := newFlagSet("install", installSynopsis)
 	dir := flags.String("dir", "", "install into `dir` (default: next to rhythm)")
@@ -369,19 +400,30 @@ func cmdInstall(args []string, stdout, stderr io.Writer) int {
 	dryRun := flags.Bool("dry-run", false, "check the names and print the tools, one per line, without installing")
 	defaults := flags.Bool("defaults", false, "also install the tools a fresh setup gets")
 	force := flags.Bool("force", false, "reinstall tools that are already on the latest release")
+	locked := flags.Bool("locked", false, "install the versions in rhythm.lock")
 	pos, code, ok := parseArgs(flags, args, stdout, stderr)
 	if !ok {
 		return code
 	}
 	// Every name is checked before anything is downloaded, so a typo in
 	// the third name doesn't leave the first two installed.
-	list, code := installScope(pos, *defaults, stderr)
+	list, code := installScope(pos, *defaults, *locked, stderr)
 	if code != 0 {
 		return code
 	}
+	var lock *lockFile
+	if *locked {
+		var lockPath string
+		if lock, lockPath, list, code = lockedScope(list, stdout, stderr); code != 0 {
+			return code
+		}
+		if !*quiet && !*dryRun {
+			fmt.Fprintln(stdout, "Using", lockPath)
+		}
+	}
 	if *dryRun {
-		for _, tool := range list {
-			fmt.Fprintln(stdout, tool)
+		for _, it := range list {
+			fmt.Fprintln(stdout, it)
 		}
 		return 0
 	}
@@ -420,16 +462,29 @@ func cmdInstall(args []string, stdout, stderr io.Writer) int {
 
 	ctx, stop := signalContext()
 	defer stop()
-	var installed, already, failed []string
 	var nets netReport
+	if lock != nil {
+		// Every tool is matched against the lock before any is installed,
+		// so a mismatch never leaves a project half on the locked versions.
+		if !checkAgainstLock(ctx, list, lock, &nets, stderr) {
+			if ctx.Err() != nil {
+				fmt.Fprintln(stderr, "rhythm: install interrupted")
+				return exitInterrupted
+			}
+			nets.print(stderr)
+			fmt.Fprintf(stderr, "Nothing was installed: the releases don't match %s.\n", lockFileName)
+			return 1
+		}
+	}
+	var installed, already, failed []string
 	offPath := false
-	for _, tool := range list {
-		binary := "rhythm-" + tool
+	for _, it := range list {
+		binary := "rhythm-" + it.tool
 		if nets.skip(binary, os.Getenv("RHYTHM_GITHUB_API")) {
 			failed = append(failed, binary)
 			continue
 		}
-		res, err := installTool(ctx, tool, opt, stdout)
+		res, err := installTool(ctx, it, opt, stdout)
 		if ctx.Err() != nil {
 			fmt.Fprintln(stderr, "rhythm: install interrupted")
 			return exitInterrupted
@@ -488,50 +543,74 @@ func installSummary(installed, already int, failed []string) string {
 
 // installScope turns the names given to rhythm install into the tools to
 // install, in the order given and without repeats; --defaults appends the
-// tools a fresh setup gets. A non-zero code means a name was wrong.
-func installScope(names []string, defaults bool, stderr io.Writer) ([]string, int) {
+// tools a fresh setup gets. A name may carry a version: tuner@0.3.1. A
+// non-zero code means a name was wrong.
+func installScope(names []string, defaults, locked bool, stderr io.Writer) ([]installItem, int) {
 	list := splitNames(names)
 	none := false
-	var tools []string
-	seen := map[string]bool{}
-	add := func(tool string) {
-		if !seen[tool] {
-			seen[tool] = true
-			tools = append(tools, tool)
+	var items []installItem
+	index := map[string]int{}
+	add := func(it installItem) bool {
+		i, seen := index[it.tool]
+		switch {
+		case !seen:
+			index[it.tool] = len(items)
+			items = append(items, it)
+		case items[i].spec != it.spec:
+			fmt.Fprintf(stderr, "rhythm: %s is named twice with different versions: %s and %s\n", it.tool, items[i], it)
+			return false
 		}
+		return true
 	}
-	bad := false
+	bad, badName := false, false
 	for _, n := range list {
 		if strings.EqualFold(n, "none") {
 			none = true // the installers pass RHYTHM_TOOLS=none through as is
 			continue
 		}
-		tool, ok := resolveName(n)
+		name, spec, pinned := strings.Cut(n, "@")
+		tool, ok := resolveName(name)
 		switch {
 		case ok && tool == selfName:
 			fmt.Fprintln(stderr, "rhythm: rhythm installs tools, not itself; update it with: rhythm update --self-only")
 			bad = true
 		case !ok:
-			fmt.Fprintf(stderr, "rhythm: unknown tool %q%s\n", n, suggest(n))
+			fmt.Fprintf(stderr, "rhythm: unknown tool %q%s\n", name, suggest(name))
+			bad, badName = true, true
+		case pinned && locked:
+			fmt.Fprintf(stderr, "rhythm: --locked installs the versions in %s; drop the version from %s\n", lockFileName, n)
+			bad = true
+		case pinned && (spec == "" || checkSpec(spec) != nil):
+			fmt.Fprintf(stderr, "rhythm: %s: %v\n", tool, specError(spec))
 			bad = true
 		default:
-			add(tool)
+			if !add(installItem{tool: tool, spec: spec}) {
+				bad = true
+			}
 		}
 	}
 	if bad {
-		fmt.Fprintf(stderr, "  known: %s\n", strings.Join(toolNames(), ", "))
+		if badName {
+			fmt.Fprintf(stderr, "  known: %s\n", strings.Join(toolNames(), ", "))
+		}
+		return nil, exitUsage
+	}
+	if defaults && locked {
+		fmt.Fprintf(stderr, "rhythm: --locked installs the tools in %s; drop --defaults\n", lockFileName)
 		return nil, exitUsage
 	}
 	if defaults {
 		for _, tool := range defaultInstallTools() {
-			add(tool)
+			if _, seen := index[tool]; !seen {
+				add(installItem{tool: tool})
+			}
 		}
 	}
-	if len(tools) == 0 && !none && !defaults {
+	if len(items) == 0 && !none && !defaults && !locked {
 		fmt.Fprintln(stderr, "usage: rhythm install <tool>... [--dir <dir>]; name a tool, or use --defaults")
 		return nil, exitUsage
 	}
-	return tools, 0
+	return items, 0
 }
 
 // defaultInstallTools returns the tools a fresh setup gets. Every tool
@@ -559,12 +638,12 @@ type installResult struct {
 	already bool   // the latest release was there already; nothing was downloaded
 }
 
-// installTool downloads tool's latest release into opt.dir and prints the
+// installTool downloads the release it names into opt.dir and prints the
 // Installed line, or says the release is there already.
-func installTool(ctx context.Context, tool string, opt installOptions, stdout io.Writer) (installResult, error) {
+func installTool(ctx context.Context, it installItem, opt installOptions, stdout io.Writer) (installResult, error) {
 	// An existing symlink is followed, so a link into a tool folder stays
 	// a link; a package manager's install is left to the manager.
-	binary := "rhythm-" + tool
+	binary := "rhythm-" + it.tool
 	dest := filepath.Join(opt.dir, exe(binary))
 	writeTo := resolve(dest)
 	if m := managedBy(writeTo, binary); m != nil {
@@ -575,24 +654,118 @@ func installTool(ctx context.Context, tool string, opt installOptions, stdout io
 			return installResult{}, err
 		}
 	}
-	u := updater(tools[tool], binary, "")
-	rel, err := u.Latest(ctx)
-	if err != nil {
-		return installResult{}, err
+	current := ""
+	if _, err := os.Stat(writeTo); err == nil {
+		current, _, _ = probeVersion(ctx, dest)
 	}
-	if !opt.force {
-		if _, err := os.Stat(writeTo); err == nil {
-			if v, _, _ := probeVersion(ctx, dest); v == rel.Version {
-				fmt.Fprintf(stdout, "%s %s is already installed at %s (use --force to reinstall)\n", binary, v, dest)
-				return installResult{already: true}, nil
-			}
+	u := updater(tools[it.tool], binary, current)
+	rel := it.rel
+	if rel == nil {
+		var err error
+		if rel, err = resolveSpec(ctx, u, it.spec, 0); err != nil {
+			return installResult{}, err
 		}
 	}
-	if err := installWithProgress(ctx, u, rel, writeTo, opt.progress); err != nil {
+	if !opt.force && current == rel.Version {
+		fmt.Fprintf(stdout, "%s %s is already installed at %s (use --force to reinstall)\n", binary, current, dest)
+		return installResult{already: true}, nil
+	}
+	if err := installWithProgress(ctx, u, rel.Release, writeTo, opt.progress); err != nil {
 		return installResult{}, err
 	}
 	fmt.Fprintf(stdout, "Installed %s %s to %s\n", binary, rel.Version, dest)
 	return installResult{note: pathNote(binary, dest)}, nil
+}
+
+// lockedScope narrows rhythm install --locked to the tools rhythm.lock
+// pins: all of them, or the named ones, each at its locked version.
+func lockedScope(named []installItem, stdout, stderr io.Writer) (*lockFile, string, []installItem, int) {
+	path, err := findLock(".")
+	if errors.Is(err, errNoLock) {
+		fmt.Fprintf(stderr, "rhythm: no %s in this folder or its parents up to the repository root; write one with: rhythm lock\n", lockFileName)
+		return nil, "", nil, 1
+	}
+	var lock *lockFile
+	if err == nil {
+		lock, err = readLock(path)
+	}
+	if err != nil {
+		fmt.Fprintln(stderr, "rhythm:", err)
+		return nil, "", nil, 1
+	}
+	bad := false
+	var list []installItem
+	pin := func(e *lockEntry) {
+		switch repo, known := tools[e.Name]; {
+		case !known:
+			fmt.Fprintf(stderr, "rhythm: %s locks %s, which this rhythm doesn't know; update rhythm first\n", lockFileName, e.Name)
+			bad = true
+		case !strings.EqualFold(repo, e.Repo):
+			fmt.Fprintf(stderr, "rhythm: %s says %s comes from %s, but rhythm installs it from %s\n", lockFileName, e.Name, e.Repo, repo)
+			bad = true
+		default:
+			list = append(list, installItem{tool: e.Name, spec: e.Version})
+		}
+	}
+	if len(named) == 0 {
+		for i := range lock.Tools {
+			pin(&lock.Tools[i])
+		}
+	}
+	for _, it := range named {
+		if e := lock.entry(it.tool); e != nil && e.Name != selfName {
+			pin(e)
+			continue
+		}
+		fmt.Fprintf(stderr, "rhythm: %s doesn't lock %s; add it with: rhythm install %s && rhythm lock\n", lockFileName, it.tool, it.tool)
+		bad = true
+	}
+	if bad {
+		return nil, "", nil, 1
+	}
+	if e := lock.Rhythm; e != nil && e.Version != version {
+		fmt.Fprintf(stdout, "Note: %s pins rhythm %s and this is rhythm %s.\n", lockFileName, e.Version, version)
+	}
+	return lock, path, list, 0
+}
+
+// checkAgainstLock looks up each item's locked release and checks that
+// this platform's archive in it is the one locked. It reports every
+// mismatch and returns whether all matched; items get their releases.
+func checkAgainstLock(ctx context.Context, list []installItem, lock *lockFile, nets *netReport, stderr io.Writer) bool {
+	ok := true
+	for i := range list {
+		it := &list[i]
+		e := lock.entry(it.tool)
+		binary := "rhythm-" + it.tool
+		want, has := e.Platforms[thisPlatform()]
+		if !has {
+			fmt.Fprintf(stderr, "%-18s %s: %s has no archive for %s (it locks %s)\n", binary, e.Version, lockFileName, thisPlatform(), platformList(e.Platforms))
+			ok = false
+			continue
+		}
+		if nets.skip(binary, os.Getenv("RHYTHM_GITHUB_API")) {
+			ok = false
+			continue
+		}
+		u := updater(e.Repo, binary, "")
+		rel, err := resolveSpec(ctx, u, e.Version, 0)
+		if err == nil {
+			err = checkLocked(ctx, u, rel.Release, want)
+		}
+		if ctx.Err() != nil {
+			return false
+		}
+		if err != nil {
+			if !nets.add(binary, err) {
+				fmt.Fprintf(stderr, "%-18s %s\n", binary, describe(err))
+			}
+			ok = false
+			continue
+		}
+		it.rel = rel
+	}
+	return ok
 }
 
 // isTerminal reports whether w is an interactive terminal. Tests replace
@@ -709,4 +882,285 @@ func pathNote(binary, dest string) string {
 		return ""
 	}
 	return fmt.Sprintf("Note: %s comes first on your PATH; remove it to use this install.", found)
+}
+
+// Release lookup by version. kit/update in this rhythm only knows the
+// latest release; the helpers below give the router exact and partial
+// versions, every platform's checksums and the expected-hash check. They
+// follow the Resolve, Checksums and InstallOptions.ExpectSHA256 that
+// kit/update is getting, so swapping them for those is mechanical.
+
+// pickedRelease is a release with the facts pinning and the release
+// cooldown need, which update.Release doesn't carry yet.
+type pickedRelease struct {
+	*update.Release
+	published    time.Time       // zero when the API didn't say
+	skippedNewer *skippedRelease // the newest release passed over for being too new
+}
+
+// skippedRelease is a newer release the cooldown passed over.
+type skippedRelease struct {
+	version   string
+	published time.Time
+	age       time.Duration
+}
+
+// versionSpec is what may follow tool@: latest, an exact version or a
+// major or major.minor prefix.
+var (
+	exactSpec   = regexp.MustCompile(`^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$`)
+	partialSpec = regexp.MustCompile(`^v?(0|[1-9]\d*)(\.(0|[1-9]\d*))?$`)
+)
+
+// checkSpec returns an error for spec text that names no version.
+func checkSpec(spec string) error {
+	if spec == "" || strings.EqualFold(spec, "latest") || exactSpec.MatchString(spec) || partialSpec.MatchString(spec) {
+		return nil
+	}
+	return specError(spec)
+}
+
+// specError is checkSpec's error for spec. tool@ with nothing after the @
+// gets it too.
+func specError(spec string) error {
+	return fmt.Errorf("invalid version %q; use latest, an exact version such as 0.3.1, or 0.3 for the newest 0.3.x", spec)
+}
+
+// resolveSpec finds the release spec names: "" or latest (the newest
+// release at least minAge old), an exact version (prereleases too; the
+// cooldown doesn't apply, since naming a version is the user's call) or
+// a prefix such as 0.3 (the newest 0.3.x at least minAge old).
+func resolveSpec(ctx context.Context, u *update.Updater, spec string, minAge time.Duration) (*pickedRelease, error) {
+	if err := checkSpec(spec); err != nil {
+		return nil, err
+	}
+	latest := spec == "" || strings.EqualFold(spec, "latest")
+	switch {
+	case latest && minAge <= 0:
+		rel, err := u.Latest(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return &pickedRelease{Release: rel}, nil
+	case exactSpec.MatchString(spec):
+		var r ghRelease
+		v := strings.TrimPrefix(spec, "v")
+		if err := apiGet(ctx, u, "/releases/tags/v"+v, "v"+v, &r); err != nil {
+			return nil, err
+		}
+		if r.Draft {
+			return nil, &noReleaseError{api: apiOrDefault(u.API), repo: u.Repo, version: "v" + v}
+		}
+		return r.picked(), nil
+	}
+	prefix, want := "", "*"
+	if !latest {
+		prefix = strings.TrimPrefix(spec, "v") + "."
+		want = prefix + "*"
+	}
+	var list []ghRelease
+	if err := apiGet(ctx, u, "/releases?per_page=100", want, &list); err != nil {
+		return nil, err
+	}
+	var candidates []*pickedRelease
+	for _, r := range list {
+		p := r.picked()
+		if r.Draft || r.Prerelease || !update.IsRelease(p.Version) || !strings.HasPrefix(p.Version, prefix) {
+			continue
+		}
+		candidates = append(candidates, p)
+	}
+	// Newest first by version, not by the order the API lists them in:
+	// a fix for an old line can be published after a newer release.
+	sort.SliceStable(candidates, func(i, j int) bool { return update.Newer(candidates[j].Version, candidates[i].Version) })
+	if len(candidates) == 0 {
+		if latest {
+			return nil, &noReleaseError{api: apiOrDefault(u.API), repo: u.Repo}
+		}
+		return nil, &noReleaseError{api: apiOrDefault(u.API), repo: u.Repo, version: want}
+	}
+	now := time.Now()
+	for _, c := range candidates {
+		// A release with no publish time never counts as old enough.
+		if minAge <= 0 || (!c.published.IsZero() && now.Sub(c.published) >= minAge) {
+			if c != candidates[0] {
+				n := candidates[0]
+				c.skippedNewer = &skippedRelease{version: n.Version, published: n.published, age: now.Sub(n.published)}
+			}
+			return c, nil
+		}
+	}
+	n := candidates[0]
+	return nil, &tooNewError{repo: u.Repo, newest: n.Version, age: now.Sub(n.published), minAge: minAge}
+}
+
+// tooNewError says no release is old enough for the cooldown.
+type tooNewError struct {
+	repo, newest string
+	age, minAge  time.Duration
+}
+
+func (e *tooNewError) Error() string {
+	return fmt.Sprintf("no release of %s is old enough: the newest, %s, is %s old (min age %s)", e.repo, e.newest, formatAge(e.age), formatAge(e.minAge))
+}
+
+// ghRelease is the part of a GitHub release rhythm reads.
+type ghRelease struct {
+	Tag        string    `json:"tag_name"`
+	Draft      bool      `json:"draft"`
+	Prerelease bool      `json:"prerelease"`
+	Published  time.Time `json:"published_at"`
+	Assets     []struct {
+		Name string `json:"name"`
+		URL  string `json:"browser_download_url"`
+	} `json:"assets"`
+}
+
+func (r ghRelease) picked() *pickedRelease {
+	rel := &update.Release{Version: strings.TrimPrefix(r.Tag, "v"), Assets: map[string]string{}}
+	for _, a := range r.Assets {
+		rel.Assets[a.Name] = a.URL
+	}
+	return &pickedRelease{Release: rel, published: r.Published}
+}
+
+// apiGet decodes the release API's answer for path under the repository
+// into v. want names the version asked for, for the not-found error.
+func apiGet(ctx context.Context, u *update.Updater, path, want string, v any) error {
+	api := apiOrDefault(u.API)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, api+"/repos/"+u.Repo+path, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", u.UserAgent)
+	// GITHUB_TOKEN is for GitHub itself; a mirror gets RHYTHM_GITHUB_TOKEN.
+	tok := os.Getenv("RHYTHM_GITHUB_TOKEN")
+	if tok == "" && api == defaultAPI {
+		tok = os.Getenv("GITHUB_TOKEN")
+	}
+	if tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
+	resp, err := u.HTTP.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	switch resp.StatusCode {
+	case http.StatusOK:
+	case http.StatusNotFound:
+		return &noReleaseError{api: api, repo: u.Repo, version: want}
+	default:
+		return fmt.Errorf("checking %s releases: HTTP %d", u.Repo, resp.StatusCode)
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(v); err != nil {
+		return fmt.Errorf("checking %s releases: %w", u.Repo, err)
+	}
+	return nil
+}
+
+// releaseChecksums returns the archive name to lowercase sha256 of every
+// archive rel's checksums.txt lists.
+func releaseChecksums(ctx context.Context, u *update.Updater, rel *update.Release) (map[string]string, error) {
+	sumsURL, ok := rel.Assets["checksums.txt"]
+	if !ok {
+		return nil, fmt.Errorf("release %s has no checksums.txt; refusing to install unverified binaries", rel.Version)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sumsURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", u.UserAgent)
+	resp, err := u.HTTP.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("downloading checksums: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("downloading checksums: HTTP %d", resp.StatusCode)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, fmt.Errorf("downloading checksums: %w", err)
+	}
+	sums := map[string]string{}
+	for _, line := range strings.Split(string(data), "\n") {
+		f := strings.Fields(line)
+		if len(f) == 2 && sha256Hex.MatchString(strings.ToLower(f[0])) {
+			sums[strings.TrimPrefix(f[1], "*")] = strings.ToLower(f[0])
+		}
+	}
+	if len(sums) == 0 {
+		return nil, fmt.Errorf("release %s: checksums.txt lists no archives", rel.Version)
+	}
+	return sums, nil
+}
+
+var sha256Hex = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+// platformsOf picks binary's archives out of sums, keyed by os_arch as
+// rhythm.lock stores them.
+func platformsOf(binary string, sums map[string]string) map[string]string {
+	out := map[string]string{}
+	for name, sum := range sums {
+		rest, ok := strings.CutPrefix(name, binary+"_")
+		if !ok {
+			continue
+		}
+		rest, ok = strings.CutSuffix(rest, ".tar.gz")
+		if !ok {
+			rest, ok = strings.CutSuffix(rest, ".zip")
+		}
+		if goos, arch, found := strings.Cut(rest, "_"); ok && found && goos != "" && arch != "" && !strings.Contains(arch, "_") {
+			out[goos+"_"+arch] = sum
+		}
+	}
+	return out
+}
+
+// thisPlatform is the os_arch key of this machine in rhythm.lock.
+func thisPlatform() string { return runtime.GOOS + "_" + runtime.GOARCH }
+
+// lockedMismatchError is a release whose archive isn't the one locked.
+type lockedMismatchError struct{ archive string }
+
+func (e *lockedMismatchError) Error() string {
+	return e.archive + ": sha256 differs from the locked one; the release may have been replaced or tampered with, nothing was changed"
+}
+
+// checkLocked fails unless rel's checksums.txt gives this platform's
+// archive the sha256 want. Install then checks the archive against
+// checksums.txt, so a download that differs from the lock is refused.
+func checkLocked(ctx context.Context, u *update.Updater, rel *update.Release, want string) error {
+	sums, err := releaseChecksums(ctx, u, rel)
+	if err != nil {
+		return err
+	}
+	if got, ok := sums[u.ArchiveName()]; !ok || got != strings.ToLower(want) {
+		return &lockedMismatchError{archive: u.ArchiveName()}
+	}
+	return nil
+}
+
+// formatAge words d for people: "less than an hour", "5 hours",
+// "36 hours", "3 days", "2 weeks" or "10 days".
+func formatAge(d time.Duration) string {
+	plural := func(n int64, unit string) string {
+		if n == 1 {
+			return "1 " + unit
+		}
+		return fmt.Sprintf("%d %ss", n, unit)
+	}
+	const day = 24 * time.Hour
+	d = d.Truncate(time.Hour) // a release dated a day ago is a day and some seconds old
+	switch {
+	case d < time.Hour:
+		return "less than an hour"
+	case d < 2*day && d%day != 0:
+		return plural(int64(d/time.Hour), "hour")
+	case d%(7*day) == 0:
+		return plural(int64(d/(7*day)), "week")
+	}
+	return plural(int64(d/day), "day")
 }
