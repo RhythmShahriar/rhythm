@@ -233,9 +233,11 @@ function Invoke-Install([hashtable]$Set = @{}, [string]$Prelude = '', [string]$S
         Set-Var $K $Values[$K]
     }
     # A script file rather than -Command, because Windows PowerShell 5.1
-    # mangles quotes in arguments to native programs.
+    # mangles quotes in arguments to native programs. A script iex can't
+    # parse is a non-terminating error, which -File would end with exit 0;
+    # the runner exits 1 then, as a caller checking $? would see a failure.
     $Runner = Join-Path $script:CaseDir 'run-install.ps1'
-    [IO.File]::WriteAllText($Runner, "Set-Location -LiteralPath '$($script:CaseDir)'`n$Prelude`niex ([IO.File]::ReadAllText('$Script'))`n", $Utf8)
+    [IO.File]::WriteAllText($Runner, "Set-Location -LiteralPath '$($script:CaseDir)'`n$Prelude`niex ([IO.File]::ReadAllText('$Script'))`nif (-not `$?) { exit 1 }`n", $Utf8)
     $Prev = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
@@ -715,6 +717,7 @@ function Case-truncated {
         [IO.File]::WriteAllText($Cut, $Text.Substring(0, [int]($Text.Length * $Pct / 100)), $Utf8)
         Clear-Requests
         Invoke-Install @{} '' $Cut
+        if ($script:Code -eq 0) { Fail "a script cut at $Pct% exited 0" }
         if (Test-Path (Join-Path $script:CaseDir 'bin')) { Fail "a script cut at $Pct% created the install folder" }
         if (Get-Requests) { Fail "a script cut at $Pct% made a request" }
     }
