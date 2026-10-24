@@ -67,6 +67,9 @@ func TestUninstallFollowsSymlink(t *testing.T) {
 	if err := os.Symlink(real, link); err != nil {
 		t.Fatal(err)
 	}
+	// The target is named as it resolves: on macOS the temp folder is
+	// under /var, which is a link to /private/var.
+	target := resolve(real)
 	code, out, errs := runCmd("uninstall", "tuner")
 	if code != 0 {
 		t.Fatalf("exit %d\n%s%s", code, out, errs)
@@ -74,7 +77,7 @@ func TestUninstallFollowsSymlink(t *testing.T) {
 	if len(files(t, s.bin)) != 0 || len(files(t, opt)) != 0 {
 		t.Errorf("left %v and %v", files(t, s.bin), files(t, opt))
 	}
-	if out != "Removed "+link+"\nRemoved "+real+"\n" {
+	if out != "Removed "+link+"\nRemoved "+target+"\n" {
 		t.Errorf("stdout:\n%s", out)
 	}
 }

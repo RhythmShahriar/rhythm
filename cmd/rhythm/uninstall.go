@@ -151,6 +151,12 @@ func uninstallOne(tool string, purge, quietMissing bool, stdout, stderr io.Write
 		return &managedError{binary, m}
 	}
 
+	// A path that differs from real only by a linked folder on the way
+	// (macOS's /var is /private/var) is the same file, not a link to it:
+	// remove it by the name PATH gave, once.
+	if path != real && !isSymlink(path) {
+		real = path
+	}
 	files := []string{real, real + ".prev", real + ".prev.json", real + ".old"}
 	if path != real {
 		files = append([]string{path}, files...) // the link on PATH goes too, or it would dangle
@@ -245,4 +251,10 @@ func purgeData(tool, binary string, stdout, stderr io.Writer) error {
 		fmt.Fprintln(stdout, "Removed", p)
 	}
 	return failed
+}
+
+// isSymlink reports whether p itself, not a folder above it, is a link.
+func isSymlink(p string) bool {
+	fi, err := os.Lstat(p)
+	return err == nil && fi.Mode()&fs.ModeSymlink != 0
 }
