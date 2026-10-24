@@ -154,4 +154,4 @@ The testbed's [README](https://github.com/RhythmShahriar/soundcheck/blob/master/
 The testbed only listens on `127.0.0.1`. It's also the end-to-end test suite for Soundcheck itself; see [Contributing](Contributing#soundcheck-and-the-testbed).
 
 ---
-<sub>← [FAQ and troubleshooting](Soundcheck-FAQ) · [Home](Home) · [Responsible use](Responsible-Use) →</sub>
+<sub>← [FAQ and troubleshooting](Soundcheck-FAQ) · [Home](Home) · [Echo overview](Echo) →</sub>

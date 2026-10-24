@@ -1,4 +1,4 @@
-Rhythm's tools exist to help you find and fix weaknesses in **your own** websites before someone else does. This page sets out who may use them and on what, what Tuner and Soundcheck do and never do, and how to get permission when you test a site for a client.
+Rhythm's tools exist to help you find and fix weaknesses in **your own** websites before someone else does. This page sets out who may use them and on what, what Tuner, Soundcheck and Echo do and never do, how to handle the personal data Echo captures, and how to get permission when you test a site for a client.
 
 > [!IMPORTANT]
 > Scan and check only sites you own, or sites you have explicit written permission to test. Even a gentle, read-only scan of someone else's site without permission may be illegal.
@@ -20,9 +20,9 @@ By using Rhythm tools you agree to comply with all applicable laws and the terms
 
 ## No warranty
 
-`rhythm` and Tuner are free software under the [GNU Affero General Public License v3.0](https://github.com/RhythmShahriar/rhythm/blob/master/LICENSE); they are provided "as is", without warranty of any kind, and the authors' liability is limited, as set out in **section 15 (Disclaimer of Warranty)** and **section 16 (Limitation of Liability)** of the license. Soundcheck is free software under the [MIT License](https://github.com/RhythmShahriar/soundcheck/blob/master/LICENSE), which provides it "as is", without warranty of any kind, in the same way.
+`rhythm` and Tuner are free software under the [GNU Affero General Public License v3.0](https://github.com/RhythmShahriar/rhythm/blob/master/LICENSE); they are provided "as is", without warranty of any kind, and the authors' liability is limited, as set out in **section 15 (Disclaimer of Warranty)** and **section 16 (Limitation of Liability)** of the license. Soundcheck and Echo are free software under the MIT License ([Soundcheck](https://github.com/RhythmShahriar/soundcheck/blob/master/LICENSE), [Echo](https://github.com/RhythmShahriar/echo/blob/master/LICENSE)), which provides them "as is", without warranty of any kind, in the same way.
 
-Findings can include false positives and can miss real issues. Verify a finding before you act on it, and don't treat a clean scan as proof a site is secure, or a clean comparison as proof nothing broke. Read [Reading Results](Tuner-Reading-Results) to see how Tuner marks findings it's less sure of. Soundcheck's speed numbers and screenshots are lab measurements that vary between runs.
+Findings can include false positives and can miss real issues. Verify a finding before you act on it, and don't treat a clean scan as proof a site is secure, or a clean comparison as proof nothing broke. Read [Reading Results](Tuner-Reading-Results) to see how Tuner marks findings it's less sure of. Soundcheck's speed numbers and screenshots are lab measurements that vary between runs. An Echo connector can miss a message sent in a way it doesn't hook, so a clean comparison isn't proof every message went out; use a [hard seal](Echo-Sealing-Staging#hard-seals) where a leak would matter.
 
 ## What Tuner does
 
@@ -60,6 +60,36 @@ Soundcheck browses a site like a visitor, in a real browser, and records what it
 > [!WARNING]
 > Screenshots and reports show the pages as Soundcheck saw them. A report of a site with personal data on its pages contains that data: treat reports like the site's own content when you share them.
 
+## What Echo does
+
+Echo captures what a site sends: emails, SMS, chat alerts, webhooks, analytics and payment calls. It runs on your machine or CI runner, next to a staging or local site.
+
+- **Seals by default.** `rhythm echo up` records every message and answers in each service's place, so nothing reaches real people: no email is delivered, no SMS sent, no webhook posted. Live-mode payment calls get the provider's own refusal, so a test can't charge a card. See [Sealing staging](Echo-Sealing-Staging).
+- **Observe mode really sends.** With `--observe`, messages go out for real, to real recipients. Use it only where that's safe, and list your test recipients under `allow_recipients` so anyone else is flagged.
+- **Connectors stay off in production.** The WordPress, Laravel and Node connectors and the `sendmail` stand-in do nothing where the environment says production, unless you force them. A sealed connector that can't reach Echo refuses to send rather than letting a message out.
+- **Actions send real requests to the site you point them at.** Each action in `.echo/config.yaml` is a request, a command or a replay you wrote; Echo refuses `http` actions on URLs you list under `production:`.
+- **Replays are held to strict rules.** `rhythm echo replay` only runs with Echo sealed, only sends to URLs listed under `staging:` or that resolve to loopback or private addresses, refuses when a live Stripe key is anywhere in reach or the payload says `livemode`, never follows redirects, and can't forge PayPal webhooks at all. See [Replay](Echo-Replay#safety-rules).
+- **Deliverability checks never send.** `check` reads DNS, plus the domain's own MTA-STS policy file when asked; `headers` reads a file. They're safe on production.
+- **Keeps everything local.** Captured messages stay in Echo's memory, and snapshots and reports in your project's `.echo/` folder, which is excluded from git. Nothing is uploaded anywhere.
+
+### Personal data in captures
+
+> [!WARNING]
+> Captured messages contain personal data: the names, addresses, phone numbers and orders of whoever the site emailed, and links such as password resets, exactly as sent. Echo masks **credentials** (API keys, tokens, `Authorization` and cookie headers) before storing anything; it doesn't mask **content**.
+
+- Treat `.echo/`, the HTML reports and CI artifacts like a database dump: keep them private, delete them when you're done, and don't attach them to public issues.
+- Prefer test data on staging. A staging copy of production holds real customers; Echo's sealing keeps them from being messaged, but their data still ends up in the captures when the site sends to them.
+- On a machine others use, keep Echo on loopback, or set a token: without one, anything on the machine can read the captures through the API.
+- If you're testing a client's site, the captures are their customers' data: agree in writing how long you keep them.
+
+## What Echo never does
+
+- Deliver mail, send SMS, post webhooks or make payment calls while sealed.
+- Send a message to anyone in its own name: its canaries go to `.invalid` addresses, and the deliverability checks send no mail at all.
+- Replay webhooks to production, with live keys in reach, or while observing.
+- Upload captures, reports or telemetry anywhere.
+- Store a credential it can recognize unmasked.
+
 ## The one-time notice
 
 The first time you run a scan on a machine, Tuner prints this on stderr:
@@ -77,6 +107,13 @@ like a visitor at a polite pace, and only submits forms when you turn on the
 submit level, never on sites listed as production. This notice is shown once.
 ```
 
+Echo prints its own, once:
+
+```text
+Note: use Echo on sites you own or are authorised to test. Captured messages can
+hold personal data: they stay on this machine, with credentials masked. This notice is shown once.
+```
+
 Seeing a notice once doesn't change the rules; they apply to every scan and check.
 
 ## Testing a site for a client
@@ -86,7 +123,7 @@ If you're an agency, freelancer or consultant, get written permission before you
 - **Who** is authorizing it, and that they have the authority to (the site owner, or someone acting for them).
 - **Who** will run the tests: you or your company.
 - **What** is in scope: the exact hostnames, for example `yoursite.com` and `staging.yoursite.com`, and anything out of scope.
-- **What** you'll do: an automated, non-intrusive vulnerability scan with Tuner, read-only GET requests, rate limited, no exploitation. Mention a local scan if you'll run one on their server. For Soundcheck, say whether you'll only browse and click, or also submit forms with test data, and on which sites (staging only, ideally).
+- **What** you'll do: an automated, non-intrusive vulnerability scan with Tuner, read-only GET requests, rate limited, no exploitation. Mention a local scan if you'll run one on their server. For Soundcheck, say whether you'll only browse and click, or also submit forms with test data, and on which sites (staging only, ideally). For Echo, say that you'll capture what the staging site sends (which includes customer data if it's a copy of production), whether it stays sealed, and how long you'll keep the captures.
 - **When**: the dates or window.
 - **Who to contact** if the scan causes any trouble, on both sides.
 
@@ -98,7 +135,7 @@ Keep the permission with your report. For sites behind a firewall, ask the clien
 
 If you come across a weakness on a site you weren't asked to test, don't scan it to confirm. Report what you noticed to the owner through their published security contact (often a `security.txt` file at `/.well-known/security.txt`) and let them investigate.
 
-Found a vulnerability in Rhythm or Tuner itself? See the [Security Policy](Security-Policy).
+Found a vulnerability in Rhythm, Tuner, Soundcheck or Echo itself? See the [Security Policy](Security-Policy).
 
 ---
-<sub>← [Benchmark](Soundcheck-Benchmark) · [Home](Home) · [Security policy](Security-Policy) →</sub>
+<sub>← [Benchmark](Echo-Benchmark) · [Home](Home) · [Security policy](Security-Policy) →</sub>

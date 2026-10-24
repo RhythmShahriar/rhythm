@@ -1,0 +1,221 @@
+A staging copy of a live site still has the live site's mailer, SMS gateway, webhooks and API keys. This page explains how Echo seals it so nothing reaches real people: the two modes, what Echo answers for each service, why live payments are refused, the allowlist, what passes through on its own, what happens when Echo is down, and the hard seals that close the gaps a connector can't.
+
+## Seal and observe
+
+| Mode | Start it with | Email | HTTP to a service | Use it for |
+|---|---|---|---|---|
+| **seal** (default) | `rhythm echo up` or `--seal` | recorded, never delivered | recorded and answered by Echo with a response shaped like the provider's | every staging and local site |
+| **observe** | `rhythm echo up --observe` | recorded, then sent the normal way | recorded, sent for real, and the response recorded | a site where real delivery is safe, such as one that only mails your own team |
+
+`mode: observe` in `.echo/config.yaml` does the same as the flag; `--seal` and `--observe` together are a usage error. The catcher's mode decides what happens to every message: a connector's own `mode` setting only matters when it [can't reach Echo](#fail-closed).
+
+> [!WARNING]
+> Observe mode really sends: real customers get the email and the SMS. Use it only where you'd be happy for every message to go out, and add your test addresses to `allow_recipients` so anything else is flagged. Replays refuse to run in observe mode.
+
+In observe mode, Echo's SMTP sink still never delivers mail: only connectors send for real. A message the sink received is recorded as `sent` all the same.
+<!-- TODO(lead): the SMTP sink marks mail "sent" in observe mode although it never delivers it (and the real-recipient check then says "really sent"). Reword this note when that's fixed. -->
+
+## What happens to each message
+
+Every capture ends with one of four statuses, shown in `watch`, `ls` and the reports:
+
+| Status | Means |
+|---|---|
+| `faked` | Sealed: Echo answered instead of the real service. The site saw a normal success. |
+| `blocked` | Sealed and refused: a live-mode payment call, or HTTPS the proxy can't decrypt without `--mitm`. The site saw a failure. |
+| `sent` | Delivered for real: observe mode, or a host on the allowlist. |
+| `failed` | The site tried and the send failed: a transport error, or an HTTP status of 400 or more. |
+
+For an HTTP request, Echo first recognizes what it is (a Twilio SMS, a Slack alert, a GA4 event, a Stripe call; see [Messages and checks](Echo-Messages-And-Checks#recognized-services)), then decides:
+
+```mermaid
+flowchart TD
+  R["Outbound request"] --> I{"Platform update check?<br/>api.wordpress.org…"}
+  I -- yes --> T["Let through, not recorded"]
+  I -- no --> O{"Observe mode, or<br/>allowed host?"}
+  O -- yes --> S["Send for real, record as sent"]
+  O -- no --> P{"Live-mode payment?"}
+  P -- yes --> B["Answer with the provider's<br/>own refusal: blocked"]
+  P -- no --> F["Answer with a fake<br/>success: faked"]
+```
+
+## Fakes per provider
+
+A fake has to look enough like the real answer that the site's code carries on. WooCommerce disables a webhook after five failed deliveries, and SDKs throw on unexpected bodies, so a bare `200 OK` isn't always enough. The answers Echo gives while sealed:
+
+| Service | Echo answers |
+|---|---|
+| SendGrid | `202`, with an `X-Message-Id` header |
+| Mailgun | `200`, `{"id": "<…@…>", "message": "Queued. Thank you."}` shape |
+| Postmark | `200`, a `MessageID` per message (one object, or an array for batches) |
+| Resend | `200`, `{"id": …}`, or `{"data": [...]}` for batches |
+| Amazon SES | `200`, a `MessageId` |
+| Brevo | `201`, `{"messageId": "<…@smtp-relay.mailin.fr>"}` |
+| SparkPost, Mandrill | `200`, their accepted-recipient results |
+| Twilio | `201`, a message object (`sid`, `status: queued`, `to`, `from`, `body`, `num_segments`) |
+| Vonage | `200` with a `messages` array (SMS API), or `202` with a `message_uuid` (Messages API) |
+| MessageBird, Bird, Plivo, Telnyx, ClickSend, Amazon SNS | each provider's own accepted or queued shape |
+| WhatsApp Cloud | `200`, `{"messaging_product": "whatsapp", "contacts": …, "messages": [{"id": …}]}` |
+| Slack | `200`, `ok` |
+| Discord | `204` |
+| Microsoft Teams | `202` for Power Automate workflow webhooks, `200` with `1` for classic incoming webhooks |
+| GA4 Measurement Protocol | `204`, or `{"validationMessages": []}` from the debug endpoint |
+| Meta Conversions API | `200`, `{"events_received": n, "messages": [], "fbtrace_id": …}` |
+| FCM | `200`, a `projects/…/messages/…` name |
+| OneSignal | `200`, an `id` and the recipient count |
+| HubSpot, Mailchimp, Klaviyo, ActiveCampaign | each API's success shape for the call (a created contact, an empty list…) |
+| Zapier | `200`, `{"status": "success", "attempt": …, "id": …, "request_id": …}` |
+| Make | `200`, `Accepted` |
+| n8n | `200`, `{"message": "Workflow was started"}` |
+| Stripe (test key) | a plausible object for the endpoint, with `livemode: false`; see below |
+| PayPal (sandbox host) | an order or capture shaped like the sandbox's, with `approve` and `capture` links |
+| anything else | `200`, `{"ok": true}` |
+
+The site gets the fake; Echo records it as the message's `response`, so `rhythm echo show <id>` shows both what the site sent and what it was told.
+
+## Live payments are refused
+
+A fake success is only safe when the real call couldn't have moved money. So for payment APIs Echo looks at the key's mode first:
+
+- **Stripe** with a test key (`sk_test_…`, `rk_test_…`) gets a fake success object. With a live key (`sk_live_…`, `rk_live_…`), or a key Echo can't read, it gets Stripe's own error shape with `403`, and the message is `blocked`.
+- **PayPal** uses separate hosts for live and sandbox. Calls to `api-m.sandbox.paypal.com` and `api.sandbox.paypal.com` are faked; calls to the live hosts get PayPal's `invalid_client` error and are `blocked`.
+
+The SDK then throws, and the site records a failed payment. A staging copy of production holding live keys never sees "paid" for an order nobody paid for:
+
+```sh
+curl -s http://127.0.0.1:8025/v1/capture -H 'Content-Type: application/json' -d '{"v":1,"kind":"http","phase":"before","source":{"via":"my-connector"},
+  "http":{"method":"POST","url":"https://api.stripe.com/v1/payment_intents","headers":{"Authorization":"Bearer sk_live_…"},"body":"amount=2400&currency=eur"}}'
+```
+
+```text
+{"id":"631b13a66f7e","mode":"seal","action":"fake","response":{"status":403,"headers":{"content-type":"application/json"},"body":"{\"error\":{\"code\":\"rhythm_echo_sealed\",\"message\":\"Rhythm Echo refused a live-mode call from a sealed site. Use a Stripe test key (sk_test_…) on staging.\",\"type\":\"invalid_request_error\"}}"}}
+```
+
+```text
+08:16:33 Stripe call to api.stripe.com: live mode [blocked]
+08:16:33 Stripe call to api.stripe.com: test mode [faked]
+```
+
+> [!CAUTION]
+> The refusal applies to payment calls Echo answers. A host on the [allowlist](#the-allowlist) is sent for real whatever its key, so allowlist `api.stripe.com` only on a site that holds test keys.
+
+## The allowlist
+
+Some calls should really go out even when sealed: a payment provider's test mode for an end-to-end checkout, a search API the pages need. List those hosts:
+
+```sh
+rhythm echo up --allow api.stripe.com --allow '*.sandbox.paypal.com'
+```
+
+```yaml
+# .echo/config.yaml
+allow: ["api.stripe.com", "*.sandbox.paypal.com"]
+```
+
+`--allow` adds to the config's list, takes comma-separated values and can be repeated. Entries are host globs (`*` matches within a name, so `*.sandbox.paypal.com` matches `api-m.sandbox.paypal.com`). Allowed requests are still recorded, as `sent`, with their responses. `up` lists them on its `Allowed` line.
+
+Always allowed, without listing:
+
+- the site's own host, so cron and Action Scheduler loopbacks keep working (connectors don't even report them);
+- loopback addresses and `localhost`;
+- through the proxy, also private address ranges and single-label names (`db`, `redis`), since the proxy can't tell which host is the site.
+
+**`allow_recipients`** is the observe-mode counterpart: addresses or numbers you may really message, as globs (`*@yourcompany.com`, `+4915112345678`). In observe mode, a message really sent to anyone else gets the warning *Email really sent to an address outside the allowlist*. Test addresses never count as real: `.test`, `.local`, `.localhost`, `.invalid` and `.example` domains, `example.com/.org/.net`, and `+1555…` and `+15005550…` numbers.
+
+## What passes through
+
+Platform housekeeping isn't something the site *says* to anyone, and recording it would add noise to every action. These hosts pass through even when sealed, and aren't recorded: `api.wordpress.org`, `downloads.wordpress.org`, `wordpress.org`, `s.w.org`, `planet.wordpress.org` and `repo.packagist.org`. WordPress update checks, plugin and theme update screens and the Events widget keep working.
+
+## Fail closed
+
+If a connector can't reach Echo while sealed, it refuses to send rather than letting the message out:
+
+| Connector | Mail | HTTP | Where it says so |
+|---|---|---|---|
+| WordPress | `wp_mail()` returns `false`, `wp_mail_failed` fires | `WP_Error`: `Rhythm Echo could not be reached and this site is sealed, so the request was not sent.` | the PHP error log |
+| Laravel | `TransportException` | `ConnectionException` | the Laravel log |
+| Next.js, Node | Nodemailer rejects | a network error | one warning on the console |
+| `rhythm-echo sendmail` | exit `69`, so `mail()` returns `false` | | stderr |
+
+A connector set to `mode: observe` lets traffic through instead when Echo is down. The Node connector assumes sealed until Echo has said otherwise.
+
+## Hard seals
+
+A connector only sees what goes through the hooks it patches. An SDK that opens its own socket, a plugin that calls `fsockopen`, a cron job in another language: all of these go around it. A **hard seal** closes that gap at the network: the site has no route to the internet at all, and its only way out is Echo (the proxy on `:8026`, the SMTP sink on `:1025`, the capture API on `:8025`). Anything that doesn't go through Echo fails instead of leaking.
+
+```text
+ site ──► Echo proxy :8026 ──► recorded; faked (seal) or forwarded (observe, --allow)
+      ──► Echo SMTP  :1025 ──► recorded, never delivered
+      ──► anything else    ──► refused by the network
+```
+
+The recipes live in the Echo repository under [`docs/seal`](https://github.com/RhythmShahriar/echo/tree/master/docs/seal), with tested example files:
+
+| Where the site runs | Recipe | Tested |
+|---|---|---|
+| Docker Compose | an `internal: true` network, with Echo the only service on both networks | yes: `go test -tags docker -run ComposeSeal ./proxy` |
+| A Linux VM or server | nftables or iptables egress deny, where only Echo's user may connect out | yes, in a network namespace: `go test -run Firewall ./proxy` |
+| php-fpm, WordPress | `env[]` lines, `sendmail_path` and CA trust, so PHP's traffic goes through Echo | partly |
+
+The network recipes enforce the seal; the php-fpm settings route traffic through Echo so it's recorded and faked instead of simply refused. Use both.
+
+### Docker internal network
+
+The app and its database sit on a network with `internal: true`, which Docker gives no gateway. Echo sits on that network and on a normal one, so it's the only way out; a small nginx `front` on both networks is the way in, since services on an internal network can't publish ports:
+
+```sh
+export RHYTHM_ECHO_BIN=$HOME/.local/bin/rhythm-echo   # a static Linux binary
+export RHYTHM_ECHO_TOKEN=$(openssl rand -hex 16)
+docker compose -f docs/seal/examples/docker-compose.yml up -d
+```
+
+Echo runs `rhythm-echo up --seal --mitm` on `0.0.0.0` inside its container, so it requires the token. A one-shot `echo-ca` job copies the CA certificate (never the key) from `http://echo:8026/ca.pem` to a volume the app mounts read-only. The app gets `HTTPS_PROXY` with the token as the proxy password, `RHYTHM_ECHO_URL`, `RHYTHM_ECHO_SMTP` and `RHYTHM_ECHO_TOKEN` for the connectors, and `NODE_EXTRA_CA_CERTS`. Check it:
+
+```sh
+p="docker compose -f docs/seal/examples/docker-compose.yml"
+$p exec app sh -c 'env -u https_proxy -u http_proxy curl -m 3 https://api.twilio.com/'   # no route: fails at once
+$p exec app curl -sS --cacert /echo-ca/ca.pem -d 'To=%2B15551230000&Body=hi' \
+  https://api.twilio.com/2010-04-01/Accounts/AC123/Messages.json                          # through Echo: faked
+```
+
+### Linux firewall
+
+On a VM or server, Echo runs as its own user, and the firewall lets only that user open connections to the internet. Every other process reaches only loopback, private networks and the DNS resolvers; anything else gets a TCP reset at once, logged with the uid (`journalctl -k | grep echo-seal`):
+
+```sh
+sudo useradd --system --create-home --home-dir /var/lib/rhythm-echo rhythm-echo
+sudo -u rhythm-echo rhythm-echo up --seal --proxy 127.0.0.1:8026 --mitm
+sudo nft -f docs/seal/examples/nftables-echo.nft
+# or: sudo ECHO_USER=rhythm-echo RESOLVERS_V4=127.0.0.53 sh docs/seal/examples/iptables-echo.sh
+```
+
+Unseal with `sudo nft delete table inet echo_seal` or `sudo sh iptables-echo.sh off`. By default root may not connect out either, so `apt` can't update while sealed; the example files show the line to uncomment. Docker containers on the VM go through `FORWARD`, not `OUTPUT`: use the Docker recipe for them.
+
+### php-fpm
+
+php-fpm starts its workers with an empty environment (`clear_env = yes`), so `HTTPS_PROXY` set on the container or the systemd unit never reaches PHP. Set it per pool, with mail and CA trust:
+
+```ini
+[www]
+env[https_proxy] = http://echo:ECHO_TOKEN@127.0.0.1:8026
+env[HTTPS_PROXY] = http://echo:ECHO_TOKEN@127.0.0.1:8026
+env[http_proxy]  = http://echo:ECHO_TOKEN@127.0.0.1:8026
+env[no_proxy]    = localhost,127.0.0.1,::1
+env[RHYTHM_ECHO_URL]   = http://127.0.0.1:8025
+env[RHYTHM_ECHO_SMTP]  = 127.0.0.1:1025
+env[RHYTHM_ECHO_TOKEN] = ECHO_TOKEN
+php_admin_value[sendmail_path]  = "/usr/local/bin/rhythm-echo sendmail -t -i"
+php_admin_value[curl.cainfo]    = /etc/rhythm-echo/bundle.pem
+php_admin_value[openssl.cafile] = /etc/rhythm-echo/bundle.pem
+```
+
+Drop `echo:ECHO_TOKEN@` when Echo listens on loopback without a token. Uppercase `HTTP_PROXY` is left out on purpose: under CGI a request header can set it (httpoxy), so libcurl never reads it. Apache with mod_php and the PHP CLI inherit the process environment, so there `HTTPS_PROXY` on the container is enough. The full pool file is [`php-fpm-echo.conf`](https://github.com/RhythmShahriar/echo/blob/master/docs/seal/examples/php-fpm-echo.conf).
+
+## Checking the seal
+
+- `rhythm echo doctor` sends canaries through each layer it can reach (SMTP, the WordPress connector, the Laravel connector) and checks they arrive. See [CLI reference](Echo-CLI-Reference#doctor).
+- `rhythm echo watch` while you use the site: anything with a `[sent]` status went out for real.
+- After a hard seal, try a request without the proxy from inside the app (as above): it must fail.
+
+---
+<sub>← [Connectors](Echo-Install-Connectors) · [Home](Home) · [Messages and checks](Echo-Messages-And-Checks) →</sub>
