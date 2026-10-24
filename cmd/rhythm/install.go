@@ -878,7 +878,7 @@ func installTool(ctx context.Context, it installItem, opt installOptions, stdout
 // pinData brings an installed tool's data to the versions rhythm.lock
 // pins for it, if it pins any. It reports whether that worked.
 func pinData(ctx context.Context, it installItem, lock *lockFile, dir string, stdout, stderr io.Writer) bool {
-	e := lock.entry(it.tool)
+	e := lock.Entry(it.tool)
 	if len(e.Data) == 0 {
 		return true
 	}
@@ -926,7 +926,7 @@ func lockedScope(named []installItem, stdout, stderr io.Writer) (*lockFile, stri
 		}
 	}
 	for _, it := range named {
-		if e := lock.entry(it.tool); e != nil && e.Name != selfName {
+		if e := lock.Entry(it.tool); e != nil && e.Name != selfName {
 			pin(e)
 			continue
 		}
@@ -952,7 +952,7 @@ func checkAgainstLock(ctx context.Context, list []installItem, lock *lockFile, n
 	ok := true
 	for i := range list {
 		it := &list[i]
-		e := lock.entry(it.tool)
+		e := lock.Entry(it.tool)
 		binary := "rhythm-" + it.tool
 		want, has := e.Platforms[thisPlatform()]
 		if !has {

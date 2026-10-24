@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/RhythmShahriar/rhythm/kit/config"
+	"github.com/RhythmShahriar/rhythm/internal/lock"
 )
 
 // The router itself, as a target of rhythm update.
@@ -191,31 +191,12 @@ func probeTargets(ctx context.Context, targets []target) {
 
 // extension is a third-party tool listed in extensions.json in the
 // Rhythm config folder: `rhythm <name>` runs rhythm-<name>, released
-// from repo. This reads internal/lock's rhythm-extensions/v1 format
-// until that package is part of this rhythm.
-type extension struct {
-	Name   string `json:"name"`
-	Repo   string `json:"repo"`
-	Signer string `json:"signer,omitempty"`
-}
+// from its repo.
+type extension = lock.Extension
 
-const (
-	extensionsSchema = "rhythm-extensions/v1"
-	extensionsFile   = "extensions.json"
-)
-
-var (
-	extensionName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
-	extensionRepo = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+$`)
-)
-
-// validRepo reports whether repo is a GitHub owner/name. Release API
-// paths are built from it, so "." and ".." (which the pattern allows,
-// as GitHub allows dots in names) are refused too.
-func validRepo(repo string) bool {
-	_, name, _ := strings.Cut(repo, "/")
-	return extensionRepo.MatchString(repo) && name != "." && name != ".."
-}
+// extensionName is what a tool's name may be, the registry's and an
+// extension's alike.
+var extensionName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
 
 // registryRepo returns the repository rhythm itself installs name from:
 // its own for rhythm, the registry's for a tool. ok is false for any
@@ -231,43 +212,17 @@ func registryRepo(name string) (repo string, ok bool) {
 // (RHYTHM_CONFIG_DIR when set), none when there is no file. A name the
 // registry already has is left out: the registry's repo wins.
 func readExtensions() ([]extension, error) {
-	dir := os.Getenv("RHYTHM_CONFIG_DIR")
-	if dir != "" && !filepath.IsAbs(dir) {
-		return nil, fmt.Errorf("RHYTHM_CONFIG_DIR must be an absolute path, not %q", dir)
-	}
-	if dir == "" {
-		var err error
-		if dir, err = config.Dir(); err != nil {
-			return nil, err
-		}
-	}
-	path := filepath.Join(dir, extensionsFile)
-	data, err := os.ReadFile(path) //nolint:gosec // rhythm's own config file
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
+	store, err := lock.OpenExtensions()
 	if err != nil {
 		return nil, err
 	}
-	var doc struct {
-		Schema     string      `json:"schema"`
-		Extensions []extension `json:"extensions"`
-	}
-	if err := json.Unmarshal(data, &doc); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
-	}
-	if doc.Schema != extensionsSchema {
-		return nil, fmt.Errorf("%s: schema %q isn't %q", path, doc.Schema, extensionsSchema)
+	all, err := store.List()
+	if err != nil {
+		return nil, err
 	}
 	var list []extension
-	for _, x := range doc.Extensions {
-		switch {
-		case !extensionName.MatchString(x.Name):
-			return nil, fmt.Errorf("%s: extension name %q isn't a tool name", path, x.Name)
-		case !validRepo(x.Repo):
-			return nil, fmt.Errorf("%s: extension %q: repo %q isn't owner/name", path, x.Name, x.Repo)
-		}
-		if _, registry := toolRepo(x.Name); !registry && x.Name != selfName {
+	for _, x := range all {
+		if _, registry := registryRepo(x.Name); !registry {
 			list = append(list, x)
 		}
 	}

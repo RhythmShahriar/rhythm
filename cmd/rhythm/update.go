@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/RhythmShahriar/rhythm/internal/lock"
 	"github.com/RhythmShahriar/rhythm/kit/config"
 	"github.com/RhythmShahriar/rhythm/kit/update"
 )
@@ -129,7 +130,7 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 	for _, tool := range missing {
 		msg := "isn't installed; install it with: rhythm install " + tool
 		if _, registry := toolRepo(tool); !registry {
-			msg = "isn't on PATH, though " + extensionsFile + " lists it"
+			msg = "isn't on PATH, though " + lock.ExtensionsFile + " lists it"
 		}
 		fmt.Fprintf(stderr, "%-18s %s\n", "rhythm-"+tool, msg)
 		rep.failed = append(rep.failed, "rhythm-"+tool)
@@ -562,7 +563,7 @@ func updateLock(want map[string]bool, checkOnly bool, age minAge, stdout, stderr
 		return 1
 	}
 	for name := range want {
-		if old.entry(name) == nil {
+		if old.Entry(name) == nil {
 			fmt.Fprintf(stderr, "rhythm: %s doesn't lock %s\n", lockFileName, name)
 			return 1
 		}
@@ -572,7 +573,7 @@ func updateLock(want map[string]bool, checkOnly bool, age minAge, stdout, stderr
 	// or a cloned lock could point the release lookups (and the token
 	// sent with them) at a repository of its choosing.
 	moved := false
-	for _, e := range old.entries() {
+	for _, e := range old.Entries() {
 		if repo, ok := registryRepo(e.Name); ok && !strings.EqualFold(repo, e.Repo) {
 			fmt.Fprintf(stderr, "rhythm: %s says %s comes from %s; rhythm installs it from %s\n", lockFileName, e.Name, e.Repo, repo)
 			moved = true
@@ -581,16 +582,12 @@ func updateLock(want map[string]bool, checkOnly bool, age minAge, stdout, stderr
 	if moved {
 		return 1
 	}
-	next, err := old.clone()
-	if err != nil {
-		fmt.Fprintln(stderr, "rhythm:", err)
-		return 1
-	}
+	next := old.Clone()
 
 	ctx, stop := signalContext()
 	defer stop()
 	var rep updateReport
-	for _, e := range next.entries() {
+	for _, e := range next.Entries() {
 		if ctx.Err() != nil {
 			break
 		}
@@ -658,7 +655,7 @@ func updateLock(want map[string]bool, checkOnly bool, age minAge, stdout, stderr
 	case checkOnly:
 		return exitOutdated
 	}
-	if err := next.write(path); err != nil {
+	if err := next.Write(path); err != nil {
 		fmt.Fprintln(stderr, "rhythm:", err)
 		return 1
 	}

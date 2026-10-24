@@ -9,19 +9,16 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"maps"
 	"os"
 	"path"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
+	"github.com/RhythmShahriar/rhythm/internal/lock"
 	"github.com/RhythmShahriar/rhythm/kit/update"
 )
 
@@ -29,297 +26,34 @@ func init() {
 	register(command{name: "lock", args: "[--no-data]", summary: "pin the installed versions in rhythm.lock", run: cmdLock})
 }
 
-// The rhythm.lock file. router-core's internal/lock owns this format;
-// until it is merged, the stand-in below reads and writes the same
-// rhythm-lock/v1 JSON, so a lock written now reads the same afterwards.
-const (
-	lockSchema   = "rhythm-lock/v1"
-	lockFileName = "rhythm.lock"
+// rhythm.lock is read, checked, compared and written by internal/lock.
+// The short names below keep the commands that use it readable.
+type (
+	lockFile  = lock.File
+	lockEntry = lock.Entry
+	dataPack  = lock.DataPack
 )
 
-// lockFile is a rhythm.lock: the exact versions a project runs with.
-type lockFile struct {
-	Schema string      `json:"schema"`
-	Rhythm *lockEntry  `json:"rhythm,omitempty"` // the router itself; nil leaves it unpinned
-	Tools  []lockEntry `json:"tools"`
-}
-
-// lockEntry pins one program: its version and every platform's archive.
-type lockEntry struct {
-	Name      string            `json:"name"` // "tuner"; "rhythm" for the router
-	Repo      string            `json:"repo"`
-	Version   string            `json:"version"`
-	Signer    string            `json:"signer,omitempty"`
-	Platforms map[string]string `json:"platforms"` // os_arch -> archive sha256
-	Data      []dataPack        `json:"data,omitempty"`
-	Source    string            `json:"source,omitempty"`
-}
-
-// dataPack is one data set a tool reports from `update --json`, such as
-// Tuner's checks or its vulnerability database.
-type dataPack struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
-	SHA256  string `json:"sha256"`
-}
-
-// packValue is what a data pack's name and version may be. They are
-// joined into update --pin name=version,..., so a "," or "=" would add
-// pins the lock doesn't hold.
-var packValue = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+-]*$`)
+const lockFileName = lock.FileName
 
 // errNoLock is findLock's answer when no rhythm.lock applies.
-var errNoLock = fmt.Errorf("no %s found: %w", lockFileName, fs.ErrNotExist)
+var errNoLock = lock.ErrNotFound
 
 // findLock returns the nearest rhythm.lock in dir or a parent, stopping at
 // the git repository root. Outside a repository only dir itself counts,
 // so a stray lock in a home or temp folder never applies.
-func findLock(dir string) (string, error) {
-	dir, err := filepath.Abs(dir)
-	if err != nil {
-		return "", err
-	}
-	root := dir
-	for d := dir; ; d = filepath.Dir(d) {
-		if _, err := os.Lstat(filepath.Join(d, ".git")); err == nil {
-			root = d
-			break
-		}
-		if filepath.Dir(d) == d {
-			break
-		}
-	}
-	for d := dir; ; d = filepath.Dir(d) {
-		p := filepath.Join(d, lockFileName)
-		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
-			return p, nil
-		}
-		if d == root || filepath.Dir(d) == d {
-			return "", errNoLock
-		}
-	}
-}
+func findLock(dir string) (string, error) { return lock.Find(dir) }
 
 // readLock reads and checks the lock at path. Unknown fields are refused,
 // so a newer rhythm's key is never dropped when this one rewrites it.
-func readLock(path string) (*lockFile, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // the user's own lock file
-	if err != nil {
-		return nil, err
-	}
-	var head struct {
-		Schema string `json:"schema"`
-	}
-	if err := json.Unmarshal(data, &head); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
-	}
-	if head.Schema != lockSchema {
-		if head.Schema == "" {
-			return nil, fmt.Errorf("%s: no schema; want %q", path, lockSchema)
-		}
-		return nil, fmt.Errorf("%s: schema %q isn't %q; a newer rhythm may read it", path, head.Schema, lockSchema)
-	}
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.DisallowUnknownFields()
-	var f lockFile
-	if err := dec.Decode(&f); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
-	}
-	if err := f.validate(); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
-	}
-	return &f, nil
-}
-
-// validate reports every entry that couldn't be installed from, one per
-// line.
-func (f *lockFile) validate() error {
-	var errs []error
-	check := func(where string, e *lockEntry) {
-		if !exactSpec.MatchString(e.Version) || strings.HasPrefix(e.Version, "v") {
-			errs = append(errs, fmt.Errorf("%s: version %q isn't an exact version such as 1.2.3", where, e.Version))
-		}
-		if !validRepo(e.Repo) {
-			errs = append(errs, fmt.Errorf("%s: repo %q isn't owner/name", where, e.Repo))
-		}
-		if len(e.Platforms) == 0 {
-			errs = append(errs, fmt.Errorf("%s: no platforms", where))
-		}
-		for _, p := range slices.Sorted(maps.Keys(e.Platforms)) {
-			if !sha256Hex.MatchString(e.Platforms[p]) {
-				errs = append(errs, fmt.Errorf("%s: platforms[%q]: sha256 %q isn't 64 lowercase hex digits", where, p, e.Platforms[p]))
-			}
-		}
-		packs := map[string]bool{}
-		for _, d := range e.Data {
-			switch {
-			case d.Name == "":
-				errs = append(errs, fmt.Errorf("%s: a data pack has no name", where))
-			case packs[d.Name]:
-				errs = append(errs, fmt.Errorf("%s: data %q listed twice", where, d.Name))
-			case d.Version == "":
-				errs = append(errs, fmt.Errorf("%s: data %q has no version", where, d.Name))
-			case !packValue.MatchString(d.Name) || !packValue.MatchString(d.Version):
-				errs = append(errs, fmt.Errorf("%s: data %q version %q may only use letters, digits and . _ + -", where, d.Name, d.Version))
-			}
-			packs[d.Name] = true
-		}
-	}
-	// Names pick the registry repo a lock's repo is checked against, so
-	// rhythm's entry must be called rhythm and a tool can't be.
-	if f.Rhythm != nil {
-		if f.Rhythm.Name != selfName {
-			errs = append(errs, fmt.Errorf("rhythm: name %q isn't %q", f.Rhythm.Name, selfName))
-		}
-		check("rhythm", f.Rhythm)
-	}
-	seen := map[string]bool{}
-	for i := range f.Tools {
-		e := &f.Tools[i]
-		where := fmt.Sprintf("tools[%d] (%s)", i, e.Name)
-		if e.Name == selfName || !extensionName.MatchString(e.Name) {
-			errs = append(errs, fmt.Errorf("%s: %q isn't a tool name", where, e.Name))
-		}
-		if seen[e.Name] {
-			errs = append(errs, fmt.Errorf("%s: listed twice", where))
-		}
-		seen[e.Name] = true
-		check(where, e)
-	}
-	return errors.Join(errs...)
-}
-
-// write saves f at path atomically: tools and data sorted by name, two
-// spaces of indent and a trailing newline, so the file diffs well in
-// review.
-func (f *lockFile) write(path string) error {
-	f.Schema = lockSchema
-	slices.SortFunc(f.Tools, func(a, b lockEntry) int { return strings.Compare(a.Name, b.Name) })
-	for _, e := range f.entries() {
-		slices.SortFunc(e.Data, func(a, b dataPack) int { return strings.Compare(a.Name, b.Name) })
-	}
-	if f.Tools == nil {
-		f.Tools = []lockEntry{}
-	}
-	var b bytes.Buffer
-	enc := json.NewEncoder(&b)
-	enc.SetEscapeHTML(false)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(f); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), "."+lockFileName+".tmp-*")
-	if err != nil {
-		return err
-	}
-	defer func() { _ = os.Remove(tmp.Name()) }() // gone after the rename
-	if _, err := tmp.Write(b.Bytes()); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Chmod(tmp.Name(), 0o644); err != nil { //nolint:gosec // a lock is shared through the repository
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
-}
-
-// clone returns a deep copy of f.
-func (f *lockFile) clone() (*lockFile, error) {
-	data, err := json.Marshal(f)
-	if err != nil {
-		return nil, err
-	}
-	var c lockFile
-	return &c, json.Unmarshal(data, &c)
-}
-
-// entries returns rhythm's entry, if any, then the tools'.
-func (f *lockFile) entries() []*lockEntry {
-	var list []*lockEntry
-	if f.Rhythm != nil {
-		list = append(list, f.Rhythm)
-	}
-	for i := range f.Tools {
-		list = append(list, &f.Tools[i])
-	}
-	return list
-}
-
-// entry returns the entry for name ("rhythm" or a tool), or nil.
-func (f *lockFile) entry(name string) *lockEntry {
-	for _, e := range f.entries() {
-		if e.Name == name {
-			return e
-		}
-	}
-	return nil
-}
+func readLock(path string) (*lockFile, error) { return lock.Read(path) }
 
 // lockDiff lists what changed from old to new, rhythm first and then the
 // tools by name, as lines such as "~ tuner 0.3.1 → 0.3.2".
 func lockDiff(old, new *lockFile) []string {
-	names := []string{selfName}
-	for _, f := range []*lockFile{old, new} {
-		for _, e := range f.Tools {
-			if !slices.Contains(names[1:], e.Name) {
-				names = append(names, e.Name)
-			}
-		}
-	}
-	slices.Sort(names[1:])
-	none := func(s string) string {
-		if s == "" {
-			return "(none)"
-		}
-		return s
-	}
 	var lines []string
-	for _, name := range names {
-		a, b := old.entry(name), new.entry(name)
-		switch {
-		case a == nil && b == nil:
-			continue
-		case a == nil:
-			lines = append(lines, fmt.Sprintf("+ %s %s", name, b.Version))
-			continue
-		case b == nil:
-			lines = append(lines, fmt.Sprintf("- %s %s", name, a.Version))
-			continue
-		case a.Version != b.Version:
-			lines = append(lines, fmt.Sprintf("~ %s %s → %s", name, a.Version, b.Version))
-		case !maps.Equal(a.Platforms, b.Platforms):
-			// The same version with other archives: a release replaced
-			// after it was locked. Worth a reviewer's eye.
-			lines = append(lines, fmt.Sprintf("! %s %s: archives changed for the same version", name, b.Version))
-		}
-		packs := map[string][2]*dataPack{}
-		for i := range a.Data {
-			packs[a.Data[i].Name] = [2]*dataPack{&a.Data[i], nil}
-		}
-		for i := range b.Data {
-			p := packs[b.Data[i].Name]
-			p[1] = &b.Data[i]
-			packs[b.Data[i].Name] = p
-		}
-		for _, pack := range slices.Sorted(maps.Keys(packs)) {
-			p := packs[pack]
-			var from, to, fromSum, toSum string
-			if p[0] != nil {
-				from, fromSum = p[0].Version, p[0].SHA256
-			}
-			if p[1] != nil {
-				to, toSum = p[1].Version, p[1].SHA256
-			}
-			switch {
-			case from != to:
-				lines = append(lines, fmt.Sprintf("~ %s data %s %s → %s", name, pack, none(from), none(to)))
-			case fromSum != toSum:
-				lines = append(lines, fmt.Sprintf("! %s data %s %s: content changed for the same version", name, pack, to))
-			}
-		}
+	for _, c := range lock.Diff(old, new) {
+		lines = append(lines, c.String())
 	}
 	return lines
 }
@@ -425,7 +159,7 @@ func cmdLock(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "rhythm: %s not written\n", lockFileName)
 		return 1
 	}
-	if err := f.write(path); err != nil {
+	if err := f.Write(path); err != nil {
 		fmt.Fprintln(stderr, "rhythm:", err)
 		return 1
 	}
@@ -457,7 +191,7 @@ func lockData(ctx context.Context, t target, stdout, stderr io.Writer) ([]dataPa
 		return nil, err
 	}
 	for _, p := range packs {
-		if !packValue.MatchString(p.Name) || !packValue.MatchString(p.Version) || !sha256Hex.MatchString(p.SHA256) {
+		if lock.CheckPack(p) != nil {
 			fmt.Fprintf(stderr, "%s reported data %q version %q sha256 %q, which can't be locked\n", t.binary, p.Name, p.Version, p.SHA256)
 			return nil, errDataFailed
 		}

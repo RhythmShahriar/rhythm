@@ -630,7 +630,7 @@ func TestInstallLockedMissingPlatform(t *testing.T) {
 	}
 	delete(lock.Tools[0].Platforms, thisPlatform())
 	lock.Tools[0].Platforms["plan9_mips"] = otherSHA("x")
-	if err := lock.write(lockFileName); err != nil {
+	if err := lock.Write(lockFileName); err != nil {
 		t.Fatal(err)
 	}
 	code, out, errs := runCmd("install", "--locked", "--dir", s.bin)
@@ -913,7 +913,7 @@ func TestLockRecordsData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tuner, sc := lock.entry("tuner"), lock.entry("soundcheck")
+	tuner, sc := lock.Entry("tuner"), lock.Entry("soundcheck")
 	want := []dataPack{
 		{Name: "checks", Version: "2026.10.20", SHA256: strings.Repeat("b", 64)},
 		{Name: "vulns", Version: "2026-10-24", SHA256: strings.Repeat("c", 64)},
@@ -1016,7 +1016,7 @@ func TestInstallLockedChecksTheRegistry(t *testing.T) {
 		{Name: "tuner", Repo: "someone/tuner", Version: "0.3.1", Platforms: map[string]string{thisPlatform(): sha}},
 		{Name: "zap", Repo: "someone/rhythm-zap", Version: "1.0.0", Platforms: map[string]string{thisPlatform(): sha}},
 	}}
-	if err := lock.write(lockFileName); err != nil {
+	if err := lock.Write(lockFileName); err != nil {
 		t.Fatal(err)
 	}
 	code, _, errs := runCmd("install", "--locked", "--dir", s.bin)
@@ -1044,7 +1044,7 @@ func TestUpdateLockChecksTheRegistry(t *testing.T) {
 			{Name: "tuner", Repo: "rhythmshahriar/TUNER", Version: "0.3.1", Platforms: map[string]string{thisPlatform(): sha}},
 		},
 	}
-	if err := lock.write(lockFileName); err != nil {
+	if err := lock.Write(lockFileName); err != nil {
 		t.Fatal(err)
 	}
 	code, out, errs := runCmd("update", "--lock", "--check")
