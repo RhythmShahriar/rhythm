@@ -599,6 +599,29 @@ func TestUpdateUnreachableSaidOnce(t *testing.T) {
 	}
 }
 
+func TestOfflineSaidOnce(t *testing.T) {
+	installed, latest := allTools()
+	s := newSandbox(t, installed, latest)
+	fakeSelf(t, s.stub(t, "rhythm", "0.1.0", ""), "0.1.0")
+	t.Setenv("RHYTHM_OFFLINE", "1")
+
+	code, _, errs := runCmd("update", "--no-data")
+	want := "RHYTHM_OFFLINE is set, so nothing was downloaded for rhythm, rhythm-echo, rhythm-soundcheck, rhythm-tuner; unset it to reach the release API\n" +
+		"Updated 0, up to date 0, failed 4: rhythm, rhythm-echo, rhythm-soundcheck, rhythm-tuner\n"
+	if code != 1 || errs != want {
+		t.Errorf("update: exit %d\n%s\nwant\n%s", code, errs, want)
+	}
+	code, _, errs = runCmd("install", "tuner", "echo", "--dir", t.TempDir())
+	want = "RHYTHM_OFFLINE is set, so nothing was downloaded for rhythm-tuner, rhythm-echo; unset it to reach the release API\n" +
+		"Installed 0, failed 2: rhythm-tuner, rhythm-echo\n"
+	if code != 1 || errs != want {
+		t.Errorf("install: exit %d\n%s\nwant\n%s", code, errs, want)
+	}
+	if n := len(s.api.requests()); n != 0 {
+		t.Errorf("%d requests reached the API", n)
+	}
+}
+
 // rateLimited serves 403 with X-RateLimit-Remaining: 0 and counts requests.
 func rateLimited(t *testing.T) (*httptest.Server, *atomic.Int32) {
 	t.Helper()

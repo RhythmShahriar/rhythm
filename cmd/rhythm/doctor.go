@@ -134,7 +134,7 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 	ctx, stop := signalContext()
 	defer stop()
 	env := newDoctorEnv()
-	checks := runDoctor(ctx, env, *offline || env.getenv("RHYTHM_OFFLINE") != "")
+	checks := runDoctor(ctx, env, *offline || env.getenv(offlineEnv) != "")
 	if ctx.Err() != nil {
 		fmt.Fprintln(stderr, "rhythm: doctor interrupted")
 		return exitInterrupted

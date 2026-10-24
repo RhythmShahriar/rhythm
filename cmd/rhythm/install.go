@@ -101,7 +101,8 @@ const defaultAPI = "https://api.github.com"
 // cache and, for install --from, the bundle the releases come from.
 func updater(repo, binary, current string) *update.Updater {
 	api := os.Getenv("RHYTHM_GITHUB_API") // a mirror or GitHub Enterprise; default api.github.com
-	t := &explainTransport{base: http.DefaultTransport, api: apiOrDefault(api), repo: repo, trust: thisRun}
+	t := &explainTransport{base: http.DefaultTransport, api: apiOrDefault(api), repo: repo, trust: thisRun,
+		offline: os.Getenv(offlineEnv) != ""}
 	if thisRun.bundle != "" {
 		t.source, t.sourceErr = openBundle(thisRun.bundle, repo)
 	}
@@ -130,9 +131,10 @@ func apiOrDefault(api string) string {
 // release into errors rhythm can explain. kit/update on its own reports
 // both as a bare HTTP status, which says nothing about the fix.
 type explainTransport struct {
-	base http.RoundTripper
-	api  string // the API base asked, without a trailing slash
-	repo string
+	base    http.RoundTripper
+	api     string // the API base asked, without a trailing slash
+	repo    string
+	offline bool // RHYTHM_OFFLINE: nothing goes to the network
 
 	// While archiveURL is set, its download body reports to progress
 	// and, when kept is set, is copied there for the archive cache.
@@ -170,6 +172,9 @@ func (t *explainTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 			return nil, err
 		}
 		return t.watch(req, resp), nil
+	}
+	if t.offline {
+		return nil, errOffline
 	}
 	resp, err := t.base.RoundTrip(req)
 	if err != nil {
@@ -303,6 +308,15 @@ func (e *noReleaseError) Error() string {
 	return fmt.Sprintf("mirror %s has no release %s for %s; check RHYTHM_GITHUB_API", e.api, e.version, e.repo)
 }
 
+// offlineEnv keeps rhythm off the network when set to anything. A bundle
+// (install --from) still works: it never leaves the machine.
+const offlineEnv = "RHYTHM_OFFLINE"
+
+// errOffline is what a request gets while RHYTHM_OFFLINE is set. It
+// stands in for kit/update's ErrOffline, which this rhythm's kit doesn't
+// have yet.
+var errOffline = errors.New(offlineEnv + " is set")
+
 // describe returns err's message for the failure line. kit/update hands
 // back the transport's errors inside Go's url.Error, whose `Get "<url>":`
 // prefix would bury rhythm's explanation.
@@ -324,6 +338,11 @@ func netProblem(err error) (key, host string, text func(binaries string) string,
 	if errors.As(err, &rl) {
 		return "rate " + rl.api, hostOf(rl.api), rl.explain, true
 	}
+	if errors.Is(err, errOffline) {
+		return "offline", anyHost, func(binaries string) string {
+			return fmt.Sprintf("%s is set, so nothing was downloaded for %s; unset it to reach the release API", offlineEnv, binaries)
+		}, true
+	}
 	var op *net.OpError
 	var dns *net.DNSError
 	var ne net.Error
@@ -344,6 +363,10 @@ func netProblem(err error) (key, host string, text func(binaries string) string,
 		return fmt.Sprintf("can't reach %s for %s; check network, proxy or RHYTHM_GITHUB_API", host, binaries)
 	}, true
 }
+
+// anyHost is the host of a problem that blocks every host, such as
+// RHYTHM_OFFLINE.
+const anyHost = "*"
 
 // hostOf returns the host[:port] of rawURL, or rawURL when it doesn't
 // parse.
@@ -394,7 +417,10 @@ func (r *netReport) add(binary string, err error) bool {
 // limited in this run. If so it counts binary as hit too. Asking again
 // would only repeat the wait or spend the limit.
 func (r *netReport) skip(binary, api string) bool {
-	key, ok := r.blocked[hostOf(apiOrDefault(api))]
+	key, ok := r.blocked[anyHost]
+	if !ok {
+		key, ok = r.blocked[hostOf(apiOrDefault(api))]
+	}
 	if ok {
 		r.byKey[key].binaries = append(r.byKey[key].binaries, binary)
 	}

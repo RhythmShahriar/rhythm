@@ -92,7 +92,7 @@ func cmdList(args []string, stdout, stderr io.Writer) int {
 	}
 	ctx, stop := signalContext()
 	defer stop()
-	*offline = *offline || os.Getenv("RHYTHM_OFFLINE") != ""
+	*offline = *offline || os.Getenv(offlineEnv) != ""
 	entries, nets := listEntries(ctx, *offline)
 	if ctx.Err() != nil {
 		fmt.Fprintln(stderr, "rhythm: list interrupted")
