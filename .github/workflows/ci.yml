@@ -36,12 +36,23 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # RHYTHM_TEST_SH is the shell that runs install.sh; the harness
+      # runs under the same one. macOS ships dash in /bin too.
       - name: sh
         if: runner.os != 'Windows' && hashFiles('scripts/test/run.sh') != ''
+        env:
+          RHYTHM_TEST_SH: sh
         run: sh scripts/test/run.sh
       - name: dash
-        if: runner.os == 'Linux' && hashFiles('scripts/test/run.sh') != ''
+        if: runner.os != 'Windows' && hashFiles('scripts/test/run.sh') != ''
+        env:
+          RHYTHM_TEST_SH: dash
         run: dash scripts/test/run.sh
+      - name: bash
+        if: runner.os != 'Windows' && hashFiles('scripts/test/run.sh') != ''
+        env:
+          RHYTHM_TEST_SH: bash
+        run: bash scripts/test/run.sh
       - name: PowerShell 7
         if: runner.os == 'Windows' && hashFiles('scripts/test/run.ps1') != ''
         shell: pwsh
