@@ -13,6 +13,10 @@ permissions:
   contents: read
 jobs:
   release:
+    # Only from a branch: dispatched on a tag, the snapshot would be signed
+    # and attested with the same identity (and source ref refs/tags/vX) as
+    # the real release of that tag.
+    if: github.ref_type == 'branch'
     uses: RhythmShahriar/.github/.github/workflows/release-go.yml@master
     with:
       snapshot: true
