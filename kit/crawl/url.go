@@ -19,7 +19,11 @@ var nonPage = regexp.MustCompile(`(?i)\.(jpe?g|png|gif|webp|avif|svg|ico|bmp|tif
 
 // Normalize resolves href against base and canonicalizes it: lowercase
 // scheme and host, no default port, no fragment, no tracking parameters,
-// sorted query, cleaned path. ok is false for non-http(s) links.
+// sorted query, cleaned path. It keeps what changes a URL's meaning: an
+// escaped slash in the path (/files/a%2Fb is not /files/a/b), a key with
+// no value (?amp stays ?amp, not ?amp=) and, for a query Go can't parse
+// (one with ';' or a bad escape), every pair as written and in order.
+// ok is false for non-http(s) links.
 func Normalize(base *url.URL, href string) (string, bool) {
 	href = strings.TrimSpace(href)
 	if href == "" || strings.HasPrefix(href, "#") {
@@ -36,26 +40,80 @@ func Normalize(base *url.URL, href string) (string, bool) {
 	}
 	u.Fragment, u.RawFragment = "", ""
 	u.User = nil
-	if u.Path == "" {
-		u.Path = "/"
-	} else {
-		trailing := strings.HasSuffix(u.Path, "/")
-		u.Path = path.Clean(u.Path)
-		if trailing && u.Path != "/" {
-			u.Path += "/"
+	u.Path = cleanPath(u.Path)
+	if u.RawPath != "" {
+		// RawPath is set only when the path has escapes that matter, such
+		// as %2F. Clean it the same way and derive Path from it, so the
+		// two stay consistent and String keeps the escapes.
+		raw := cleanPath(u.RawPath)
+		if p, err := url.PathUnescape(raw); err == nil {
+			u.Path, u.RawPath = p, raw
+		} else {
+			u.RawPath = ""
 		}
 	}
-	u.RawPath = ""
-	if u.RawQuery != "" {
-		q := u.Query()
-		for k := range q {
-			if trackingParam.MatchString(strings.ToLower(k)) {
-				q.Del(k)
-			}
-		}
-		u.RawQuery = q.Encode() // Encode sorts by key
-	}
+	u.ForceQuery = false
+	u.RawQuery = normQuery(u.RawQuery)
 	return u.String(), true
+}
+
+// cleanPath cleans p and keeps a trailing slash; empty becomes "/".
+func cleanPath(p string) string {
+	if p == "" {
+		return "/"
+	}
+	trailing := strings.HasSuffix(p, "/")
+	p = path.Clean(p)
+	if trailing && p != "/" {
+		p += "/"
+	}
+	return p
+}
+
+// normQuery drops tracking parameters from a raw query. A query Go
+// parses cleanly is sorted by key (values of one key keep their order)
+// and re-escaped the standard way, so equivalent URLs compare equal. A
+// query it can't parse is kept pair by pair as written, because
+// url.Query would silently drop the pairs it doesn't understand.
+func normQuery(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	type pair struct{ key, text string }
+	_, err := url.ParseQuery(raw)
+	verbatim := err != nil || strings.Contains(raw, ";")
+	var pairs []pair
+	for _, p := range strings.Split(raw, "&") {
+		if p == "" {
+			continue
+		}
+		k, v, hasValue := strings.Cut(p, "=")
+		key, kerr := url.QueryUnescape(k)
+		if kerr != nil {
+			key = k
+		}
+		if trackingParam.MatchString(strings.ToLower(key)) {
+			continue
+		}
+		if verbatim {
+			pairs = append(pairs, pair{key, p})
+			continue
+		}
+		val, _ := url.QueryUnescape(v) // ParseQuery succeeded, so this can't fail
+		text := url.QueryEscape(key)
+		if hasValue {
+			text += "=" + url.QueryEscape(val)
+		}
+		pairs = append(pairs, pair{key, text})
+	}
+	if !verbatim {
+		slices.SortStableFunc(pairs, func(a, b pair) int { return strings.Compare(a.key, b.key) })
+	}
+	texts := make([]string, len(pairs))
+	for i, p := range pairs {
+		texts[i] = p.text
+	}
+	return strings.Join(texts, "&")
 }
 
 // key identifies a page for de-duplication: /about and /about/ are one
@@ -69,6 +127,7 @@ func key(raw string) string {
 	}
 	if u.Path != "/" {
 		u.Path = strings.TrimSuffix(u.Path, "/")
+		u.RawPath = strings.TrimSuffix(u.RawPath, "/")
 	}
 	return u.String()
 }
@@ -115,7 +174,7 @@ func IsPage(u *url.URL) bool { return !nonPage.MatchString(u.Path) }
 
 // DefaultExcludes skips admin, login, feeds, APIs and URLs with side
 // effects: logout, add to cart, comment replies, unsubscribe and opt-out
-// links, confirmations, delete and trash actions, and links carrying a
+// links, confirmations, delete and trash actions and links carrying a
 // token or nonce, which can act on a real person's account just by being
 // visited. Patterns match the lower-cased path and query.
 var DefaultExcludes = append([]string{

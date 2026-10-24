@@ -96,7 +96,7 @@ func parseRobots(r io.Reader, agent string) *robots {
 }
 
 // Allowed applies the longest-match rule: the most specific matching
-// pattern wins, and Allow wins a tie. It looks at the rules only; the
+// pattern wins and Allow wins a tie. It looks at the rules only; the
 // frontier checks unavailable first, so the start page still gets in.
 func (r *robots) Allowed(pathQuery string) bool {
 	if r == nil {
