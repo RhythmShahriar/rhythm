@@ -12,7 +12,9 @@
 //   - the OIDC issuer is GitHub Actions;
 //   - the signer (SAN) is the shared reusable workflow
 //     RhythmShahriar/.github/.github/workflows/release-go.yml at
-//     refs/heads/master or a ref in Options.WorkflowRefs;
+//     refs/heads/master or a ref in Options.WorkflowRefs (with
+//     Options.OwnWorkflow, a workflow of the release's own repository
+//     passes too);
 //   - the Source Repository URI extension names the calling repository and
 //     the Source Repository Ref is the release tag. The SAN alone names a
 //     public reusable workflow that any repository can call, so these two
@@ -68,6 +70,8 @@ const (
 	// RootEmbedded means the root compiled into this binary was used,
 	// because Options.Offline was set or the TUF refresh failed.
 	RootEmbedded = "embedded"
+	// RootCustom means Options.TrustedMaterial was used.
+	RootCustom = "custom"
 )
 
 // Options configures a Verifier. The zero value verifies against the
@@ -96,6 +100,20 @@ type Options struct {
 	// while the Verifier loads its trusted root, so it must not call
 	// the Verifier: that call would wait on the load and deadlock.
 	OnFallback func(err error)
+	// OwnWorkflow also accepts a release signed by any workflow of the
+	// release's own repository: a SAN under https://github.com/<repo>/
+	// such as .../.github/workflows/release.yml@refs/tags/v1.2.0. It is
+	// for third-party extensions, which can't sign as the shared
+	// workflow. The source repository and tag checks apply all the same,
+	// so a workflow in one repository can't sign for another. Rhythm's
+	// own tools leave it off.
+	OwnWorkflow bool
+	// TrustedMaterial, when set, replaces the public-good Sigstore root:
+	// for a private Sigstore instance or a test CA such as the one in
+	// sigverifytest. No TUF refresh happens then, so Offline, CacheDir,
+	// Mirror and OnFallback don't apply. Signed certificate timestamps
+	// are required only when it lists a CT log.
+	TrustedMaterial root.TrustedMaterial
 }
 
 // Verifier checks release signatures. It is safe for concurrent use.
@@ -134,7 +152,16 @@ func New(opts Options) (*Verifier, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Verifier{opts: opts, san: san, scts: 1}, nil
+	v := &Verifier{opts: opts, san: san, scts: 1}
+	if opts.TrustedMaterial != nil {
+		v.material = opts.TrustedMaterial
+		v.rootFrom = RootCustom
+		v.loaded.Store(true)
+		if len(opts.TrustedMaterial.CTLogs()) == 0 {
+			v.scts = 0
+		}
+	}
+	return v, nil
 }
 
 // VerifyChecksums checks bundle (the contents of checksums.txt.sigstore.json)
@@ -190,9 +217,9 @@ func (v *Verifier) verifyEntity(ctx context.Context, entity verify.SignedEntity,
 	return res.Signature.Certificate.SubjectAlternativeName, nil
 }
 
-// RootSource reports where the trusted root came from: RootTUF or
-// RootEmbedded. It is empty until the first VerifyChecksums call has loaded
-// the root. It stays empty when a test or caller never needed one.
+// RootSource reports where the trusted root came from: RootTUF,
+// RootEmbedded or RootCustom. It is empty until the first VerifyChecksums call has loaded
+// the root, or RootCustom from the start with Options.TrustedMaterial.
 func (v *Verifier) RootSource() string {
 	if !v.loaded.Load() {
 		return ""
@@ -202,7 +229,14 @@ func (v *Verifier) RootSource() string {
 
 // identity is the certificate policy for one release of one repository.
 func (v *Verifier) identity(repo, version string) (verify.CertificateIdentity, error) {
-	san, err := verify.NewSANMatcher("", v.san.String())
+	pattern := v.san.String()
+	if v.opts.OwnWorkflow {
+		// Any workflow file of repo, at any ref: an extension's release
+		// workflow usually runs on its tag, so the ref changes with each
+		// release.
+		pattern = "(" + pattern + ")|(^" + regexp.QuoteMeta("https://github.com/"+repo+"/") + "[^@]+@refs/[^@]+$)"
+	}
+	san, err := verify.NewSANMatcher("", pattern)
 	if err != nil {
 		return verify.CertificateIdentity{}, err
 	}
