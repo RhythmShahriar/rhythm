@@ -151,6 +151,22 @@ func TestUninstallNotInstalled(t *testing.T) {
 	}
 }
 
+// TestUninstallIgnoresCurrentFolder has rhythm-tuner only in the current
+// folder, reached through "." on PATH: it isn't installed and stays.
+func TestUninstallIgnoresCurrentFolder(t *testing.T) {
+	s := newSandbox(t, nil, nil)
+	t.Chdir(t.TempDir())
+	script(t, ".", "rhythm-tuner", "echo rhythm-tuner 0.1.0")
+	t.Setenv("PATH", "."+string(os.PathListSeparator)+s.bin)
+	code, out, errs := runManage("uninstall", "tuner")
+	if code != 0 || out != "rhythm-tuner       isn't installed\n" || errs != "" {
+		t.Errorf("exit %d\n%s%s", code, out, errs)
+	}
+	if _, err := os.Stat("rhythm-tuner"); err != nil {
+		t.Errorf("the file in the current folder was removed: %v", err)
+	}
+}
+
 func TestUninstallAll(t *testing.T) {
 	installed, latest := allTools()
 	s := newSandbox(t, installed, latest)

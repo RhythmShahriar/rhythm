@@ -248,7 +248,9 @@ func thirdPartyTools() []thirdParty {
 	seen := map[string]bool{}
 	var found []thirdParty
 	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
-		if dir == "" {
+		// A relative entry such as "." is the current folder, which may be
+		// a download or a checkout: nothing there is run (see exec.ErrDot).
+		if !filepath.IsAbs(dir) {
 			continue
 		}
 		ents, err := os.ReadDir(dir)
@@ -265,7 +267,9 @@ func thirdPartyTools() []thirdParty {
 					continue
 				}
 			}
-			if _, registry := tools[name]; registry || name == "" || seen[name] {
+			// Only extension names count, so a kept rhythm-tuner.prev or
+			// an update's leftover .prev-new or .rollback isn't a tool.
+			if _, registry := tools[name]; registry || !extensionName.MatchString(name) || seen[name] {
 				continue
 			}
 			p := filepath.Join(dir, ent.Name())
@@ -298,8 +302,8 @@ func pathCopies(binary string) []string {
 	var copies []string
 	seen := map[string]bool{}
 	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
-		if dir == "" {
-			continue
+		if !filepath.IsAbs(dir) {
+			continue // the current folder isn't an install; see thirdPartyTools
 		}
 		p, err := exec.LookPath(filepath.Join(dir, exe(binary)))
 		if err != nil {

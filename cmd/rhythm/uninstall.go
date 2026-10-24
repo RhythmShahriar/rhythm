@@ -205,10 +205,9 @@ func installedAt(tool string) (path, real string, err error) {
 		}
 		return path, real, nil
 	}
+	// A copy found through a relative PATH entry (exec.ErrDot) counts as
+	// not installed: deleting a file in the current folder is never meant.
 	p, err := exec.LookPath("rhythm-" + tool)
-	if errors.Is(err, exec.ErrDot) {
-		err = nil
-	}
 	if err != nil {
 		return "", "", err
 	}

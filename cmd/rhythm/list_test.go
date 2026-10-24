@@ -64,6 +64,33 @@ func TestList(t *testing.T) {
 	}
 }
 
+// TestListSkipsLeftovers lists after an update kept rhythm-tuner.prev,
+// with other leftovers and a rhythm-* program in a relative PATH entry.
+// None of them is a third-party tool or is run.
+func TestListSkipsLeftovers(t *testing.T) {
+	s := twoVersions(t)
+	ran := filepath.Join(t.TempDir(), "ran")
+	for _, name := range []string{"rhythm-tuner.prev-new", "rhythm-tuner.rollback", "rhythm-tuner.old"} {
+		script(t, s.bin, name, "echo "+name+" >> "+ran)
+	}
+	script(t, ".", "rhythm-here", "echo rhythm-here >> "+ran)
+	t.Setenv("PATH", s.bin+string(os.PathListSeparator)+".")
+
+	code, out, errs := runManage("list", "--offline")
+	if code != 0 || errs != "" {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	if strings.Contains(out, "(3rd)") || strings.Contains(out, ".prev") {
+		t.Errorf("leftovers listed:\n%s", out)
+	}
+	if data, err := os.ReadFile(ran); err == nil {
+		t.Errorf("ran: %s", data)
+	}
+	if got := pathCopies("rhythm-here"); len(got) != 0 {
+		t.Errorf("pathCopies found %v in the current folder", got)
+	}
+}
+
 func TestListOffline(t *testing.T) {
 	s := listSandbox(t)
 	for _, args := range [][]string{{"list", "--offline"}, {"list"}} {
