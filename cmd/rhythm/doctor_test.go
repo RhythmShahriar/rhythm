@@ -292,6 +292,8 @@ func TestCheckTokenNeverShowsValues(t *testing.T) {
 		{map[string]string{"GITHUB_TOKEN": "ghp_secret1"}, "token in use: GITHUB_TOKEN (value not shown)"},
 		{map[string]string{"GITHUB_TOKEN": "ghp_secret1", "RHYTHM_GITHUB_TOKEN": "secret2", "RHYTHM_GITHUB_API": "https://bot:secret3@mirror.example/api/"},
 			"token in use: GITHUB_TOKEN, RHYTHM_GITHUB_TOKEN (value not shown); release API https://mirror.example/api (from RHYTHM_GITHUB_API)"},
+		{map[string]string{"RHYTHM_GITHUB_API": "https://mirror.example/api?access_token=secret4#secret5"},
+			"no GitHub token set; GitHub allows 60 release lookups an hour without one; release API https://mirror.example/api (from RHYTHM_GITHUB_API)"},
 	} {
 		c := checkToken(fakeDoctorEnv(t, tc.vars))
 		if c.Status != statusOK || c.Message != tc.want || strings.Contains(c.Message, "secret") {

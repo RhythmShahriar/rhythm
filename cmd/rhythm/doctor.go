@@ -507,13 +507,14 @@ func checkToken(env doctorEnv) check {
 	return check{"token", statusOK, msg}
 }
 
-// redactURL drops any user:password part of rawURL.
+// redactURL drops the user:password part, the query and the fragment
+// of rawURL, any of which can carry a token.
 func redactURL(rawURL string) string {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return "(unparsable URL)"
 	}
-	u.User = nil
+	u.User, u.RawQuery, u.ForceQuery, u.Fragment, u.RawFragment = nil, "", false, "", ""
 	return strings.TrimSuffix(u.String(), "/")
 }
 
