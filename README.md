@@ -111,48 +111,60 @@ More are on the way. Each lives in its own repository and releases on its own sc
 | `rhythm completion bash\|zsh\|fish\|powershell` | print a shell completion script |
 | `rhythm version` | print rhythm's version (also `-v`, `-V`, `--version`) |
 
-Sample output from rhythm 0.7.0:
+Sample output from rhythm built from `master` (soon 0.7.0, which says its version where this says `dev`), with Tuner, Soundcheck and Echo installed:
 
 ```console
 $ rhythm list
 TOOL        VERSION  LATEST  SIGNED  PATH
-rhythm      0.7.0    0.7.0   yes     /home/me/.local/bin/rhythm
-soundcheck  0.2.0    0.2.0   yes     /home/me/.local/bin/rhythm-soundcheck
-tuner       0.3.2    0.3.3   yes     /home/me/.local/bin/rhythm-tuner
+rhythm      dev      0.6.0   no      /home/me/.local/bin/rhythm
+echo        1.0.0    1.0.0   yes     /home/me/.local/bin/rhythm-echo
+soundcheck  1.1.0    1.1.0   yes     /home/me/.local/bin/rhythm-soundcheck
+tuner       0.3.2    0.3.2   yes     /home/me/.local/bin/rhythm-tuner
 
 $ rhythm update --check            # exit 10: an update is available
-rhythm             0.7.0 (up to date)
-rhythm-soundcheck  0.2.0 (up to date)
-rhythm-tuner       0.3.2 → 0.3.3 available
+rhythm             dev (development build, not updated)
+rhythm-echo        1.0.0 (up to date)
+rhythm-soundcheck  1.1.0 (up to date)
+rhythm-tuner       0.3.1 → 0.3.2 available
 
-$ rhythm update tuner --min-age 3d
-rhythm-tuner 0.3.3 is 1 day old; staying on 0.3.2 (min age 3d)
+$ rhythm update --check --min-age 3w tuner
+rhythm-tuner 0.3.2 is 28 hours old; staying on 0.3.1 (min age 3w)
 
-$ rhythm update tuner
-rhythm-tuner       0.3.2 → 0.3.3 ✔
-  Signature ok  RhythmShahriar/tuner @ refs/tags/v0.3.3 (release-go.yml)
-  Checksum ok   sha256:25b17b0f41fe39f660dcf860cdb7564065e02fb041b739bffeb24d14a980357b
+$ rhythm update tuner --no-data
+rhythm-tuner       0.3.1 → 0.3.2 ✔
+  Signature ok  RhythmShahriar/tuner @ refs/tags/v0.3.2 (release-go.yml)
+  Checksum ok   sha256:201c8643969bfb434cdf294aa19c5a1646f88fa34b62187619587ef5662b2f06
 
 $ rhythm verify tuner
-rhythm-tuner 0.3.3 (/home/me/.local/bin/rhythm-tuner)
-  Signature ok  RhythmShahriar/tuner @ refs/tags/v0.3.3 (release-go.yml)
-  Checksum ok   sha256:25b17b0f41fe39f660dcf860cdb7564065e02fb041b739bffeb24d14a980357b
+rhythm-tuner 0.3.2 (/home/me/.local/bin/rhythm-tuner)
+  Signature ok  RhythmShahriar/tuner @ refs/tags/v0.3.2 (release-go.yml)
+  Checksum ok   sha256:201c8643969bfb434cdf294aa19c5a1646f88fa34b62187619587ef5662b2f06
   Binary ok     same bytes as in rhythm-tuner_linux_amd64.tar.gz
 
-$ rhythm update --rollback tuner
-Rolled back rhythm-tuner 0.3.3 → 0.3.2
-
-$ rhythm update tuner --to 0.3.1
+$ rhythm update tuner --to 0.3.1 --no-data
+Note: 0.3.1 is older than rhythm-tuner 0.3.2; installing it as asked.
 rhythm-tuner       0.3.2 → 0.3.1 ✔
+  Signature ok  RhythmShahriar/tuner @ refs/tags/v0.3.1 (release-go.yml)
+  Checksum ok   sha256:246fbc4086518bfc6779b18a1adbbc1fb891daba86a50f65e96b876c10e9f431
 
-$ rhythm doctor --offline
+$ rhythm update --rollback tuner
+Rolled back rhythm-tuner 0.3.1 → 0.3.2
+
+$ rhythm doctor --offline          # a 0.7.0 build with Tuner and Soundcheck
 ok    rhythm runs from /home/me/.local/bin/rhythm
+ok    rhythm-soundcheck runs from /home/me/.local/bin/rhythm-soundcheck
+ok    rhythm-tuner runs from /home/me/.local/bin/rhythm-tuner
 ok    /home/me/.local/bin is writable
 ok    every binary is a release build
+ok    no update checks saved yet
+ok    Soundcheck can use /usr/bin/google-chrome
+ok    no GitHub token set; GitHub allows 60 release lookups an hour without one
 No problems found.
 
-$ rhythm uninstall echo
-Removed /home/me/.local/bin/rhythm-echo
+$ rhythm uninstall tuner
+Removed /home/me/.local/bin/rhythm-tuner
+Removed /home/me/.local/bin/rhythm-tuner.prev
+Removed /home/me/.local/bin/rhythm-tuner.prev.json
 
 $ rhythm tunr
 rhythm: unknown tool "tunr"
