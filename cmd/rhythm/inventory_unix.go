@@ -12,7 +12,7 @@ import (
 
 // probeInGroup starts cmd in a process group of its own and makes the
 // timeout kill the whole group. A wrapper script (an asdf or mise shim,
-// say) runs the real tool as its child, and killing only the script
+// say) runs the real tool as its child and killing only the script
 // would leave that child running after rhythm exits.
 func probeInGroup(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

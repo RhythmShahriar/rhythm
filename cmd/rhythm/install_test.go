@@ -701,7 +701,7 @@ func TestRedactURL(t *testing.T) {
 }
 
 // TestInstallNextToBrewRhythm: with rhythm in a Homebrew Cellar, a plain
-// install asks for --dir rather than blaming a tool that isn't there,
+// install asks for --dir rather than blaming a tool that isn't there
 // and --dir installs as usual.
 func TestInstallNextToBrewRhythm(t *testing.T) {
 	s := newSandbox(t, nil, map[string]string{tools["tuner"]: "0.2.0"})
