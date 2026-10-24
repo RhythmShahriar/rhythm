@@ -5,6 +5,8 @@ package main
 
 import (
 	"bytes"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -44,11 +46,16 @@ func TestVersionAndHelp(t *testing.T) {
 
 func TestDryRun(t *testing.T) {
 	stubAs(t, "0.6.0", "tuner:t,echo:e", "yes", "yes")
-	if code, out, _ := call("install", "--dry-run", "tuner", "e"); code != 0 || out != "would install tuner\nwould install echo\n" {
+	if code, out, _ := call("install", "--dry-run", "tuner", "e"); code != 0 || out != "tuner\necho\n" {
 		t.Fatalf("dry run = %d %q", code, out)
 	}
-	if code, _, errOut := call("install", "--dry-run", "bogus"); code != 2 || !strings.Contains(errOut, `unknown tool "bogus"`) {
+	// Every unknown name is listed, with a suggestion when one is close.
+	want := "rhythm: unknown tool \"tunr\" (did you mean tuner?)\nrhythm: unknown tool \"bogus\"\n  known: echo, tuner\n"
+	if code, _, errOut := call("install", "--dry-run", "tunr", "echo", "bogus"); code != 2 || errOut != want {
 		t.Fatalf("unknown = %d %q", code, errOut)
+	}
+	if code, _, errOut := call("install", "--defaults"); code != 2 || !strings.Contains(errOut, "flag provided but not defined: -defaults") {
+		t.Fatalf("unknown flag = %d %q", code, errOut)
 	}
 
 	stubAs(t, "0.5.0", "tuner:t", "no", "yes")
@@ -86,6 +93,26 @@ func TestQuietAndPathNote(t *testing.T) {
 	}
 	if _, out, _ := call("install", "tuner", "echo", "--dir", dir); strings.Count(out, note) != 2 {
 		t.Fatalf("want a PATH note for each tool:\n%s", out)
+	}
+}
+
+func TestInstallFetchesTheArchive(t *testing.T) {
+	stubAs(t, "0.6.0", "tuner:t,echo:e", "yes", "yes")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/dl/echo/") {
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	t.Setenv("RHYTHM_GITHUB_API", srv.URL)
+	t.Setenv("PATH", "")
+	dir := t.TempDir()
+	code, out, errOut := call("install", "echo", "tuner", "--dir", dir, "--quiet")
+	if code != 1 || !strings.Contains(out, "Installed rhythm-tuner ") || strings.Contains(out, "rhythm-echo ") {
+		t.Fatalf("install = %d %q %q", code, out, errOut)
+	}
+	if !strings.Contains(errOut, "rhythm-echo        downloading echo_") || !strings.HasSuffix(errOut, ": HTTP 404\nInstalled 1, failed 1: rhythm-echo\n") {
+		t.Fatalf("stderr = %q", errOut)
 	}
 }
 

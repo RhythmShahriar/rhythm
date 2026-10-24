@@ -8,7 +8,8 @@
 # Environment:
 #   RHYTHM_INSTALL_DIR   where to install (default ~/.local/bin, or /usr/local/bin as root)
 #   RHYTHM_VERSION       a specific version, e.g. 0.5.0 (default: latest)
-#   RHYTHM_TOOLS         tools to install as well (default "tuner soundcheck echo"; "none" for none)
+#   RHYTHM_TOOLS         tools to install as well, separated by spaces or commas
+#                        (default "tuner soundcheck echo"; "none" for none)
 #   RHYTHM_GITHUB_API    GitHub API base, for mirrors (default https://api.github.com).
 #                        It must be https; plain http is accepted only for 127.0.0.1, ::1 and localhost.
 #   GITHUB_TOKEN         sent to api.github.com only, to lift the anonymous rate limit
@@ -103,33 +104,67 @@ main() {
 			sed 's/.*"browser_download_url"[^"]*"\([^"]*\)".*/\1/' | grep "/$1\$" | head -n 1
 	}
 
-	# router_knows reports whether the installed rhythm knows tool $1. Newer
-	# routers answer `rhythm install --dry-run <tool>`. Older ones reject the
-	# flag, so the tool list comes from the "Tools:" block of `rhythm help`, or
-	# from DEFAULT_TOOLS when even that is missing.
-	router_knows() {
-		if [ "$probe" != help ]; then
-			if "$dir/rhythm" install --dry-run "$1" >"$tmp/probe.out" 2>&1; then
-				probe=dry-run
-				return 0
-			fi
-			if [ "$probe" = dry-run ] || ! grep -q 'flag provided but not defined' "$tmp/probe.out"; then
-				probe=dry-run
-				return 1
-			fi
-			probe=help
+	# check_tools sets $todo to the names in $tools that the installed rhythm
+	# knows, checking every one before any tool is downloaded. Newer routers
+	# check the whole list in one `rhythm install --dry-run` and name the
+	# unknown ones with a suggestion. Older ones reject the flag, so the names
+	# come from the "Tools:" block of `rhythm help`, or from DEFAULT_TOOLS
+	# when even that is missing.
+	check_tools() {
+		todo=
+		[ -n "$tools" ] || return 0
+		# shellcheck disable=SC2086 # one word per name
+		if "$dir/rhythm" install --dry-run $tools >"$tmp/probe.out" 2>&1; then
+			todo=$tools
+			return 0
+		fi
+		if grep -q 'flag provided but not defined' "$tmp/probe.out"; then
 			# Rows look like "  soundcheck (sc)  did my change break anything?".
 			known=$("$dir/rhythm" help 2>/dev/null | awk '
 				/^Tools:/ { on = 1; next }
 				on && /^[[:space:]]*$/ { exit }
 				on { print $1; if ($2 ~ /^\(.*\)$/) print substr($2, 2, length($2) - 2) }' | tr '\n' ' ')
 			[ -n "$known" ] || known=$DEFAULT_TOOLS
-			: >"$tmp/probe.out"
+			for tool in $tools; do
+				case " $known " in
+				*" $tool "*) todo="$todo $tool" ;;
+				*) unknown_tool "$tool" ;;
+				esac
+			done
+			return 0
 		fi
-		case " $known " in
-		*" $1 "*) return 0 ;;
-		esac
-		return 1
+		if [ -n "$explicit" ]; then
+			cat "$tmp/probe.out" >&2
+			bad=$(sed -n 's/.*unknown tool "\([^"]*\)".*/\1/p' "$tmp/probe.out" | tr '\n' ' ')
+			[ -n "$bad" ] || die "$installed refused RHYTHM_TOOLS (see above); nothing more was installed"
+			die "$installed doesn't know $(commas "$bad"); run '$dir/rhythm help' to see the tools"
+		fi
+		# A default this rhythm doesn't know: ask about each one, to skip it.
+		for tool in $tools; do
+			if "$dir/rhythm" install --dry-run "$tool" >/dev/null 2>&1; then
+				todo="$todo $tool"
+			else
+				unknown_tool "$tool"
+			fi
+		done
+	}
+
+	# unknown_tool stops at a tool the user named that rhythm doesn't know.
+	# An unknown default comes from an old pinned rhythm and is skipped.
+	unknown_tool() {
+		[ -z "$explicit" ] || die "$installed doesn't know $1; run '$dir/rhythm help' to see the tools"
+		warn "$installed doesn't know $1; skipped"
+	}
+
+	# commas joins the words in $1 with ", ", or prints "none".
+	commas() {
+		# shellcheck disable=SC2086 # split into words; globbing is off by then
+		set -- $1
+		[ $# -gt 0 ] || set -- none
+		_c=$1
+		shift
+		for _w in "$@"; do _c="$_c, $_w"; done
+		printf '%s' "$_c"
 	}
 
 	# first_step prints a first command to try with tool $1, by its name or
@@ -263,49 +298,46 @@ main() {
 	installed=$("$dir/rhythm" --version) || die "the installed $dir/rhythm doesn't run"
 	say "Installed $installed to $dir"
 
-	# An unset RHYTHM_TOOLS means the defaults. An old pinned rhythm may not
-	# know every default tool; those are skipped. A name the user asked for
-	# must be known, or nothing more is installed.
+	# An unset RHYTHM_TOOLS means the defaults. Names are separated by spaces
+	# or commas, like rhythm's own lists, and "none" stands for no tool. An
+	# old pinned rhythm may not know every default tool; those are skipped.
+	# A name the user asked for must be known, or no tool is installed.
 	explicit=${RHYTHM_TOOLS+yes}
-	tools=${RHYTHM_TOOLS-$DEFAULT_TOOLS}
-	if [ "$(lower "$(printf '%s' "$tools" | tr -d ' \t\n')")" = none ]; then
-		tools=
-	fi
-	probe=
-	known=
-	todo=
-	names=
+	tools=
 	set -f
-	for tool in $tools; do
-		if router_knows "$tool"; then
-			# An alias and the name are one tool, installed once.
-			t=$(tool_name "$tool")
-			case " $names " in
-			*" $t "*) continue ;;
-			esac
-			names="$names $t"
-			todo="$todo $tool"
-		elif [ -n "$explicit" ]; then
-			[ -s "$tmp/probe.out" ] && cat "$tmp/probe.out" >&2
-			die "$installed doesn't know $tool; run '$dir/rhythm help' to see the tools"
-		else
-			warn "$installed doesn't know $tool; skipped"
-		fi
+	for tool in $(printf '%s' "${RHYTHM_TOOLS-$DEFAULT_TOOLS}" | tr ',' ' '); do
+		[ "$(lower "$tool")" = none ] || tools="$tools $tool"
 	done
+	check_tools
+	# An alias and the name are one tool, installed once.
+	names=
+	list=
+	for tool in $todo; do
+		t=$(tool_name "$tool")
+		case " $names " in
+		*" $t "*) continue ;;
+		esac
+		names="$names $t"
+		list="$list $tool"
+	done
+	todo=$list
 	# The PATH hint comes once, at the end. A router that has --quiet leaves
 	# out its own PATH notes; an older one prints one per tool, filtered here.
 	quiet=
 	if [ -n "$todo" ] && "$dir/rhythm" install --help 2>&1 | grep -q -- --quiet; then
 		quiet=--quiet
 	fi
+	# A tool that fails doesn't stop the next; the router has said why.
 	done_tools=
+	failed=
 	for tool in $todo; do
-		ok=yes
 		# shellcheck disable=SC2086 # $quiet is empty or one flag
-		"$dir/rhythm" install "$tool" --dir "$dir" $quiet >"$tmp/install.out" || ok=
+		if "$dir/rhythm" install "$tool" --dir "$dir" $quiet >"$tmp/install.out"; then
+			done_tools="$done_tools $(tool_name "$tool")"
+		else
+			failed="$failed $(tool_name "$tool")"
+		fi
 		grep -v "^Note: .* isn't on your PATH\.\$" "$tmp/install.out" >&2 || :
-		[ -n "$ok" ] || die "installing $tool failed"
-		done_tools="$done_tools $(tool_name "$tool")"
 	done
 
 	case ":$PATH:" in
@@ -326,11 +358,15 @@ main() {
 		for t in $done_tools; do
 			say "  $(first_step "$t")"
 		done
-	else
+	elif [ -z "$failed" ]; then
 		say "Install a tool: rhythm install tuner"
 	fi
-	set +f
 	say "Rhythm tools are for sites you own or have permission to test: https://github.com/RhythmShahriar/rhythm/wiki/Responsible-Use"
+	if [ -n "$failed" ]; then
+		say "Installed: $(commas "$done_tools"). Failed: $(commas "$failed") (see above)."
+		exit 1
+	fi
+	set +f
 }
 
 main "$@"

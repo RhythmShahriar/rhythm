@@ -117,6 +117,18 @@ foreach ($R in @(
     New-Release $R[0] $Binary $Base $(if ($R.Count -gt 4) { $R[4] } else { '' })
 }
 Copy-Item (Join-Path $Srv 'repos/RhythmShahriar/rhythm/releases/tags/v0.6.0') (Join-Path $Srv 'repos/RhythmShahriar/rhythm/releases/latest')
+# The stand-in fetches each tool's archive before it "installs" the tool, so
+# a case can take one away. Only the request matters, not the bytes.
+foreach ($T in 'tuner', 'soundcheck', 'echo') {
+    $Out = Join-Path $Srv "dl/$T/v0.1.0"
+    New-Item -ItemType Directory -Force -Path $Out | Out-Null
+    foreach ($Os in 'windows', 'linux', 'darwin') {
+        foreach ($Arch in 'amd64', 'arm64') {
+            $Ext = if ($Os -eq 'windows') { 'zip' } else { 'tar.gz' }
+            [IO.File]::WriteAllText((Join-Path $Out "$($T)_$($Os)_$Arch.$Ext"), 'stand-in', $Utf8)
+        }
+    }
+}
 
 $Python = if ($OnWindows) { 'python' } else { 'python3' }
 $Port = if ($env:RHYTHM_TEST_PORT) { $env:RHYTHM_TEST_PORT } else { '0' }
@@ -230,8 +242,8 @@ function Case-default {
     Assert-File 'rhythm.exe'
     Assert-Tools 'tuner', 'soundcheck', 'echo'
     Assert-Out "Installed rhythm 0.6.0 to $(Join-Path $script:CaseDir 'bin')"
-    if (-not (Select-String -Path (Join-Path $script:CaseDir 'argv.log') -SimpleMatch 'rhythm install --dry-run tuner' -Quiet)) {
-        Fail "the router wasn't asked about tuner"
+    if ((Get-Content (Join-Path $script:CaseDir 'argv.log')) -notcontains 'rhythm install --dry-run tuner soundcheck echo') {
+        Fail "the router wasn't asked about every tool at once"
     }
     Assert-Started 'tuner', 'soundcheck', 'echo'
 }
@@ -272,6 +284,56 @@ function Case-some {
     if (@(Get-Content (Join-Path $script:CaseDir 'argv.log') | Where-Object { $_ -match '^rhythm install (e|echo) ' }).Count -ne 1) {
         Fail 'echo was installed more than once'
     }
+}
+
+function Case-commas {
+    # Commas separate names, as in rhythm's own lists.
+    foreach ($V in 'tuner,echo', 'tuner, echo', ',tuner,,echo,', 'tuner,none echo') {
+        Remove-Item -Recurse -Force (Join-Path $script:CaseDir 'bin') -ErrorAction SilentlyContinue
+        Invoke-Install @{ RHYTHM_TOOLS = $V }
+        Assert-Code 0
+        Assert-Tools 'tuner', 'echo'
+        Assert-Started 'tuner', 'echo'
+    }
+}
+
+function Case-typo {
+    # Every name is checked before any tool is downloaded.
+    Clear-Requests
+    Invoke-Install @{ RHYTHM_TOOLS = 'tuner sondcheck' }
+    Assert-Code 1
+    Assert-Out 'rhythm: unknown tool "sondcheck" (did you mean soundcheck?)'
+    Assert-Out '  known: echo, soundcheck, tuner'
+    Assert-Out "rhythm install: rhythm 0.6.0 doesn't know sondcheck; run '$(Get-Bin 'rhythm.exe') help' to see the tools"
+    Assert-File 'rhythm.exe'
+    Assert-Tools
+    if (Get-Requests | Where-Object { $_.Contains('/dl/tuner/') }) { Fail 'tuner was downloaded before the names were checked' }
+    if ((Get-Content (Join-Path $script:CaseDir 'argv.log')) -notcontains 'rhythm install --dry-run tuner sondcheck') { Fail "the names weren't checked in one call" }
+
+    Invoke-Install @{ RHYTHM_TOOLS = 'tunr,sondcheck,nope' }
+    Assert-Code 1
+    Assert-Out 'rhythm: unknown tool "tunr" (did you mean tuner?)'
+    Assert-Out 'rhythm: unknown tool "nope"'
+    Assert-Out "rhythm install: rhythm 0.6.0 doesn't know tunr, sondcheck, nope;"
+}
+
+function Case-tool_fails {
+    # A tool whose archive is missing doesn't stop the next one.
+    $Dl = Join-Path $Srv 'dl'
+    Rename-Item (Join-Path $Dl 'soundcheck') 'soundcheck.off'
+    try { Invoke-Install } finally { Rename-Item (Join-Path $Dl 'soundcheck.off') 'soundcheck' }
+    Assert-Code 1
+    Assert-Tools 'tuner', 'echo'
+    Assert-Out 'rhythm-soundcheck  downloading soundcheck_'
+    Assert-Out ': HTTP 404'
+    Assert-Started 'tuner', 'echo'
+    Assert-Out 'Installed: tuner, echo. Failed: soundcheck (see above).'
+
+    Rename-Item (Join-Path $Dl 'tuner') 'tuner.off'
+    try { Invoke-Install @{ RHYTHM_TOOLS = 'tuner' } } finally { Rename-Item (Join-Path $Dl 'tuner.off') 'tuner' }
+    Assert-Code 1
+    Assert-NoOut 'Install a tool'
+    Assert-Out 'Installed: none. Failed: tuner (see above).'
 }
 
 # Assert-PathLines checks that the output mentions PATH exactly $Count
@@ -537,7 +599,7 @@ function Case-readonly_dir {
 }
 
 if (-not $Cases.Count) {
-    $Cases = 'default', 'none', 'some', 'path_note', 'bad_checksum', 'no_checksums', 'missing_dir', 'relative_dir', 'truncated', 'http_refused', 'http_download_refused', 'github_token', 'rhythm_token',
+    $Cases = 'default', 'none', 'some', 'commas', 'typo', 'tool_fails', 'path_note', 'bad_checksum', 'no_checksums', 'missing_dir', 'relative_dir', 'truncated', 'http_refused', 'http_download_refused', 'github_token', 'rhythm_token',
     'rate_limit', 'old_router', 'old_router_named', 'router_without_dry_run', 'router_without_tools_block',
     'unknown_tool', 'running_exe', 'swap_fallback', 'swap_restore', 'readonly_dir'
 }

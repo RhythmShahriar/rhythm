@@ -13,9 +13,10 @@
 # Every binary in an archive is a shell-script stand-in that prints its
 # version and logs its argv to $RHYTHM_TEST_LOG, so a test can assert what
 # the installer asked for. rhythm also answers help and "installs" a tool
-# by writing a rhythm-<tool> stand-in into --dir. It never downloads; the
-# tool releases are there for tests that run a real rhythm. The rhythm
-# versions differ the way real releases do:
+# by writing a rhythm-<tool> stand-in into --dir. Before that it fetches the
+# tool's archive from $RHYTHM_GITHUB_API and fails that tool on anything but
+# 200, so a test can make one download 404. Unknown names get rhythm's
+# did-you-mean lines. The rhythm versions differ the way real releases do:
 #   0.6.0 (latest)  knows tuner, soundcheck and echo; has install --dry-run
 #                   and --quiet; says once that --dir isn't on PATH
 #   0.5.0           knows all three, no --dry-run or --quiet; says for each
@@ -72,6 +73,30 @@ on_path() {
 	esac
 	return 1
 }
+# bad_flag fails the way Go's flag package does for a flag it doesn't know.
+bad_flag() {
+	echo "flag provided but not defined: -${1#--}" >&2
+	echo 'usage: rhythm install <tool> [--dir <dir>]' >&2
+	exit 2
+}
+# suggest prints the name in $2... within two edits of $1, if any.
+suggest() {
+	printf '%s\n' "$@" | awk '
+		function lev(a, b,   i, j, c, d) {
+			for (i = 0; i <= length(a); i++) d[i, 0] = i
+			for (j = 0; j <= length(b); j++) d[0, j] = j
+			for (i = 1; i <= length(a); i++)
+				for (j = 1; j <= length(b); j++) {
+					c = substr(a, i, 1) != substr(b, j, 1)
+					d[i, j] = d[i - 1, j] + 1
+					if (d[i, j - 1] + 1 < d[i, j]) d[i, j] = d[i, j - 1] + 1
+					if (d[i - 1, j - 1] + c < d[i, j]) d[i, j] = d[i - 1, j - 1] + c
+				}
+			return d[length(a), length(b)]
+		}
+		NR == 1 { input = $0; next }
+		lev(input, $0) <= 2 { print; exit }'
+}
 case ${1:-help} in
 --version | version)
 	echo "rhythm $version"
@@ -116,47 +141,57 @@ while [ $# -gt 0 ]; do
 		printf '  --quiet          print only the Installed lines and errors\n'
 		exit 0
 		;;
-	--quiet)
-		if [ "$dry_run" != yes ]; then
-			echo 'flag provided but not defined: -quiet' >&2
-			exit 2
-		fi
-		quiet=1
+	--quiet | --dry-run)
+		[ "$dry_run" = yes ] || bad_flag "$1"
+		if [ "$1" = --quiet ]; then quiet=1; else dry=1; fi
 		shift
 		;;
-	--dry-run)
-		if [ "$dry_run" != yes ]; then
-			echo 'flag provided but not defined: -dry-run' >&2
-			echo 'usage: rhythm install <tool> [--dir <dir>]' >&2
-			exit 2
-		fi
-		dry=1
-		shift
-		;;
+	-*) bad_flag "$1" ;;
 	*)
 		want="$want $1"
 		shift
 		;;
 	esac
 done
-known=$(printf '%s' "$tools" | tr -d '()')
-# Aliases install the tool under its name, as rhythm does.
-names=
+# Every name is checked before anything is installed. Aliases install the
+# tool under its name, as rhythm does.
+names= bad=
 for n in $want; do
 	set -- $tools
 	while [ $# -gt 1 ] && [ "$n" != "$1" ] && [ "($n)" != "$2" ]; do shift 2; done
 	if [ $# -lt 2 ]; then
-		printf 'rhythm: unknown tool "%s"; known tools: %s\n' "$n" "$known" >&2
-		exit 2
+		bad="$bad $n"
+	else
+		names="$names $1"
 	fi
-	names="$names $1"
 done
-want=$names
+if [ -n "$bad" ]; then
+	known=$(set -- $tools; while [ $# -gt 1 ]; do echo "$1"; shift 2; done | sort | tr '\n' ' ')
+	for n in $bad; do
+		near=$(suggest "$n" $known)
+		printf 'rhythm: unknown tool "%s"%s\n' "$n" "${near:+ (did you mean $near?)}" >&2
+	done
+	printf '  known: %s\n' "$(echo $known | sed 's/ /, /g')" >&2
+	exit 2
+fi
 if [ -n "$dry" ]; then
-	for n in $want; do echo "would install $n"; done
+	for n in $names; do echo "$n"; done
 	exit 0
 fi
-for n in $want; do
+os=$(uname -s | tr ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz)
+case $(uname -m) in aarch64 | arm64) arch=arm64 ;; *) arch=amd64 ;; esac
+ok=0 failed=
+for n in $names; do
+	# The archive is fetched from the fake API, so a test can make it 404.
+	if [ -n "${RHYTHM_GITHUB_API:-}" ]; then
+		archive=${n}_${os}_${arch}.tar.gz
+		code=$(curl -s -o /dev/null -w '%{http_code}' "$RHYTHM_GITHUB_API/dl/$n/v0.1.0/$archive" || :)
+		if [ "$code" != 200 ]; then
+			printf '%-18s downloading %s: HTTP %s\n' "rhythm-$n" "$archive" "$code" >&2
+			failed="$failed rhythm-$n"
+			continue
+		fi
+	fi
 	cat >"$dir/rhythm-$n" <<'TOOL'
 #!/bin/sh
 version=0.0.0-test
@@ -165,10 +200,16 @@ name=${0##*/}
 echo "$name $version"
 TOOL
 	chmod 0755 "$dir/rhythm-$n"
+	ok=$((ok + 1))
 	echo "Installed rhythm-$n 0.0.0-test to $dir/rhythm-$n"
 	[ "$dry_run" = yes ] || on_path "$dir" || echo "Note: $dir isn't on your PATH."
 done
 [ "$dry_run" != yes ] || [ -n "$quiet" ] || on_path "$dir" || echo "Note: $dir isn't on your PATH."
+if [ -n "$failed" ]; then
+	set -- $names
+	[ $# -lt 2 ] || printf 'Installed %s, failed %s:%s\n' "$ok" "$(echo $failed | wc -w)" "$(echo "$failed" | sed 's/ /, /g; s/^,//')" >&2
+	exit 1
+fi
 EOF
 	chmod 0755 "$1"
 }

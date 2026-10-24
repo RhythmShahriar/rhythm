@@ -135,7 +135,8 @@ case_default() {
 	expect_file rhythm
 	expect_tools tuner soundcheck echo
 	expect_out "Installed rhythm 0.6.0 to $cdir/bin"
-	grep -qx 'rhythm install --dry-run tuner' "$cdir/argv.log" || fail "the router wasn't asked about tuner"
+	grep -qx 'rhythm install --dry-run tuner soundcheck echo' "$cdir/argv.log" ||
+		fail "the router wasn't asked about every tool at once"
 	grep -qx "rhythm install echo --dir $cdir/bin --quiet" "$cdir/argv.log" || fail "the router wasn't told --quiet"
 	expect_started tuner soundcheck echo
 }
@@ -170,6 +171,59 @@ case_some() {
 	expect_tools tuner echo
 	expect_started echo tuner
 	[ "$(grep -c '^rhythm install \(e\|echo\) ' "$cdir/argv.log")" = 1 ] || fail "echo was installed more than once"
+}
+
+case_commas() {
+	# Commas separate names, as in rhythm's own lists.
+	for v in 'tuner,echo' 'tuner, echo' ',tuner,,echo,' 'tuner,none echo'; do
+		rm -rf "${cdir:?}/bin"
+		install RHYTHM_TOOLS="$v"
+		expect_code 0
+		expect_tools tuner echo
+		expect_started tuner echo
+	done
+}
+
+case_typo() {
+	# Every name is checked before any tool is downloaded.
+	: >"$work/requests.log"
+	install RHYTHM_TOOLS='tuner sondcheck'
+	expect_code 1
+	expect_out 'rhythm: unknown tool "sondcheck" (did you mean soundcheck?)'
+	expect_out '  known: echo, soundcheck, tuner'
+	expect_out "rhythm install: rhythm 0.6.0 doesn't know sondcheck; run '$cdir/bin/rhythm help' to see the tools"
+	expect_file rhythm
+	expect_tools
+	! requests | grep -q '/dl/tuner/' || fail "tuner was downloaded before the names were checked"
+	grep -qx 'rhythm install --dry-run tuner sondcheck' "$cdir/argv.log" || fail "the names weren't checked in one call"
+
+	install RHYTHM_TOOLS='tunr,sondcheck,nope'
+	expect_code 1
+	expect_out 'rhythm: unknown tool "tunr" (did you mean tuner?)'
+	expect_out 'rhythm: unknown tool "nope"'
+	expect_out "rhythm install: rhythm 0.6.0 doesn't know tunr, sondcheck, nope;"
+}
+
+case_tool_fails() {
+	# A tool whose archive is missing doesn't stop the next one.
+	mv "$work/srv/dl/soundcheck" "$work/srv/dl/soundcheck.off"
+	install
+	mv "$work/srv/dl/soundcheck.off" "$work/srv/dl/soundcheck"
+	expect_code 1
+	expect_tools tuner echo
+	expect_out "rhythm-soundcheck  downloading soundcheck_"
+	expect_out ": HTTP 404"
+	expect_started tuner echo
+	[ "$(tail -n 1 "$cdir/out")" = "Installed: tuner, echo. Failed: soundcheck (see above)." ] ||
+		fail "the last line isn't the summary"
+
+	# Nothing installed at all.
+	mv "$work/srv/dl/tuner" "$work/srv/dl/tuner.off"
+	install RHYTHM_TOOLS=tuner
+	mv "$work/srv/dl/tuner.off" "$work/srv/dl/tuner"
+	expect_code 1
+	expect_no_out "Install a tool"
+	expect_out "Installed: none. Failed: tuner (see above)."
 }
 
 case_bad_checksum() {
@@ -447,7 +501,7 @@ case_readme() {
 	! grep -qi 'other identity' "$readme" || fail "README claims other identities are rejected"
 }
 
-cases=${*:-default none some path_hint path_hint_macos path_ok bad_checksum no_checksums missing_dir relative_dir unwritable_dir truncated proto http_refused http_download_refused github_token
+cases=${*:-default none some commas typo tool_fails path_hint path_hint_macos path_ok bad_checksum no_checksums missing_dir relative_dir unwritable_dir truncated proto http_refused http_download_refused github_token
 rhythm_token rate_limit old_router old_router_named router_without_dry_run
 router_without_tools_block unknown_tool readme}
 script='' path=''

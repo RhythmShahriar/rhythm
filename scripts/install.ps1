@@ -7,7 +7,8 @@
 # Environment:
 #   RHYTHM_INSTALL_DIR   where to install (default %LOCALAPPDATA%\Programs\rhythm)
 #   RHYTHM_VERSION       a specific version, e.g. 0.5.0 (default: latest)
-#   RHYTHM_TOOLS         tools to install as well (default "tuner soundcheck echo"; "none" for none)
+#   RHYTHM_TOOLS         tools to install as well, separated by spaces or commas
+#                        (default "tuner soundcheck echo"; "none" for none)
 #   RHYTHM_GITHUB_API    GitHub API base, for mirrors (default https://api.github.com).
 #                        It must be https; plain http is accepted only for 127.0.0.1, ::1 and localhost.
 #   GITHUB_TOKEN         sent to api.github.com only, to lift the anonymous rate limit
@@ -184,36 +185,47 @@
         }
     }
 
-    # Test-RouterKnows reports whether the installed rhythm knows a tool. Newer
-    # routers answer `rhythm install --dry-run <tool>`. Older ones reject the
-    # flag, so the tool list comes from the "Tools:" block of `rhythm help`, or
-    # from $DefaultTools when even that is missing.
-    $Probe = @{ Mode = ''; Known = @(); Out = '' }
-    function Test-RouterKnows([string]$Tool) {
-        if ($Probe.Mode -ne 'help') {
-            $R = Invoke-Native @('install', '--dry-run', $Tool)
-            $Probe.Out = $R.Out
-            if ($R.Code -eq 0) { $Probe.Mode = 'dry-run'; return $true }
-            if ($Probe.Mode -eq 'dry-run' -or $R.Out -notmatch 'flag provided but not defined') {
-                $Probe.Mode = 'dry-run'
-                return $false
-            }
-            $Probe.Mode = 'help'
-            $Probe.Out = ''
+    # Get-KnownTools returns the names in $Tools that the installed rhythm
+    # knows, checking every one before any tool is downloaded. Newer routers
+    # check the whole list in one `rhythm install --dry-run` and name the
+    # unknown ones with a suggestion. Older ones reject the flag, so the names
+    # come from the "Tools:" block of `rhythm help`, or from $DefaultTools
+    # when even that is missing. A name the user asked for must be known; an
+    # unknown default comes from an old pinned rhythm and is skipped.
+    function Get-KnownTools([string[]]$Tools) {
+        if (-not $Tools.Count) { return @() }
+        $R = Invoke-Native (@('install', '--dry-run') + $Tools)
+        if ($R.Code -eq 0) { return $Tools }
+        $Known = @()
+        $Old = $R.Out -match 'flag provided but not defined'
+        if ($Old) {
             # Rows look like "  soundcheck (sc)  did my change break anything?".
             $In = $false
-            $List = @()
             foreach ($Row in ((Invoke-Native @('help')).Out -split "`n")) {
                 if ($Row -match '^Tools:') { $In = $true; continue }
                 if (-not $In) { continue }
                 if ($Row -match '^\s*$') { break }
                 $Words = @($Row.Trim() -split '\s+')
-                $List += $Words[0]
-                if ($Words.Count -gt 1 -and $Words[1] -match '^\((.+)\)$') { $List += $Matches[1] }
+                $Known += $Words[0]
+                if ($Words.Count -gt 1 -and $Words[1] -match '^\((.+)\)$') { $Known += $Matches[1] }
             }
-            $Probe.Known = if ($List.Count) { $List } else { @($DefaultTools -split ' ') }
+            if (-not $Known.Count) { $Known = @($DefaultTools -split ' ') }
         }
-        return $Probe.Known -contains $Tool
+        elseif ($Explicit) {
+            Write-Host $R.Out
+            $Bad = @([regex]::Matches($R.Out, 'unknown tool "([^"]*)"') | ForEach-Object { $_.Groups[1].Value })
+            if (-not $Bad.Count) { throw "rhythm install: $Installed refused RHYTHM_TOOLS (see above); nothing more was installed" }
+            throw "rhythm install: $Installed doesn't know $($Bad -join ', '); run '$Rhythm help' to see the tools"
+        }
+        $Ok = @()
+        foreach ($Tool in $Tools) {
+            # A default this rhythm doesn't know: ask about each one, to skip it.
+            $Knows = if ($Old) { $Known -contains $Tool } else { (Invoke-Native @('install', '--dry-run', $Tool)).Code -eq 0 }
+            if ($Knows) { $Ok += $Tool; continue }
+            if ($Explicit) { throw "rhythm install: $Installed doesn't know $Tool; run '$Rhythm help' to see the tools" }
+            Write-Host "warning: $Installed doesn't know $Tool; skipped"
+        }
+        return $Ok
     }
 
     $Rhythm = Join-Path $Dir 'rhythm.exe'
@@ -234,38 +246,32 @@
     }
     Write-Host "Installed $Installed to $Dir"
 
-    # An unset RHYTHM_TOOLS means the defaults. Windows PowerShell 5.1 can't set
-    # a variable to '' (that deletes it), so "none" is the way to ask for none
-    # there. An old pinned rhythm may not know every default tool; those are
-    # skipped. A name the user asked for must be known, or nothing more is
-    # installed.
+    # An unset RHYTHM_TOOLS means the defaults. Names are separated by
+    # spaces or commas, like rhythm's own lists, and "none" stands for no
+    # tool. Windows PowerShell 5.1 can't set a variable to '' (that deletes
+    # it), so "none" is the way to ask for none there. An old pinned rhythm
+    # may not know every default tool; those are skipped. A name the user
+    # asked for must be known, or no tool is installed.
     $Explicit = $null -ne $env:RHYTHM_TOOLS
     $ToolList = if ($Explicit) { $env:RHYTHM_TOOLS } else { $DefaultTools }
-    $Tools = @($ToolList -split '\s+' | Where-Object { $_ })
-    if ($Tools.Count -eq 1 -and $Tools[0] -eq 'none') { $Tools = @() }
-    $Todo = @()
+    $Tools = @($ToolList -split '[\s,]+' | Where-Object { $_ -and $_ -ne 'none' })
     # Get-ToolName turns an alias or a rhythm-<tool> name into the tool's name.
     function Get-ToolName([string]$Tool) {
         $Name = $Tool -replace '^rhythm-', ''
         switch ($Name) { 't' { 'tuner' } 'sc' { 'soundcheck' } 'e' { 'echo' } default { $Name } }
     }
+    # An alias and the name are one tool, installed once.
+    $Todo = @()
     $Names = @()
-    foreach ($Tool in $Tools) {
-        if (Test-RouterKnows $Tool) {
-            # An alias and the name are one tool, installed once.
-            $Name = Get-ToolName $Tool
-            if ($Names -notcontains $Name) { $Names += $Name; $Todo += $Tool }
-            continue
-        }
-        if ($Explicit) {
-            if ($Probe.Out) { Write-Host $Probe.Out }
-            throw "rhythm install: $Installed doesn't know $Tool; run '$Rhythm help' to see the tools"
-        }
-        Write-Host "warning: $Installed doesn't know $Tool; skipped"
+    foreach ($Tool in (Get-KnownTools $Tools)) {
+        $Name = Get-ToolName $Tool
+        if ($Names -notcontains $Name) { $Names += $Name; $Todo += $Tool }
     }
-    # The tools that were installed, by name rather than alias, for the
-    # closing lines.
+    # The tools installed and failed, by name rather than alias, for the
+    # closing lines. A tool that fails doesn't stop the next; the router has
+    # said why.
     $Done = @()
+    $Failed = @()
     # The PATH message comes once, at the end. A router that has --quiet
     # leaves out its own PATH notes; an older one prints one per tool,
     # filtered here.
@@ -275,8 +281,7 @@
         $R = Invoke-Native (@('install', $Tool, '--dir', $Dir) + $Quiet)
         $Lines = @($R.Out -split "`n" | Where-Object { $_ -and $_ -notmatch "^Note: .* isn't on your PATH\.$" })
         if ($Lines.Count) { Write-Host ($Lines -join "`n") }
-        if ($R.Code -ne 0) { throw "rhythm install: installing $Tool failed" }
-        $Done += Get-ToolName $Tool
+        if ($R.Code -eq 0) { $Done += Get-ToolName $Tool } else { $Failed += Get-ToolName $Tool }
     }
 
     # A terminal keeps the PATH it started with, so a folder that is new to
@@ -305,8 +310,12 @@
             Write-Host "  $Step"
         }
     }
-    else {
+    elseif (-not $Failed.Count) {
         Write-Host 'Install a tool: rhythm install tuner'
     }
     Write-Host 'Rhythm tools are for sites you own or have permission to test: https://github.com/RhythmShahriar/rhythm/wiki/Responsible-Use'
+    if ($Failed.Count) {
+        $Ok = if ($Done.Count) { $Done -join ', ' } else { 'none' }
+        throw "Installed: $Ok. Failed: $($Failed -join ', ') (see above)."
+    }
 }

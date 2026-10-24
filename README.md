@@ -45,7 +45,7 @@ This installs `rhythm`, Tuner, Soundcheck and Echo to `~/.local/bin` (`/usr/loca
 |---|---|
 | `RHYTHM_INSTALL_DIR` | install somewhere else |
 | `RHYTHM_VERSION` | install a specific version, e.g. `0.5.0` |
-| `RHYTHM_TOOLS` | tools to install alongside (default `tuner soundcheck echo`; `none` for none) |
+| `RHYTHM_TOOLS` | tools to install alongside, separated by spaces or commas (default `tuner soundcheck echo`; `none` for none). Every name is checked before any tool is downloaded; a tool that fails doesn't stop the others (the installer then exits 1) |
 | `GITHUB_TOKEN` | sent to `api.github.com` only, to lift GitHub's limit of 60 anonymous requests an hour (shared CI runners hit it) |
 | `RHYTHM_GITHUB_API` | a GitHub API mirror; it must be `https` (plain `http` only for `127.0.0.1`, `::1` and `localhost`) |
 | `RHYTHM_GITHUB_TOKEN` | a token for that mirror; sent to the `RHYTHM_GITHUB_API` host and used instead of `GITHUB_TOKEN` |
