@@ -6,7 +6,13 @@ on:
   push:
     branches: [master]
   pull_request:
+permissions:
+  contents: read
 jobs:
+  # TODO(signing identity cut-over): the shared workflows stay on @master
+  # until the owner decides to move every caller to a tag or SHA. The
+  # release signature names release-go.yml@refs/heads/master, so callers
+  # move together with the verification docs and kit/sigverify.
   go:
     uses: RhythmShahriar/.github/.github/workflows/ci-go.yml@master
   commitlint:

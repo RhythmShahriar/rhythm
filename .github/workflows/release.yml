@@ -6,6 +6,11 @@ on:
   push:
     tags: ["v*"]
 jobs:
+  # TODO(signing identity cut-over): keep @master for now. The Fulcio
+  # certificate names release-go.yml@refs/heads/master. The README,
+  # .goreleaser.yaml and kit/sigverify all check that identity. Moving this
+  # to a tag or SHA changes what users verify, so it waits for the owner's
+  # cut-over decision and lands together with those three.
   release:
     uses: RhythmShahriar/.github/.github/workflows/release-go.yml@master
     permissions:

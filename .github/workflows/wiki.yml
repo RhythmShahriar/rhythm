@@ -14,24 +14,44 @@ on:
     paths: ["wiki/**", "scripts/check-wiki.py", ".github/workflows/wiki.yml"]
   workflow_dispatch:
 
+# The check job runs pull request code (scripts/check-wiki.py), so it gets
+# a read-only token that isn't left in the checkout. Only the publish job,
+# which runs on master after review, can write.
 permissions:
-  contents: write # the wiki is a git repository the token pushes to
+  contents: read
 
 concurrency:
-  group: wiki
+  group: wiki-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  wiki:
+  check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Check links
         run: python3 scripts/check-wiki.py wiki
 
+  publish:
+    needs: check
+    # A push to master, or a manual re-run on master (for example after the
+    # wiki's first page is created). Never a pull request.
+    if: github.ref == 'refs/heads/master' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # the wiki is a git repository the token pushes to
+    concurrency:
+      group: wiki-publish
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
       - name: Publish
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
         env:
           TOKEN: ${{ github.token }}
         run: |
