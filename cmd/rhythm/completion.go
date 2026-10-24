@@ -119,6 +119,7 @@ var positionals = map[string]func() []string{
 	"uninstall":  toolNames,
 	"update":     updateNames,
 	"verify":     updateNames,
+	"ext":        func() []string { return []string{"install", "list", "remove", "search"} },
 	"completion": func() []string { return shellNames },
 }
 

@@ -58,6 +58,8 @@ type releaseAPI struct {
 	// workflow when nil. Releases in unsigned have no bundle and those in
 	// editedSums serve a checksums.txt changed after it was signed, both
 	// keyed repo@version.
+	// search is the body /search/repositories answers with.
+	search     string
 	signer     *sigverifytest.CA
 	signAs     func(repo, version string) sigverifytest.Identity
 	unsigned   map[string]bool
@@ -204,6 +206,11 @@ func (f *releaseAPI) serve(w http.ResponseWriter, r *http.Request) {
 			sums = append(sums, "0000000000000000000000000000000000000000000000000000000000000000  extra.tar.gz\n"...)
 		}
 		_, _ = w.Write(sums)
+	case p == "/search/repositories":
+		f.mu.Lock()
+		body := f.search
+		f.mu.Unlock()
+		_, _ = w.Write([]byte(body))
 	case strings.HasPrefix(p, "/sig/"):
 		repo, v := repoVersion("/sig/")
 		f.mu.Lock()

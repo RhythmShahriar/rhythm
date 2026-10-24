@@ -99,7 +99,11 @@ func binaryFor(repo string) string {
 	if repo == selfRepo {
 		return selfName
 	}
-	return "rhythm-" + repo[strings.LastIndex(repo, "/")+1:]
+	name := repo[strings.LastIndex(repo, "/")+1:]
+	if strings.HasPrefix(name, "rhythm-") {
+		return name // an extension's repo: owner/rhythm-<name>
+	}
+	return "rhythm-" + name
 }
 
 // newFakeAPI offers latest[repo] for each repository. Each archive holds
