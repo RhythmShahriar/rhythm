@@ -1,0 +1,406 @@
+// Copyright (c) 2026 Rhythm Shahriar <me@rhy.io>
+// SPDX-License-Identifier: AGPL-3.0-only
+
+package main
+
+import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+)
+
+// fakeAPI serves GitHub-style latest releases for several repositories
+// and records every request path.
+type fakeAPI struct {
+	*httptest.Server
+	mu    sync.Mutex
+	paths []string
+}
+
+// requests returns the paths requested so far.
+func (f *fakeAPI) requests() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.paths...)
+}
+
+// binaryFor returns the binary a repository releases: rhythm for the
+// router, rhythm-<name> for a tool.
+func binaryFor(repo string) string {
+	if repo == selfRepo {
+		return selfName
+	}
+	return "rhythm-" + repo[strings.LastIndex(repo, "/")+1:]
+}
+
+// newFakeAPI offers latest[repo] for each repository. Each archive holds
+// body(binary, version), built when the server starts.
+func newFakeAPI(t *testing.T, latest map[string]string, body func(binary, version string) []byte) *fakeAPI {
+	t.Helper()
+	type asset struct{ archive, sums []byte }
+	assets := map[string]asset{}
+	for repo, v := range latest {
+		bin := binaryFor(repo)
+		archive := tarGz(t, bin, body(bin, v))
+		sum := sha256.Sum256(archive)
+		name := fmt.Sprintf("%s_%s_%s.tar.gz", bin, runtime.GOOS, runtime.GOARCH)
+		assets[repo] = asset{archive, fmt.Appendf(nil, "%s  %s\n", hex.EncodeToString(sum[:]), name)}
+	}
+	f := &fakeAPI{}
+	f.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		f.paths = append(f.paths, r.URL.Path)
+		f.mu.Unlock()
+		p := r.URL.Path
+		switch {
+		case strings.HasPrefix(p, "/repos/") && strings.HasSuffix(p, "/releases/latest"):
+			repo := strings.TrimSuffix(strings.TrimPrefix(p, "/repos/"), "/releases/latest")
+			v, ok := latest[repo]
+			if !ok {
+				http.NotFound(w, r)
+				return
+			}
+			bin := binaryFor(repo)
+			name := fmt.Sprintf("%s_%s_%s.tar.gz", bin, runtime.GOOS, runtime.GOARCH)
+			fmt.Fprintf(w, `{"tag_name":"v%s","assets":[{"name":%q,"browser_download_url":"%s/dl/%s"},{"name":"checksums.txt","browser_download_url":"%s/sums/%s"}]}`,
+				v, name, f.URL, repo, f.URL, repo)
+		case strings.HasPrefix(p, "/dl/"):
+			w.Write(assets[strings.TrimPrefix(p, "/dl/")].archive)
+		case strings.HasPrefix(p, "/sums/"):
+			w.Write(assets[strings.TrimPrefix(p, "/sums/")].sums)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(f.Close)
+	return f
+}
+
+func tarGz(t *testing.T, name string, body []byte) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(zw)
+	if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o755, Size: int64(len(body)), Typeflag: tar.TypeReg}); err != nil {
+		t.Fatal(err)
+	}
+	tw.Write(body)
+	tw.Close()
+	zw.Close()
+	return buf.Bytes()
+}
+
+// stubScript stands in for a tool binary. It appends its arguments to
+// log, prints "<binary> <version>" when asked for its version and runs
+// data (shell) for "update", its data refresh.
+func stubScript(binary, version, log, data string) []byte {
+	if data == "" {
+		data = "exit 0"
+	}
+	return fmt.Appendf(nil, "#!/bin/sh\necho \"$*\" >> '%s'\ncase \"$1\" in\nupdate) %s ;;\n*) echo '%s %s' ;;\nesac\n",
+		log, data, binary, version)
+}
+
+// sandbox is a temp PATH holding stub tools, plus a fake release API.
+type sandbox struct {
+	dir string // holds bin/ and one <binary>.log per stub
+	bin string // the only directory on PATH
+	api *fakeAPI
+}
+
+// newSandbox installs a stub for each installed[binary] = version and
+// serves latest[repo] = version. rhythm itself stays the test binary, a
+// dev build, unless the test points selfPath elsewhere.
+func newSandbox(t *testing.T, installed, latest map[string]string) *sandbox {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script stand-ins for the tools")
+	}
+	s := &sandbox{dir: t.TempDir()}
+	s.bin = filepath.Join(s.dir, "bin")
+	if err := os.Mkdir(s.bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s.api = newFakeAPI(t, latest, func(binary, v string) []byte { return stubScript(binary, v, s.log(binary), "") })
+	for binary, v := range installed {
+		s.stub(t, binary, v, "")
+	}
+	t.Setenv("PATH", s.bin)
+	t.Setenv("RHYTHM_GITHUB_API", s.api.URL)
+	t.Setenv("GITHUB_TOKEN", "")
+	return s
+}
+
+// stub writes a stand-in for binary into bin/, dated an hour ago so a
+// rewrite shows in its mtime.
+func (s *sandbox) stub(t *testing.T, binary, version, data string) string {
+	t.Helper()
+	p := filepath.Join(s.bin, binary)
+	if err := os.WriteFile(p, stubScript(binary, version, s.log(binary), data), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(p, old, old); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func (s *sandbox) log(binary string) string { return filepath.Join(s.dir, binary+".log") }
+
+// calls returns the argument lines binary was run with.
+func (s *sandbox) calls(binary string) []string {
+	data, _ := os.ReadFile(s.log(binary))
+	return strings.Split(strings.TrimSpace(string(data)), "\n")
+}
+
+// ranUpdate reports whether binary's data refresh ran.
+func (s *sandbox) ranUpdate(binary string) bool {
+	for _, c := range s.calls(binary) {
+		if c == "update" || strings.HasPrefix(c, "update ") {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *sandbox) mtime(t *testing.T, binary string) time.Time {
+	t.Helper()
+	fi, err := os.Stat(filepath.Join(s.bin, binary))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fi.ModTime()
+}
+
+func (s *sandbox) content(binary string) string {
+	data, _ := os.ReadFile(filepath.Join(s.bin, binary))
+	return string(data)
+}
+
+// allTools has every registry tool at 0.1.0, with 0.2.0 released.
+func allTools() (installed, latest map[string]string) {
+	installed, latest = map[string]string{}, map[string]string{}
+	for _, tool := range toolNames() {
+		installed["rhythm-"+tool] = "0.1.0"
+		latest[tools[tool]] = "0.2.0"
+	}
+	return installed, latest
+}
+
+func runCmd(args ...string) (code int, stdout, stderr string) {
+	var out, errb bytes.Buffer
+	code = run(args, &out, &errb)
+	return code, out.String(), errb.String()
+}
+
+func TestUpdateNamedToolOnly(t *testing.T) {
+	for _, name := range []string{"tuner", "t", "rhythm-tuner", "TUNER"} {
+		t.Run(name, func(t *testing.T) {
+			installed, latest := allTools()
+			s := newSandbox(t, installed, latest)
+			before := map[string]time.Time{}
+			for binary := range installed {
+				before[binary] = s.mtime(t, binary)
+			}
+
+			code, out, errs := runCmd("update", name)
+			if code != 0 {
+				t.Fatalf("exit %d\n%s%s", code, out, errs)
+			}
+			if !strings.Contains(s.content("rhythm-tuner"), "rhythm-tuner 0.2.0") {
+				t.Errorf("tuner not updated:\n%s%s", out, errs)
+			}
+			if !s.ranUpdate("rhythm-tuner") {
+				t.Error("tuner's data wasn't refreshed")
+			}
+			for binary := range installed {
+				if binary == "rhythm-tuner" {
+					continue
+				}
+				if !s.mtime(t, binary).Equal(before[binary]) {
+					t.Errorf("%s was rewritten", binary)
+				}
+				if s.ranUpdate(binary) {
+					t.Errorf("%s's data refresh ran", binary)
+				}
+			}
+			for _, p := range s.api.requests() {
+				if !strings.Contains(p, "/tuner/") && !strings.HasSuffix(p, "/tuner") {
+					t.Errorf("request for another target: %s", p)
+				}
+			}
+			if strings.Contains(out, "rhythm ") || strings.Contains(out, "development build") {
+				t.Errorf("rhythm itself was considered:\n%s", out)
+			}
+		})
+	}
+}
+
+func TestUpdateUnknownNameMakesNoRequest(t *testing.T) {
+	installed, latest := allTools()
+	s := newSandbox(t, installed, latest)
+	code, _, errs := runCmd("update", "tuner", "nope")
+	if code != 2 || !strings.Contains(errs, `unknown tool "nope"`) {
+		t.Errorf("exit %d: %s", code, errs)
+	}
+	code, _, errs = runCmd("update", "tunr")
+	if code != 2 || !strings.Contains(errs, "did you mean tuner?") {
+		t.Errorf("exit %d: %s", code, errs)
+	}
+	if r := s.api.requests(); len(r) != 0 {
+		t.Errorf("requests before the names were checked: %v", r)
+	}
+	if s.ranUpdate("rhythm-tuner") {
+		t.Error("tuner ran despite the usage error")
+	}
+}
+
+func TestUpdateCommaListAndFlagsAfterNames(t *testing.T) {
+	installed, latest := allTools()
+	s := newSandbox(t, installed, latest)
+	code, out, errs := runCmd("update", "tuner,echo", "--no-data")
+	if code != 0 {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	for binary, want := range map[string]string{"rhythm-tuner": "0.2.0", "rhythm-echo": "0.2.0", "rhythm-soundcheck": "0.1.0"} {
+		if !strings.Contains(s.content(binary), want) {
+			t.Errorf("%s is not %s", binary, want)
+		}
+		if s.ranUpdate(binary) {
+			t.Errorf("--no-data: %s's data refresh ran", binary)
+		}
+	}
+}
+
+func TestUpdateNoData(t *testing.T) {
+	installed, latest := allTools()
+	s := newSandbox(t, installed, latest)
+	code, out, errs := runCmd("update", "--no-data")
+	if code != 0 {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	for binary := range installed {
+		if !strings.Contains(s.content(binary), "0.2.0") {
+			t.Errorf("%s not updated", binary)
+		}
+		if s.ranUpdate(binary) {
+			t.Errorf("%s's data refresh ran", binary)
+		}
+	}
+}
+
+// fakeSelf makes rhythm a release build at path, so it can be updated.
+func fakeSelf(t *testing.T, path, v string) {
+	t.Helper()
+	oldPath, oldVersion := selfPath, version
+	selfPath = func() (string, error) { return path, nil }
+	version = v
+	t.Cleanup(func() { selfPath, version = oldPath, oldVersion })
+}
+
+func TestUpdateSelfOnly(t *testing.T) {
+	installed, latest := allTools()
+	latest[selfRepo] = "0.2.0"
+	s := newSandbox(t, installed, latest)
+	fakeSelf(t, s.stub(t, "rhythm", "0.1.0", ""), "0.1.0")
+	before := map[string]time.Time{}
+	for binary := range installed {
+		before[binary] = s.mtime(t, binary)
+	}
+
+	code, out, errs := runCmd("update", "--self-only")
+	if code != 0 {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	if !strings.Contains(s.content("rhythm"), "rhythm 0.2.0") || !strings.Contains(out, "rhythm             0.1.0 → 0.2.0 ✔") {
+		t.Errorf("rhythm not updated:\n%s%s", out, errs)
+	}
+	for binary := range installed {
+		if !s.mtime(t, binary).Equal(before[binary]) || s.ranUpdate(binary) {
+			t.Errorf("%s was touched", binary)
+		}
+	}
+
+	// "rhythm" as a name means the same.
+	s.stub(t, "rhythm", "0.1.0", "")
+	if code, out, errs := runCmd("update", "rhythm"); code != 0 || !strings.Contains(out, "0.1.0 → 0.2.0 ✔") {
+		t.Errorf("update rhythm: exit %d\n%s%s", code, out, errs)
+	}
+
+	if code, _, errs := runCmd("update", "--self-only", "tuner"); code != 2 || !strings.Contains(errs, "--self-only") {
+		t.Errorf("--self-only with a name: exit %d: %s", code, errs)
+	}
+}
+
+func TestUpdateNamedButNotInstalled(t *testing.T) {
+	installed, latest := allTools()
+	delete(installed, "rhythm-echo")
+	newSandbox(t, installed, latest)
+	code, _, errs := runCmd("update", "echo")
+	if code != 1 || !strings.Contains(errs, "rhythm-echo        isn't installed; install it with: rhythm install echo") {
+		t.Errorf("exit %d: %s", code, errs)
+	}
+}
+
+func TestUpdateHelp(t *testing.T) {
+	for _, h := range []string{"--help", "-h"} {
+		code, out, errs := runCmd("update", h)
+		if code != 0 || errs != "" {
+			t.Errorf("%s: exit %d: %s", h, code, errs)
+		}
+		for _, want := range []string{"--check", "--self-only", "--no-data", "rhythm update [tool...]"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("%s: help lacks %q:\n%s", h, want, out)
+			}
+		}
+		if strings.Count(out, "Usage:") != 1 || strings.Contains(out, "  -check") {
+			t.Errorf("%s: help:\n%s", h, out)
+		}
+	}
+	if code, _, errs := runCmd("update", "--bogus"); code != 2 || !strings.Contains(errs, "--no-data") {
+		t.Errorf("bad flag: exit %d: %s", code, errs)
+	}
+}
+
+// preInterrupted makes the next command run as if Ctrl-C was already pressed.
+func preInterrupted(t *testing.T) {
+	t.Helper()
+	old := signalContext
+	signalContext = func() (context.Context, context.CancelFunc) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		return ctx, cancel
+	}
+	t.Cleanup(func() { signalContext = old })
+}
+
+func TestInterruptedExits130(t *testing.T) {
+	installed, latest := allTools()
+	s := newSandbox(t, installed, latest)
+	preInterrupted(t)
+	if code, out, errs := runCmd("update"); code != 130 || !strings.Contains(errs, "interrupted") {
+		t.Errorf("update: exit %d\n%s%s", code, out, errs)
+	}
+	if code, out, errs := runCmd("install", "tuner", "--dir", t.TempDir()); code != 130 {
+		t.Errorf("install: exit %d\n%s%s", code, out, errs)
+	}
+	for binary := range installed {
+		if strings.Contains(s.content(binary), "0.2.0") {
+			t.Errorf("%s changed after the interrupt", binary)
+		}
+	}
+}
