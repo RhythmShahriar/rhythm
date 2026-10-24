@@ -5,6 +5,7 @@ package crawl
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -20,6 +21,11 @@ var defaultTimeout = 30 * time.Second
 
 // maxRedirects is the most redirect hops followed for one request.
 const maxRedirects = httpx.MaxRedirects
+
+// errRedirectRefused is wrapped by the errors sameSiteRedirect returns
+// for its own refusals (off the site, too many hops), so robots can tell
+// a redirect the crawler chose not to follow from a server that failed.
+var errRedirectRefused = errors.New("redirect refused")
 
 // crawlState rides on each request's context, so the client shared by
 // every crawl knows which site a request (and its redirects) belongs to.
@@ -72,7 +78,7 @@ func (c *Crawler) sameSiteRedirect(prev func(*http.Request, []*http.Request) err
 			}
 		}
 		if len(via) >= maxRedirects {
-			return fmt.Errorf("stopped after %d redirects", maxRedirects)
+			return fmt.Errorf("stopped after %d redirects: %w", maxRedirects, errRedirectRefused)
 		}
 		start := via[0].URL
 		st := stateFrom(req.Context())
@@ -83,7 +89,7 @@ func (c *Crawler) sameSiteRedirect(prev func(*http.Request, []*http.Request) err
 			if st != nil && st.front != nil {
 				st.front.skip("offsite-redirect")
 			}
-			return fmt.Errorf("not following a redirect off the site to %s", req.URL.Redacted())
+			return fmt.Errorf("not following a redirect off the site to %s: %w", req.URL.Redacted(), errRedirectRefused)
 		}
 		return c.hosts.For(req.URL.Host).Wait(req.Context())
 	}

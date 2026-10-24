@@ -135,3 +135,37 @@ func TestRobotsLongLineOverHTTP(t *testing.T) {
 		t.Errorf("pages = %v, want / and /public/", paths)
 	}
 }
+
+// A robots.txt that redirects to another site (a CDN, another port) is
+// not followed, but the crawl goes on as if it were missing instead of
+// stopping at the start page. A redirect loop is treated the same way.
+func TestRobotsRedirectRefusedAllowsAll(t *testing.T) {
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("the off-site robots.txt was fetched: %s", r.URL)
+	}))
+	t.Cleanup(other.Close)
+	for _, tc := range []struct {
+		name   string
+		robots http.HandlerFunc
+	}{
+		{"off-site redirect", func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, other.URL+"/robots.txt", http.StatusMovedPermanently)
+		}},
+		{"redirect loop", func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "/robots.txt", http.StatusFound)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			paths, f := crawlPaths(t, robotsSite(t, tc.robots), Options{})
+			if len(paths) != 3 {
+				t.Errorf("pages = %v, want all 3", paths)
+			}
+			if got := f.RobotsUnavailable(); got != "" {
+				t.Errorf("RobotsUnavailable = %q, want empty", got)
+			}
+			if n := f.Skipped()["robots-unavailable"]; n != 0 {
+				t.Errorf("robots-unavailable skipped = %d", n)
+			}
+		})
+	}
+}

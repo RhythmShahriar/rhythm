@@ -20,9 +20,11 @@
 // The crawler reads /robots.txt first and applies the group for its user
 // agent's product token, or "*", with RFC 9309 longest-match rules (Allow
 // wins a tie). A missing robots.txt (404, 403, 410 or another 4xx) allows
-// everything. One that can't be read (5xx, 429, a timeout or a network
-// error) disallows everything but the start page and pages the caller
-// listed, as RFC 9309 asks; Frontier.RobotsUnavailable says why.
+// everything, and so does one that redirects somewhere the crawler won't
+// go (another site or a private address). One that can't be read (5xx,
+// 429, a timeout or a network error) disallows everything but the start
+// page and pages the caller listed, as RFC 9309 asks;
+// Frontier.RobotsUnavailable says why.
 // Options.IgnoreRobots turns both off, for the caller's own site.
 //
 // # Excluded pages
@@ -416,8 +418,19 @@ func (c *Crawler) get(ctx context.Context, raw string) (*http.Response, error) {
 // missing file (4xx) allows everything, while a server error, 429, a
 // timeout or a network error disallows everything, because the site may
 // be up but unable to say what it wants left alone.
+//
+// A redirect the crawler refuses (off the site, to a private address or
+// past maxRedirects) also allows everything. RFC 9309 2.3.1.2 asks
+// crawlers to follow robots.txt redirects even to another host and
+// treats a target that can't be reached as "unavailable", which is the
+// 4xx case. Following it would let a site steer the crawler elsewhere,
+// so the hop is refused but the crawl goes on as if the file were
+// missing, instead of stopping at the start page.
 func (c *Crawler) robots(ctx context.Context, start *url.URL) *robots {
 	resp, err := c.get(ctx, start.Scheme+"://"+start.Host+"/robots.txt")
+	if errors.Is(err, errRedirectRefused) || errors.Is(err, httpx.ErrPrivate) {
+		return nil
+	}
 	if err != nil {
 		return unavailableRobots(robotsErr(err))
 	}

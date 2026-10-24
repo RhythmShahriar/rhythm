@@ -215,8 +215,8 @@ func TestRedirectRules(t *testing.T) {
 		t.Errorf("hops = %d, want %d", n, maxRedirects)
 	}
 
-	// The caller's client is copied, its policy runs first, and it is
-	// never changed.
+	// The caller's client is copied and its policy runs first. The
+	// client itself is never changed.
 	called := 0
 	stop := errors.New("caller stop")
 	mine := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { called++; return stop }}
