@@ -1,0 +1,29 @@
+# Copyright (c) 2026 Rhythm Shahriar <me@rhy.io>
+# SPDX-License-Identifier: AGPL-3.0-only
+
+name: release-dry-run
+# A manual dry run of the shared release workflow: GoReleaser builds a
+# snapshot, cosign signs it and the attestation step attests it, but
+# nothing is published. It proves the steps and permissions work before a
+# real tag does. The attestations it creates are valid provenance from the
+# shared workflow for whatever this branch builds, so they carry the branch
+# as their source ref: verifying with gh attestation verify --source-ref
+# refs/tags/v<version> (as release-go.yml documents) rejects them.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  release:
+    # Only from a branch: dispatched on a tag, the snapshot would be signed
+    # and attested with the same identity (and source ref refs/tags/vX) as
+    # the real release of that tag.
+    if: github.ref_type == 'branch'
+    uses: RhythmShahriar/.github/.github/workflows/release-go.yml@master
+    with:
+      snapshot: true
+    # The reusable workflow asks for these; a caller must grant them all.
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
