@@ -166,7 +166,7 @@ func TestListUsage(t *testing.T) {
 }
 
 func TestRouterCommandsRegistered(t *testing.T) {
-	for _, name := range []string{"install", "update", "list", "uninstall", "doctor", "lock", "verify"} {
+	for _, name := range []string{"install", "update", "list", "uninstall", "doctor", "lock", "verify", "bundle"} {
 		c, ok := commands[name]
 		if !ok || c.run == nil || c.summary == "" {
 			t.Errorf("%s isn't registered: %+v", name, c)
@@ -216,7 +216,7 @@ func TestListJSON(t *testing.T) {
 // TestCommandHelpFlagsAligned: each command's --help exits 0 and lists
 // its flags in one column, with room after the longest flag name.
 func TestCommandHelpFlagsAligned(t *testing.T) {
-	for _, name := range []string{"install", "update", "list", "uninstall", "doctor", "lock", "verify"} {
+	for _, name := range []string{"install", "update", "list", "uninstall", "doctor", "lock", "verify", "bundle"} {
 		code, out, errs := runCmd(name, "--help")
 		if code != 0 || errs != "" {
 			t.Errorf("%s --help: exit %d, stderr %q", name, code, errs)

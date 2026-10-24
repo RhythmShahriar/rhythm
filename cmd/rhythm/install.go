@@ -94,7 +94,7 @@ func updater(repo, binary, current string) *update.Updater {
 	if thisRun.bundle != "" {
 		t.source, t.sourceErr = openBundle(thisRun.bundle, repo)
 	}
-	return &update.Updater{
+	u := &update.Updater{
 		Repo:      repo,
 		Binary:    binary,
 		Current:   current,
@@ -105,6 +105,10 @@ func updater(repo, binary, current string) *update.Updater {
 			Transport: t,
 		},
 	}
+	if thisRun.bundle != "" {
+		u.Source = routedSource{t: t, client: u.HTTP}
+	}
+	return u
 }
 
 // apiToken picks the token sent to the release API at api by the rule

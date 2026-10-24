@@ -30,7 +30,15 @@ func TestInstallHelp(t *testing.T) {
 	}
 }
 
+// noBundleReader makes this rhythm one that can't read bundles.
+func noBundleReader(t *testing.T) {
+	old := openBundle
+	openBundle = nil
+	t.Cleanup(func() { openBundle = old })
+}
+
 func TestInstallHelpOffersFromOnlyWithABundleReader(t *testing.T) {
+	noBundleReader(t)
 	_, out, _ := runCmd("install", "--help")
 	if strings.Contains(out, "--from") || strings.Contains(out, "bundle") {
 		t.Errorf("help offers --from without a bundle reader:\n%s", out)
@@ -547,6 +555,7 @@ func TestSkipSignature(t *testing.T) {
 }
 
 func TestInstallFromNeedsABundleReader(t *testing.T) {
+	noBundleReader(t)
 	_, latest := allTools()
 	s := newSandbox(t, nil, latest)
 	code, out, errs := runCmd("install", "tuner", "--dir", s.bin, "--from", "tools.bundle")

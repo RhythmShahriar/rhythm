@@ -444,10 +444,10 @@ func TestCompleteRealCommands(t *testing.T) {
 	has([]string{"update", ""}, "rhythm", "tuner", "soundcheck", "echo", "zap")
 	has([]string{"update", "tuner", "s"}, "soundcheck") // update takes several
 	has([]string{"uninstall", "tuner", "e"}, "echo")
-	// This rhythm can't read bundles, so --from isn't offered.
-	if got := complete(t, "install", "--"); slices.Contains(got, "--from") {
-		t.Errorf("install offers --from: %q", got)
-	}
+	has([]string{"install", "--"}, "--from") // this rhythm reads bundles
+	has([]string{"verify", "--"}, "--json")
+	has([]string{"verify", "tuner", "e"}, "echo") // verify takes several
+	has([]string{"bundle", "--"}, "--locked", "--output", "--platform")
 	if got := complete(t, "list", ""); len(got) != 0 {
 		t.Errorf("list takes no names, got %q", got)
 	}
