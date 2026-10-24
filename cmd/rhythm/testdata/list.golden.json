@@ -1,0 +1,38 @@
+{
+  "schema": "rhythm-list/v1",
+  "tools": [
+    {
+      "name": "rhythm",
+      "binary": "rhythm",
+      "version": "0.1.0",
+      "latest": "0.1.0",
+      "signed": "",
+      "path": "$SANDBOX/bin/rhythm",
+      "third_party": false,
+      "managed_by": "",
+      "error": ""
+    },
+    {
+      "name": "tuner",
+      "binary": "rhythm-tuner",
+      "version": "0.1.0",
+      "latest": "0.2.0",
+      "signed": "",
+      "path": "$SANDBOX/bin/rhythm-tuner",
+      "third_party": false,
+      "managed_by": "",
+      "error": ""
+    },
+    {
+      "name": "foo",
+      "binary": "rhythm-foo",
+      "version": "1.2.0",
+      "latest": "",
+      "signed": "",
+      "path": "$SANDBOX/bin/rhythm-foo",
+      "third_party": true,
+      "managed_by": "",
+      "error": ""
+    }
+  ]
+}

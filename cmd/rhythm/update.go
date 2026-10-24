@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -37,6 +38,7 @@ const exitOutdated = 10
 func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 	flags := newFlagSet("update", updateSynopsis)
 	checkOnly := flags.Bool("check", false, "only report available updates")
+	asJSON := flags.Bool("json", false, "with --check, print the report as rhythm-update/v1 JSON")
 	selfOnly := flags.Bool("self-only", false, "update only rhythm itself")
 	noData := flags.Bool("no-data", false, "skip refreshing the tools' data")
 	quiet := flags.Bool("quiet", false, "print only updates, problems and the tools' own output")
@@ -44,43 +46,64 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 	if !ok {
 		return code
 	}
+	if *asJSON && !*checkOnly {
+		fmt.Fprintln(stderr, "rhythm: --json works with --check only")
+		return exitUsage
+	}
 	// Names are checked before anything touches the network, so a typo
 	// costs nothing.
 	want, code := updateScope(names, *selfOnly, stderr)
 	if code != 0 {
 		return code
 	}
+	// With --json, stdout carries the JSON alone; the lines people read
+	// move to stderr.
+	human := stdout
+	if *asJSON {
+		human = stderr
+	}
 
 	ctx, stop := signalContext()
 	defer stop()
 	var rep updateReport
 	targets, missing := findTargets(ctx, want)
+	results := make([]updateTarget, len(targets))
+	for i, t := range targets {
+		results[i] = updateTarget{Name: t.binary, Current: t.current, Path: t.path, Signed: signedJSON(t.real)}
+		if t.managed != nil {
+			results[i].ManagedBy = t.managed.name
+		}
+	}
 	for _, tool := range missing {
-		fmt.Fprintf(stderr, "%-18s isn't installed; install it with: rhythm install %s\n", "rhythm-"+tool, tool)
+		msg := "isn't installed; install it with: rhythm install " + tool
+		fmt.Fprintf(stderr, "%-18s %s\n", "rhythm-"+tool, msg)
 		rep.failed = append(rep.failed, "rhythm-"+tool)
+		results = append(results, updateTarget{Name: "rhythm-" + tool, Error: msg})
 	}
 
 	var progress io.Writer // the download progress line, on a terminal only
 	if !*quiet && isTerminal(stderr) {
 		progress = stderr
 	}
-	for _, t := range targets {
+	for i, t := range targets {
 		if ctx.Err() != nil {
 			break
 		}
+		res := &results[i]
 		if t.managed != nil {
-			fmt.Fprintf(stdout, "%s is managed by %s; update it with: %s\n", t.binary, t.managed.name, t.managed.upgrade)
+			fmt.Fprintf(human, "%s is managed by %s; update it with: %s\n", t.binary, t.managed.name, t.managed.upgrade)
 			continue
 		}
 		if t.current == unknownVersion {
-			fmt.Fprintf(stdout, "%-18s version unknown (%s), not updated\n", t.binary, t.probe)
+			res.Current = ""
+			res.Error = "version unknown (" + t.probe + ")"
+			fmt.Fprintf(human, "%-18s %s, not updated\n", t.binary, res.Error)
 			continue
 		}
 		if !update.IsRelease(t.current) {
-			if *quiet {
-				continue
+			if !*quiet {
+				fmt.Fprintf(human, "%-18s %s (development build, not updated)\n", t.binary, t.current)
 			}
-			fmt.Fprintf(stdout, "%-18s %s (development build, not updated)\n", t.binary, t.current)
 			continue
 		}
 		if rep.nets.skip(t.binary, os.Getenv("RHYTHM_GITHUB_API")) {
@@ -91,17 +114,20 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 		rel, err := u.Latest(ctx)
 		if err != nil {
 			rep.fail(ctx, stderr, t.binary, err)
+			res.Error = describe(err)
 			continue
 		}
+		res.Latest = rel.Version
 		if !update.Newer(t.current, rel.Version) {
 			if !*quiet {
-				fmt.Fprintf(stdout, "%-18s %s (up to date)\n", t.binary, t.current)
+				fmt.Fprintf(human, "%-18s %s (up to date)\n", t.binary, t.current)
 			}
 			rep.upToDate++
 			continue
 		}
 		if *checkOnly {
-			fmt.Fprintf(stdout, "%-18s %s → %s available\n", t.binary, t.current, rel.Version)
+			res.Outdated = true
+			fmt.Fprintf(human, "%-18s %s → %s available\n", t.binary, t.current, rel.Version)
 			rep.updated++
 			continue
 		}
@@ -109,7 +135,7 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 			rep.fail(ctx, stderr, t.binary, err)
 			continue
 		}
-		fmt.Fprintf(stdout, "%-18s %s → %s ✔\n", t.binary, t.current, rel.Version)
+		fmt.Fprintf(human, "%-18s %s → %s ✔\n", t.binary, t.current, rel.Version)
 		rep.updated++
 	}
 
@@ -126,18 +152,66 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 		return exitInterrupted
 	}
 	rep.nets.print(stderr)
+	if *asJSON {
+		for i := range results {
+			if msg := rep.nets.explain(results[i].Name); msg != "" {
+				results[i].Error = msg
+			}
+		}
+		if err := writeJSON(stdout, updateReportJSON{Schema: "rhythm-update/v1", Targets: results}); err != nil {
+			fmt.Fprintln(stderr, "rhythm:", err)
+			return 1
+		}
+	}
 	if len(rep.failed) > 0 {
 		// A failed check wins over "outdated": the answer is incomplete.
 		fmt.Fprintln(stderr, rep.summary(*checkOnly))
 		return 1
 	}
 	if !*quiet {
-		announceNewTools(stdout)
+		announceNewTools(human)
 	}
 	if *checkOnly && rep.updated > 0 {
 		return exitOutdated
 	}
 	return 0
+}
+
+// updateReportJSON is rhythm update --check --json's answer.
+type updateReportJSON struct {
+	Schema  string         `json:"schema"` // rhythm-update/v1
+	Targets []updateTarget `json:"targets"`
+}
+
+// updateTarget is one binary in the rhythm-update/v1 report. Latest is
+// empty when it wasn't looked up (dev builds, managed installs, unknown
+// versions) or the lookup failed; Error then says why.
+type updateTarget struct {
+	Name      string `json:"name"` // rhythm or rhythm-<tool>
+	Current   string `json:"current"`
+	Latest    string `json:"latest"`
+	Path      string `json:"path"`
+	Outdated  bool   `json:"outdated"`
+	Signed    string `json:"signed"`     // "yes", "no" or "" when not checked
+	ManagedBy string `json:"managed_by"` // e.g. Homebrew, or ""
+	Error     string `json:"error"`
+}
+
+// signedJSON is the signed field of the JSON reports: "" until signature
+// checks land.
+func signedJSON(path string) string {
+	if signedStatus == nil {
+		return ""
+	}
+	return signedStatus(path)
+}
+
+// writeJSON writes v as indented JSON with a trailing newline.
+func writeJSON(w io.Writer, v any) error {
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	enc.SetEscapeHTML(false)
+	return enc.Encode(v)
 }
 
 // refreshData runs the tool's own update command, which refreshes its

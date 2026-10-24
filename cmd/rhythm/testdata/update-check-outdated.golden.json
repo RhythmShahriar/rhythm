@@ -1,0 +1,25 @@
+{
+  "schema": "rhythm-update/v1",
+  "targets": [
+    {
+      "name": "rhythm-echo",
+      "current": "0.1.0",
+      "latest": "0.1.0",
+      "path": "$SANDBOX/bin/rhythm-echo",
+      "outdated": false,
+      "signed": "",
+      "managed_by": "",
+      "error": ""
+    },
+    {
+      "name": "rhythm-tuner",
+      "current": "0.1.0",
+      "latest": "0.2.0",
+      "path": "$SANDBOX/bin/rhythm-tuner",
+      "outdated": true,
+      "signed": "",
+      "managed_by": "",
+      "error": ""
+    }
+  ]
+}

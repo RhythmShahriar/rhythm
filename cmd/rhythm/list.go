@@ -39,7 +39,7 @@ func addRouterCommand(c routerCommand) {
 }
 
 func init() {
-	addRouterCommand(routerCommand{name: "list", args: "[--offline]", summary: "show the installed tools, their versions and paths", run: cmdList})
+	addRouterCommand(routerCommand{name: "list", args: "[--offline] [--json]", summary: "show the installed tools, their versions and paths", run: cmdList})
 }
 
 // signedStatus reports whether the binary at path carries a valid
@@ -81,6 +81,7 @@ type listEntry struct {
 func cmdList(args []string, stdout, stderr io.Writer) int {
 	flags := newFlagSet("list", listSynopsis)
 	offline := flags.Bool("offline", false, "don't look up the latest releases")
+	asJSON := flags.Bool("json", false, "print the list as rhythm-list/v1 JSON")
 	pos, code, ok := parseArgs(flags, args, stdout, stderr)
 	if !ok {
 		return code
@@ -97,7 +98,14 @@ func cmdList(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "rhythm: list interrupted")
 		return exitInterrupted
 	}
-	printList(stdout, entries, !*offline)
+	if *asJSON {
+		if err := writeJSON(stdout, listJSON(entries, nets)); err != nil {
+			fmt.Fprintln(stderr, "rhythm:", err)
+			return 1
+		}
+	} else {
+		printList(stdout, entries, !*offline)
+	}
 	for _, e := range entries {
 		for _, msg := range []string{e.versionErr, e.latestErr} {
 			if msg != "" {
@@ -145,6 +153,50 @@ func listEntries(ctx context.Context, offline bool) ([]listEntry, *netReport) {
 		entries = append(entries, e)
 	}
 	return entries, nets
+}
+
+// listReport is rhythm list --json's answer.
+type listReport struct {
+	Schema string     `json:"schema"` // rhythm-list/v1
+	Tools  []listTool `json:"tools"`
+}
+
+// listTool is one row of the rhythm-list/v1 report. Latest is empty when
+// it wasn't looked up (--offline, third-party programs) or the lookup
+// failed; Error then says why.
+type listTool struct {
+	Name       string `json:"name"`   // tool name, rhythm or a third-party name
+	Binary     string `json:"binary"` // rhythm or rhythm-<name>
+	Version    string `json:"version"`
+	Latest     string `json:"latest"`
+	Signed     string `json:"signed"` // "yes", "no" or "" when not checked
+	Path       string `json:"path"`
+	ThirdParty bool   `json:"third_party"`
+	ManagedBy  string `json:"managed_by"`
+	Error      string `json:"error"`
+}
+
+func listJSON(entries []listEntry, nets *netReport) listReport {
+	rep := listReport{Schema: "rhythm-list/v1", Tools: []listTool{}}
+	for _, e := range entries {
+		var errs []string
+		for _, msg := range []string{e.versionErr, e.latestErr, nets.explain(e.binary)} {
+			if msg != "" {
+				errs = append(errs, msg)
+			}
+		}
+		v := e.version
+		if v == unknownVersion {
+			v = ""
+		}
+		signed := e.signed
+		if signed == "-" {
+			signed = ""
+		}
+		rep.Tools = append(rep.Tools, listTool{Name: e.name, Binary: e.binary, Version: v, Latest: e.latest, Signed: signed,
+			Path: e.path, ThirdParty: e.thirdParty, ManagedBy: e.managedBy, Error: strings.Join(errs, "; ")})
+	}
+	return rep
 }
 
 // printList writes the table, e.g.

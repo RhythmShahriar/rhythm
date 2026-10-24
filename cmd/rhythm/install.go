@@ -315,6 +315,20 @@ func (r *netReport) skip(binary, api string) bool {
 	return ok
 }
 
+// explain returns the line the network problem that hit binary prints,
+// or "" when none did.
+func (r *netReport) explain(binary string) string {
+	for _, k := range r.keys {
+		g := r.byKey[k]
+		for _, b := range g.binaries {
+			if b == binary {
+				return g.text(binary)
+			}
+		}
+	}
+	return ""
+}
+
 // print writes one line per problem.
 func (r *netReport) print(w io.Writer) {
 	for _, k := range r.keys {

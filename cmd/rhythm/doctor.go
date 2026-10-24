@@ -25,7 +25,7 @@ import (
 )
 
 func init() {
-	addRouterCommand(routerCommand{name: "doctor", args: "[--offline]", summary: "check the install: PATH, versions, data, Chrome and the release API", run: cmdDoctor})
+	addRouterCommand(routerCommand{name: "doctor", args: "[--offline] [--json]", summary: "check the install: PATH, versions, data, Chrome and the release API", run: cmdDoctor})
 }
 
 const doctorSynopsis = `Usage: rhythm doctor [flags]
@@ -54,6 +54,12 @@ type check struct {
 	ID      string `json:"id"`
 	Status  string `json:"status"`
 	Message string `json:"message"`
+}
+
+// doctorReport is rhythm doctor --json's answer.
+type doctorReport struct {
+	Schema string  `json:"schema"` // rhythm-doctor/v1
+	Checks []check `json:"checks"`
 }
 
 // doctorEnv is what doctor looks at besides PATH and the binaries on it.
@@ -116,6 +122,7 @@ func runTool(ctx context.Context, timeout time.Duration, bin string, args ...str
 func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 	flags := newFlagSet("doctor", doctorSynopsis)
 	offline := flags.Bool("offline", false, "skip the data refresh and the release API check")
+	asJSON := flags.Bool("json", false, "print the checks as rhythm-doctor/v1 JSON")
 	pos, code, ok := parseArgs(flags, args, stdout, stderr)
 	if !ok {
 		return code
@@ -132,7 +139,14 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "rhythm: doctor interrupted")
 		return exitInterrupted
 	}
-	printChecks(stdout, checks)
+	if *asJSON {
+		if err := writeJSON(stdout, doctorReport{Schema: "rhythm-doctor/v1", Checks: checks}); err != nil {
+			fmt.Fprintln(stderr, "rhythm:", err)
+			return 1
+		}
+	} else {
+		printChecks(stdout, checks)
+	}
 	if anyFailed(checks) {
 		return 1
 	}

@@ -1,0 +1,45 @@
+{
+  "schema": "rhythm-update/v1",
+  "targets": [
+    {
+      "name": "rhythm",
+      "current": "0.1.0",
+      "latest": "0.1.0",
+      "path": "$SANDBOX/bin/rhythm",
+      "outdated": false,
+      "signed": "",
+      "managed_by": "",
+      "error": ""
+    },
+    {
+      "name": "rhythm-echo",
+      "current": "0.1.0",
+      "latest": "0.1.0",
+      "path": "$SANDBOX/bin/rhythm-echo",
+      "outdated": false,
+      "signed": "",
+      "managed_by": "",
+      "error": ""
+    },
+    {
+      "name": "rhythm-soundcheck",
+      "current": "0.1.0",
+      "latest": "",
+      "path": "$SANDBOX/bin/rhythm-soundcheck",
+      "outdated": false,
+      "signed": "",
+      "managed_by": "",
+      "error": "mirror $API has no release for RhythmShahriar/soundcheck; check RHYTHM_GITHUB_API"
+    },
+    {
+      "name": "rhythm-tuner",
+      "current": "0.1.0",
+      "latest": "0.2.0",
+      "path": "$SANDBOX/bin/rhythm-tuner",
+      "outdated": true,
+      "signed": "",
+      "managed_by": "",
+      "error": ""
+    }
+  ]
+}
