@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 // Package ratelimit keeps Rhythm tools polite: an even request pace per
-// host (Limiter, Hosts) that slows down when a server asks it to (Slow),
+// host (Limiter, Hosts) that slows down when a server asks it to (Slow)
 // and the retry waits every tool shares (Backoff, RetryAfter, Sleep).
 //
 // ParseTarget is still here so tools keep compiling but it moved to

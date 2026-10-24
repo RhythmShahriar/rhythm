@@ -55,7 +55,7 @@ type call struct {
 	// context ended. Callers that were waiting on it start their own.
 	abandoned bool
 	// fellBack is set when a failed fetch was answered with stale data.
-	// Callers waiting on it get that data, but it isn't remembered, so a
+	// Callers waiting on it get that data. It isn't remembered, so a
 	// later call tries the network again.
 	fellBack bool
 }

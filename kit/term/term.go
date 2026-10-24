@@ -27,7 +27,7 @@ func control(r rune) bool { return r < 0x20 && r != '\t' && r != '\n' || r >= 0x
 
 // Sanitize makes s safe for a terminal and shows what was removed: C0
 // controls other than tab and newline, DEL and C1 controls become
-// escapes such as \x1b and \u009b, bytes that are not UTF-8 become \xff,
+// escapes such as \x1b and \u009b, bytes that are not UTF-8 become \xff
 // and bidirectional overrides are dropped. Use it where a person may need
 // to see the raw bytes, such as a request log.
 func Sanitize(s string) string {

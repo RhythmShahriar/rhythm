@@ -112,7 +112,7 @@ func normQuery(raw string) string {
 }
 
 // verbatimQuery drops tracking pairs from a query without re-escaping or
-// reordering it. Both '&' and ';' separate pairs, and each kept pair keeps
+// reordering it. Both '&' and ';' separate pairs; each kept pair keeps
 // the separator written before it, so "utm_source=x;id=1" keeps "id=1"
 // instead of losing the whole "utm_source=x;id=1" chunk.
 func verbatimQuery(raw string) string {

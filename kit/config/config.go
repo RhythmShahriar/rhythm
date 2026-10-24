@@ -75,7 +75,7 @@ func override(name string) (dir string, ok bool, err error) {
 	return filepath.Clean(v), true, nil
 }
 
-// FirstRun reports whether key has not been seen on this machine before,
+// FirstRun reports whether key has not been seen on this machine before
 // and records it so later calls return false. It reports false when the
 // config directory cannot be found, so a broken setup never repeats a
 // first-run message on every start.

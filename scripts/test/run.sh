@@ -430,7 +430,7 @@ case_unwritable_dir() {
 	expect_out "rhythm install: can't create $cdir/ro/bin"
 }
 
-# expect_path_hint checks that the output has exactly one line about PATH,
+# expect_path_hint checks that the output has exactly one line about PATH
 # and that it is $1.
 expect_path_hint() {
 	n=$(grep -c PATH "$cdir/out" || :)

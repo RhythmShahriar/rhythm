@@ -108,8 +108,8 @@ func (t *transport) prepare(req *http.Request) *http.Request {
 // scopeHeaders adds the user's headers when SameHost(Target, r.URL)
 // holds and removes them everywhere else. Removal matters because Go's
 // client copies the first request's headers onto each redirect hop and
-// keeps Authorization and Cookie when only the port changes, and a
-// caller may have set them on the request itself. The credential
+// keeps Authorization and Cookie when only the port changes. A
+// caller may also have set them on the request itself. The credential
 // headers in offTarget are always removed off the target for the same
 // reason.
 func (t *transport) scopeHeaders(r *http.Request) {

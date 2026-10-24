@@ -20,7 +20,7 @@
 // The crawler reads /robots.txt first and applies the group for its user
 // agent's product token, or "*", with RFC 9309 longest-match rules (Allow
 // wins a tie). A missing robots.txt (404, 403, 410 or another 4xx) allows
-// everything, and so does one that redirects somewhere the crawler won't
+// everything; so does one that redirects somewhere the crawler won't
 // go (another site or a private address). One that can't be read (5xx,
 // 429, a timeout or a network error) disallows everything but the start
 // page and pages the caller listed, as RFC 9309 asks;
@@ -170,7 +170,7 @@ func (f *Frontier) add(raw, source string, depth int) (Page, bool) {
 	u, _ := url.Parse(norm)
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	// seen is keyed by key(), which folds /about and /about/ together,
+	// seen is keyed by key(), which folds /about and /about/ together
 	// and marks every URL offered, rejected ones too, so a URL is judged
 	// once however many pages link to it.
 	k := key(norm)
@@ -178,8 +178,8 @@ func (f *Frontier) add(raw, source string, depth int) (Page, bool) {
 		return Page{}, false
 	}
 	f.seen[k] = true
-	// The start page is always admitted, because links are found from it,
-	// and pages the user listed ("config") get past include, robots.txt
+	// The start page is always admitted, because links are found from it;
+	// pages the user listed ("config") get past include, robots.txt
 	// and grouping: they asked for them by name.
 	start, listed := source == "start", source == "config"
 	reason := ""

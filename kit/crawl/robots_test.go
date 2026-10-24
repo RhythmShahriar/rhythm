@@ -137,7 +137,7 @@ func TestRobotsLongLineOverHTTP(t *testing.T) {
 }
 
 // A robots.txt that redirects to another site (a CDN, another port) is
-// not followed, but the crawl goes on as if it were missing instead of
+// not followed. The crawl goes on as if it were missing instead of
 // stopping at the start page. A redirect loop is treated the same way.
 func TestRobotsRedirectRefusedAllowsAll(t *testing.T) {
 	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
