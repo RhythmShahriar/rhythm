@@ -54,7 +54,7 @@ func dirNames(t *testing.T, dir string) []string {
 func TestWindowsSwap(t *testing.T) {
 	windowsSwap(t, nil)
 	dest := installed(t)
-	if err := replace(dest, []byte("NEW BINARY")); err != nil {
+	if err := replace(dest, strings.NewReader("NEW BINARY")); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := os.ReadFile(dest); string(got) != "NEW BINARY" {
@@ -64,7 +64,7 @@ func TestWindowsSwap(t *testing.T) {
 	if got, _ := os.ReadFile(dest + ".old"); string(got) != "OLD BINARY" {
 		t.Errorf(".old = %q", got)
 	}
-	if err := replace(dest, []byte("NEWER BINARY")); err != nil {
+	if err := replace(dest, strings.NewReader("NEWER BINARY")); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := os.ReadFile(dest + ".old"); string(got) != "NEW BINARY" {
@@ -75,7 +75,7 @@ func TestWindowsSwap(t *testing.T) {
 func TestWindowsSwapFreshInstall(t *testing.T) {
 	windowsSwap(t, nil)
 	dest := filepath.Join(t.TempDir(), "rhythm-tuner")
-	if err := replace(dest, []byte("NEW BINARY")); err != nil {
+	if err := replace(dest, strings.NewReader("NEW BINARY")); err != nil {
 		t.Fatal(err)
 	}
 	if names := dirNames(t, filepath.Dir(dest)); len(names) != 1 {
@@ -92,7 +92,7 @@ func TestWindowsSwapRestoresOnFailure(t *testing.T) {
 		}
 		return nil
 	})
-	err := replace(dest, []byte("NEW BINARY"))
+	err := replace(dest, strings.NewReader("NEW BINARY"))
 	if !errors.Is(err, locked) || !strings.Contains(err.Error(), dest) {
 		t.Fatalf("err = %v", err)
 	}
@@ -117,7 +117,7 @@ func TestWindowsSwapReportsBothFailures(t *testing.T) {
 		}
 		return nil
 	})
-	err := replace(dest, []byte("NEW BINARY"))
+	err := replace(dest, strings.NewReader("NEW BINARY"))
 	if !errors.Is(err, locked) || !errors.Is(err, stuck) {
 		t.Fatalf("err = %v, want both failures", err)
 	}
@@ -177,7 +177,7 @@ func TestUnixSwapIsOneRename(t *testing.T) {
 	calls := 0
 	rename = func(from, to string) error { calls++; return os.Rename(from, to) }
 	dest := installed(t)
-	if err := replace(dest, []byte("NEW BINARY")); err != nil {
+	if err := replace(dest, strings.NewReader("NEW BINARY")); err != nil {
 		t.Fatal(err)
 	}
 	if calls != 1 {

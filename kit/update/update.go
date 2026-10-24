@@ -11,22 +11,14 @@
 package update
 
 import (
-	"archive/tar"
-	"archive/zip"
-	"bufio"
-	"bytes"
 	"cmp"
-	"compress/gzip"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"path"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -37,8 +29,12 @@ import (
 	"github.com/RhythmShahriar/rhythm/kit/config"
 )
 
-// Largest archive we'll download.
-const maxArchive = 200 << 20
+// Largest archive we'll download, and largest binary we'll unpack from
+// one (a compressed archive may hold a bigger binary, but not unbounded).
+const (
+	maxArchive = 200 << 20
+	maxBinary  = 2 * maxArchive
+)
 
 // Updater checks for and installs releases of one binary.
 //
@@ -70,6 +66,12 @@ type Updater struct {
 	// stay quiet and Latest and Install return ErrOffline. Tools set it
 	// from their --offline flag.
 	Offline bool
+
+	// Progress, when set, is called while Install downloads the archive
+	// with the bytes received so far and the size the server announced
+	// (-1 when it didn't). It is called at most every 100 ms and once at
+	// the end with done == total.
+	Progress func(done, total int64)
 }
 
 // ErrOffline is returned by calls that need the network while offline
@@ -320,12 +322,14 @@ func (u *Updater) Install(ctx context.Context, rel *Release, dest string) error 
 	if err != nil {
 		return err
 	}
-	archive, err := u.download(ctx, archiveURL, maxArchive)
+	// The archive goes to a temp file next to dest and is hashed on the
+	// way, so memory stays flat however big the release is.
+	archive, got, err := u.downloadFile(ctx, archiveURL, filepath.Dir(dest), "."+filepath.Base(dest)+".download-*", maxArchive)
 	if err != nil {
 		return fmt.Errorf("downloading %s: %w", name, err)
 	}
-	sum := sha256.Sum256(archive)
-	if got := hex.EncodeToString(sum[:]); got != want {
+	defer func() { _ = os.Remove(archive) }()
+	if got != want {
 		return &ErrChecksum{Asset: name, Want: want, Got: got}
 	}
 
@@ -334,91 +338,7 @@ func (u *Updater) Install(ctx context.Context, rel *Release, dest string) error 
 	if goos == "windows" {
 		bin += ".exe"
 	}
-	var data []byte
-	if strings.HasSuffix(name, ".zip") {
-		data, err = fromZip(archive, bin)
-	} else {
-		data, err = fromTarGz(archive, bin)
-	}
-	if err != nil {
-		return fmt.Errorf("%s: %w", name, err)
-	}
-	return replace(dest, data)
-}
-
-func (u *Updater) download(ctx context.Context, url string, limit int64) ([]byte, error) {
-	if err := checkURL(url); err != nil {
-		return nil, err
-	}
-	req, err := u.newRequest(ctx, url)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := u.client().Do(req)
-	if err != nil {
-		return nil, netError(req, err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return nil, u.statusError(req, resp)
-	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
-	if err != nil {
-		return nil, err
-	}
-	if int64(len(data)) > limit {
-		return nil, errors.New("file is larger than expected")
-	}
-	return data, nil
-}
-
-func checksumFor(sums []byte, name string) (string, error) {
-	sc := bufio.NewScanner(bytes.NewReader(sums))
-	for sc.Scan() {
-		f := strings.Fields(sc.Text())
-		if len(f) == 2 && strings.TrimPrefix(f[1], "*") == name && len(f[0]) == 64 {
-			return strings.ToLower(f[0]), nil
-		}
-	}
-	return "", fmt.Errorf("checksums.txt has no entry for %s", name)
-}
-
-func fromTarGz(archive []byte, bin string) ([]byte, error) {
-	zr, err := gzip.NewReader(bytes.NewReader(archive))
-	if err != nil {
-		return nil, err
-	}
-	tr := tar.NewReader(zr)
-	for {
-		h, err := tr.Next()
-		if err == io.EOF {
-			return nil, fmt.Errorf("no %s in the archive", bin)
-		}
-		if err != nil {
-			return nil, err
-		}
-		if h.Typeflag == tar.TypeReg && path.Base(h.Name) == bin {
-			return io.ReadAll(io.LimitReader(tr, maxArchive))
-		}
-	}
-}
-
-func fromZip(archive []byte, bin string) ([]byte, error) {
-	zr, err := zip.NewReader(bytes.NewReader(archive), int64(len(archive)))
-	if err != nil {
-		return nil, err
-	}
-	for _, f := range zr.File {
-		if path.Base(f.Name) == bin && !f.FileInfo().IsDir() {
-			rc, err := f.Open()
-			if err != nil {
-				return nil, err
-			}
-			defer func() { _ = rc.Close() }()
-			return io.ReadAll(io.LimitReader(rc, maxArchive))
-		}
-	}
-	return nil, fmt.Errorf("no %s in the archive", bin)
+	return extract(archive, name, bin, func(r io.Reader) error { return replace(dest, r) })
 }
 
 // Seams for tests: rename lets them inject failures and useOldSwap
@@ -432,18 +352,14 @@ var (
 // one rename is atomic. On Windows a running executable can't be
 // overwritten but can be renamed away, so dest moves to dest.old first and
 // moves back if the new binary can't take its place.
-func replace(dest string, data []byte) error {
+func replace(dest string, r io.Reader) error {
 	removeStaleOld(dest)
-	dir := filepath.Dir(dest)
-	tmp, err := os.CreateTemp(dir, "."+filepath.Base(dest)+".new-*")
+	tmp, err := createTemp(filepath.Dir(dest), "."+filepath.Base(dest)+".new-*")
 	if err != nil {
-		if errors.Is(err, os.ErrPermission) {
-			return fmt.Errorf("can't write to %s; rerun with sudo, or reinstall to a directory you own", dir)
-		}
 		return err
 	}
 	defer func() { _ = os.Remove(tmp.Name()) }()
-	if _, err := tmp.Write(data); err != nil {
+	if _, err := io.Copy(tmp, &capReader{r: r, left: maxBinary}); err != nil {
 		_ = tmp.Close()
 		return err
 	}
