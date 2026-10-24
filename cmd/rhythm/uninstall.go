@@ -140,7 +140,11 @@ func uninstallOne(tool string, purge, quietMissing bool, stdout, stderr io.Write
 		}
 		return errNotInstalled
 	}
-	if m := managedBy(real, binary); m != nil {
+	m := managedBy(real, binary)
+	if tool != selfName {
+		m = ownerOf(path, real, binary, true)
+	}
+	if m != nil {
 		// The manager's records would still list the tool. Its next
 		// upgrade would put it back.
 		fmt.Fprintf(stderr, "%s is managed by %s; remove it with: %s\n", binary, m.name, m.remove)

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -166,7 +167,12 @@ func findTargets(ctx context.Context, want map[string]bool) (targets []target, m
 // version it is.
 func probeTargets(ctx context.Context, targets []target) {
 	for i := range targets {
-		targets[i].managed = managedBy(targets[i].real, targets[i].binary)
+		t := &targets[i]
+		if t.tool == selfName {
+			t.managed = managedBy(t.real, t.binary)
+		} else {
+			t.managed = ownerOf(t.path, t.real, t.binary, !t.thirdParty)
+		}
 	}
 	var wg sync.WaitGroup
 	for i := range targets {
@@ -303,6 +309,64 @@ type manager struct {
 	name    string // e.g. Homebrew
 	upgrade string // the command that updates the install
 	remove  string // the command that uninstalls it
+}
+
+// ownerOf reports who looks after the tool found on PATH at path, which
+// resolves to real: a package manager (see managedBy), a version
+// manager's shim or another program the name links to. nil means the
+// file is rhythm's to update and remove. A shim in a .../shims/ folder
+// (mise, asdf, Scoop) runs whatever the manager picks. Writing over a
+// link to a binary of another name (a multi-call binary such as mise or
+// busybox) would overwrite or delete that program. checkName turns the
+// name check on; it is off for third-party programs, which rhythm only
+// lists.
+func ownerOf(path, real, binary string, checkName bool) *manager {
+	if m := shimManager(path, binary); m != nil {
+		return m
+	}
+	if checkName {
+		base := filepath.Base(strings.ReplaceAll(real, `\`, "/"))
+		if ext := filepath.Ext(base); strings.EqualFold(ext, ".exe") {
+			base = base[:len(base)-len(ext)]
+		}
+		if !strings.EqualFold(base, binary) {
+			if m := shimManager(real, binary); m != nil {
+				return m
+			}
+			if m := managedBy(real, binary); m != nil {
+				return m
+			}
+			return &manager{base, "the program that installed " + path, "the program that installed " + path}
+		}
+	}
+	return managedBy(real, binary)
+}
+
+// shimManager reports the version manager whose shim folder holds p, or
+// nil when p isn't in a folder named shims.
+func shimManager(p, binary string) *manager {
+	// Windows paths are compared with forward slashes; case doesn't
+	// matter there or on macOS.
+	dir := strings.ToLower(path.Dir(strings.ReplaceAll(p, `\`, "/")))
+	if path.Base(dir) != "shims" {
+		return nil
+	}
+	in := func(env, marker string) bool {
+		root := strings.ToLower(strings.ReplaceAll(os.Getenv(env), `\`, "/"))
+		if root != "" && strings.HasPrefix(dir+"/", strings.TrimSuffix(root, "/")+"/") {
+			return true
+		}
+		return strings.Contains(dir+"/", marker)
+	}
+	switch {
+	case in("MISE_DATA_DIR", "/mise/"):
+		return &manager{"mise", "mise upgrade", "mise uninstall <tool>@<version> (mise ls shows them)"}
+	case in("ASDF_DATA_DIR", "/.asdf/"), strings.Contains(dir+"/", "/asdf/"):
+		return &manager{"asdf", "asdf install <plugin> latest", "asdf uninstall <plugin> <version> (asdf list shows them)"}
+	case in("SCOOP", "/scoop/"):
+		return &manager{"Scoop", "scoop update " + binary, "scoop uninstall " + binary}
+	}
+	return &manager{"a version manager", "the version manager that made " + p, "the version manager that made " + p}
 }
 
 // managedBy reports which package manager installed the binary at real (a

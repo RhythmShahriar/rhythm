@@ -835,7 +835,7 @@ func installTool(ctx context.Context, it installItem, opt installOptions, stdout
 	// Only a binary that is there can belong to a manager; a folder's
 	// path alone says nothing about a tool not yet in it.
 	if _, err := os.Stat(writeTo); err == nil {
-		if m := managedBy(writeTo, binary); m != nil {
+		if m := ownerOf(dest, writeTo, binary, true); m != nil {
 			return installResult{}, &managedError{binary, m}
 		}
 	}
