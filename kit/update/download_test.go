@@ -27,24 +27,41 @@ import (
 	"time"
 )
 
-// bigArchive writes a tar.gz holding an n-byte rhythm-tuner to a file,
-// without holding either in memory and returns its path and sha256.
-// Stored uncompressed, so the archive is as big as the binary.
-func bigArchive(t *testing.T, n int64) (string, string) {
+// bigArchive writes a tar.gz (or with asZip a zip, as Windows releases
+// are) holding an n-byte rhythm-tuner to a file, without holding either in
+// memory and returns its path and sha256. Stored uncompressed, so the
+// archive is as big as the binary.
+func bigArchive(t *testing.T, n int64, asZip bool) (string, string) {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "big.tar.gz")
+	path := filepath.Join(t.TempDir(), "big.archive")
 	f, err := os.Create(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer f.Close()
 	h := sha256.New()
-	zw, _ := gzip.NewWriterLevel(io.MultiWriter(f, h), gzip.NoCompression)
+	out := io.MultiWriter(f, h)
+	random := rand.NewChaCha8([32]byte{})
+	if asZip {
+		zw := zip.NewWriter(out)
+		w, err := zw.CreateHeader(&zip.FileHeader{Name: "rhythm-tuner.exe", Method: zip.Store})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := io.CopyN(w, random, n); err != nil {
+			t.Fatal(err)
+		}
+		if err := zw.Close(); err != nil {
+			t.Fatal(err)
+		}
+		return path, hex.EncodeToString(h.Sum(nil))
+	}
+	zw, _ := gzip.NewWriterLevel(out, gzip.NoCompression)
 	tw := tar.NewWriter(zw)
 	if err := tw.WriteHeader(&tar.Header{Name: "rhythm-tuner", Mode: 0o755, Size: n, Typeflag: tar.TypeReg}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := io.CopyN(tw, rand.NewChaCha8([32]byte{}), n); err != nil {
+	if _, err := io.CopyN(tw, random, n); err != nil {
 		t.Fatal(err)
 	}
 	if err := tw.Close(); err != nil {
@@ -73,16 +90,24 @@ func fileRelease(t *testing.T, u *Updater, path, sum string) *Release {
 	return &Release{Version: "0.2.0", Assets: map[string]string{name: srv.URL + "/archive", "checksums.txt": srv.URL + "/sums"}}
 }
 
+// TestInstallStreamsWithFlatMemory installs a 50 MB tar.gz and a 50 MB
+// zip (the Windows archive) on every OS, so both readers are checked.
 func TestInstallStreamsWithFlatMemory(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds a 50 MB archive")
 	}
+	for _, goos := range []string{"linux", "windows"} {
+		t.Run(goos, func(t *testing.T) { installBig(t, goos) })
+	}
+}
+
+func installBig(t *testing.T, goos string) {
 	const size = 50 << 20
-	path, sum := bigArchive(t, size)
+	path, sum := bigArchive(t, size, goos == "windows")
 	fi, _ := os.Stat(path)
 	var mu sync.Mutex
 	var calls [][2]int64
-	u := &Updater{Repo: "RhythmShahriar/tuner", Binary: "rhythm-tuner", Progress: func(done, total int64) {
+	u := &Updater{Repo: "RhythmShahriar/tuner", Binary: "rhythm-tuner", OS: goos, Arch: "amd64", Progress: func(done, total int64) {
 		mu.Lock()
 		calls = append(calls, [2]int64{done, total})
 		mu.Unlock()

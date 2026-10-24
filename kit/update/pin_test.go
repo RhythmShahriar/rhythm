@@ -98,10 +98,10 @@ func newReleaseAPI(t *testing.T, rels ...fakeRel) *releaseAPI {
 			at = time.Now().Add(-time.Hour)
 		}
 		version := strings.TrimPrefix(fr.tag, "v")
-		archive := tarGz(t, "rhythm-tuner", []byte("rhythm-tuner "+version))
+		archive := hostArchive(t, "rhythm-tuner", []byte("rhythm-tuner "+version))
 		sum := sha256.Sum256(archive)
 		files["/dl/"+fr.tag+"/archive"] = archive
-		files["/dl/"+fr.tag+"/sums"] = fmt.Appendf(nil, "%s  rhythm-tuner_windows_amd64.zip\r\n%s  %s\r\n",
+		files["/dl/"+fr.tag+"/sums"] = fmt.Appendf(nil, "%s  "+otherArchive()+"\r\n%s  %s\r\n",
 			strings.Repeat("ab", 32), hex.EncodeToString(sum[:]), name)
 		published := at.UTC().Format(time.RFC3339)
 		rel := ghRel{TagName: fr.tag, Draft: fr.draft, Prerelease: fr.pre, at: at, Assets: []asset{
@@ -274,6 +274,15 @@ func TestExactVersion(t *testing.T) {
 	}
 }
 
+// otherArchive is the build for another platform that every
+// checksums.txt of the fake API lists before this platform's own.
+func otherArchive() string {
+	if name := (&Updater{Binary: "rhythm-tuner"}).ArchiveName(); name == "rhythm-tuner_windows_amd64.zip" {
+		return "rhythm-tuner_linux_amd64.tar.gz"
+	}
+	return "rhythm-tuner_windows_amd64.zip"
+}
+
 func TestChecksumsListsEveryPlatform(t *testing.T) {
 	u := pinned(t).updater()
 	rel, err := u.ByTag(context.Background(), "0.3.1")
@@ -292,14 +301,13 @@ func TestChecksumsListsEveryPlatform(t *testing.T) {
 		}
 	}
 	slices.Sort(names)
-	want := []string{u.ArchiveName(), "rhythm-tuner_windows_amd64.zip"}
+	want := []string{u.ArchiveName(), otherArchive()}
 	slices.Sort(want)
-	want = slices.Compact(want)
 	if !slices.Equal(names, want) {
 		t.Errorf("names = %v, want %v", names, want)
 	}
-	if sums["rhythm-tuner_windows_amd64.zip"] != strings.Repeat("ab", 32) {
-		t.Errorf("windows sha = %q", sums["rhythm-tuner_windows_amd64.zip"])
+	if sums[otherArchive()] != strings.Repeat("ab", 32) {
+		t.Errorf("%s sha = %q", otherArchive(), sums[otherArchive()])
 	}
 }
 

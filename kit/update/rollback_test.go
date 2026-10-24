@@ -10,6 +10,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -72,7 +73,8 @@ func testRollback(t *testing.T) {
 	if got := content(t, dest+".prev"); got != "rhythm-tuner 0.3.2" {
 		t.Errorf(".prev = %q", got)
 	}
-	if fi, _ := os.Stat(dest); fi.Mode().Perm()&0o100 == 0 {
+	// Windows has no executable bit; Go reports 0666 there.
+	if fi, _ := os.Stat(dest); runtime.GOOS != "windows" && fi.Mode().Perm()&0o100 == 0 {
 		t.Errorf("not executable: %v", fi.Mode())
 	}
 

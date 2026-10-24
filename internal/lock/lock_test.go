@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -62,7 +63,8 @@ func TestRoundTrip(t *testing.T) {
 	if !bytes.Equal(got, golden) {
 		t.Errorf("Write doesn't match testdata/rhythm.lock:\n%s", got)
 	}
-	if fi, _ := os.Stat(path); fi.Mode().Perm() != 0o644 {
+	// Windows has no permission bits to check: Go reports 0666 there.
+	if fi, _ := os.Stat(path); runtime.GOOS != "windows" && fi.Mode().Perm() != 0o644 {
 		t.Errorf("mode %v, want 0644: the lock is committed with the project", fi.Mode().Perm())
 	}
 
