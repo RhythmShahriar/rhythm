@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Rhythm Shahriar <me@rhy.io>
+// SPDX-License-Identifier: AGPL-3.0-only
+
 // Package kit is the shared base every Rhythm tool imports:
 // branding, output, config and self-update live here.
 package kit

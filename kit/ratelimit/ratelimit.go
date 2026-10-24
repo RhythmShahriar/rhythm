@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Rhythm Shahriar <me@rhy.io>
+// SPDX-License-Identifier: AGPL-3.0-only
+
 // Package ratelimit keeps Rhythm tools polite: an even request pace per
 // host that slows down when a server asks it to, plus the retry helpers
 // and target parsing every tool shares.

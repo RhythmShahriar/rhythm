@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Rhythm Shahriar <me@rhy.io>
+// SPDX-License-Identifier: AGPL-3.0-only
+
 // Package secrets finds credentials in text and masks them, so tools can
 // report what they saw without ever printing a key, token or password.
 // Rules cover common cloud, payment and messaging providers, HTTP

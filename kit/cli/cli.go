@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Rhythm Shahriar <me@rhy.io>
+// SPDX-License-Identifier: AGPL-3.0-only
+
 // Package cli holds the small command-line helpers every Rhythm tool
 // shares, so flags behave the same in all of them.
 package cli

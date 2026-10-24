@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Rhythm Shahriar <me@rhy.io>
+// SPDX-License-Identifier: AGPL-3.0-only
+
 // Package cache is a small on-disk cache for data a tool fetches from the
 // network: fresh entries are reused, stale ones refreshed, and when the
 // network is down the last good copy is used.

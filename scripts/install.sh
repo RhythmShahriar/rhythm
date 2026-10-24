@@ -1,4 +1,7 @@
 #!/bin/sh
+# Copyright (c) 2026 Rhythm Shahriar <me@rhy.io>
+# SPDX-License-Identifier: AGPL-3.0-only
+
 # Installs rhythm and its tools from GitHub Releases:
 #   curl -fsSL https://rythm.sh/install | sh
 #

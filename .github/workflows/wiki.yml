@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Rhythm Shahriar <me@rhy.io>
+# SPDX-License-Identifier: AGPL-3.0-only
+
 # Publishes wiki/ to the repository's GitHub Wiki. The wiki is generated:
 # edit the Markdown in wiki/ and open a pull request, so changes are
 # reviewed and versioned like code. Edits made in the Wiki tab are

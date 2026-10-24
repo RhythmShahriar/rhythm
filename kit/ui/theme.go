@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Rhythm Shahriar <me@rhy.io>
+// SPDX-License-Identifier: AGPL-3.0-only
+
 // Package ui holds the shared terminal theme, from the Rhythm brand tokens
 // (personal-portfolio/packages/brand/tokens.css): ink, paper and one dot.
 package ui

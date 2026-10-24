@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Rhythm Shahriar <me@rhy.io>
+// SPDX-License-Identifier: AGPL-3.0-only
+
 // Package crawl discovers the pages of a website the way a careful
 // visitor would: from its sitemaps and by following its own links. It
 // stays on the site, honors robots.txt, skips URLs with side effects

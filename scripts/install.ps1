@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Rhythm Shahriar <me@rhy.io>
+# SPDX-License-Identifier: AGPL-3.0-only
+
 # Installs rhythm and its tools on Windows from GitHub Releases:
 #   irm https://rythm.sh/install.ps1 | iex
 #
