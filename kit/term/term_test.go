@@ -44,7 +44,7 @@ func TestSafeText(t *testing.T) {
 
 func TestEscapeMarkdown(t *testing.T) {
 	for in, want := range map[string]string{
-		`<img src=https://attacker.invalid/px.gif>`: `\<img src=https://attacker.invalid/px.gif\>`,
+		`<img src=https://attacker.invalid/px.gif>`: `\<img src=https\://attacker.invalid/px.gif\>`,
 		`[click](javascript:alert(1))`:              `\[click\]\(javascript:alert\(1\)\)`,
 		"a | b":                                     `a \| b`,
 		"*bold* _em_ `code` ~del~":                  "\\*bold\\* \\_em\\_ \\`code\\` \\~del\\~",
@@ -58,6 +58,10 @@ func TestEscapeMarkdown(t *testing.T) {
 		"back\\slash":                               `back\\slash`,
 		"esc\x1b[2K":                                "esc\uFFFD\\[2K",
 		"a-b+c":                                     "a-b+c",
+		"see https://evil.example now":              `see https\://evil.example now`,
+		"WWW.evil.example":                          `WWW\.evil.example`,
+		"mail bob@evil.example":                     `mail bob\@evil.example`,
+		"time 10:30, a.b":                           "time 10:30, a.b",
 	} {
 		if got := EscapeMarkdown(in); got != want {
 			t.Errorf("EscapeMarkdown(%q) = %q, want %q", in, got, want)
@@ -82,7 +86,7 @@ func TestMarkdownCode(t *testing.T) {
 func TestMarkdownLink(t *testing.T) {
 	for _, c := range []struct{ text, url, want string }{
 		{"Advisory", "https://wpscan.example/v/1", "[Advisory](https://wpscan.example/v/1)"},
-		{"", "https://x.example/a", `[https://x.example/a](https://x.example/a)`},
+		{"", "https://x.example/a", `[https\://x.example/a](https://x.example/a)`},
 		{"[x](y)", "HTTP://x.example/a(b) c", `[\[x\]\(y\)](http://x.example/a%28b%29%20c)`},
 		{"click", "javascript:alert(1)", "click"},
 		{"", "javascript:alert(1)", `javascript:alert\(1\)`},

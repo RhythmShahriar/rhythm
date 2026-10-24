@@ -99,12 +99,17 @@ const mdSpecial = "\\`*_[]()!<>|#~&{}"
 // that starts emphasis, code, links, images, HTML, entities, headings or
 // table cells and before a list or block marker at the start. Line breaks
 // become spaces, so one value can't end a table row.
+//
+// GitHub Flavored Markdown also turns bare URLs (https://x.example),
+// www. names and e-mail addresses into links. The ':' of "://", the '.'
+// after "www" and every '@' are escaped too, which keeps them as text
+// there while CommonMark renders the same characters.
 func EscapeMarkdown(s string) string {
 	s = SafeText(strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ").Replace(s))
 	var b strings.Builder
 	b.Grow(len(s) + len(s)/8)
 	for i, r := range s {
-		if r < utf8.RuneSelf && strings.ContainsRune(mdSpecial, r) || i == 0 && strings.ContainsRune("-+=>", r) {
+		if r < utf8.RuneSelf && strings.ContainsRune(mdSpecial, r) || i == 0 && strings.ContainsRune("-+=>", r) || autolinkChar(s, i) {
 			b.WriteByte('\\')
 		}
 		b.WriteRune(r)
@@ -115,6 +120,21 @@ func EscapeMarkdown(s string) string {
 		out = out[:n] + `\` + out[n:]
 	}
 	return out
+}
+
+// autolinkChar reports whether s[i] is a character GFM needs to see
+// unescaped to start an extended autolink: '@', the ':' of "://" or the
+// '.' of "www.".
+func autolinkChar(s string, i int) bool {
+	switch s[i] {
+	case '@':
+		return true
+	case ':':
+		return strings.HasPrefix(s[i+1:], "//")
+	case '.':
+		return i >= 3 && strings.EqualFold(s[i-3:i], "www")
+	}
+	return false
 }
 
 // MarkdownCode returns s as inline code: SafeText, line breaks as spaces,
