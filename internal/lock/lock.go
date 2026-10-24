@@ -159,8 +159,8 @@ func (f *File) Marshal() ([]byte, error) {
 }
 
 // marshal encodes v with a two-space indent and a trailing newline.
-// encoding/json writes map keys sorted, so platforms are stable too, and
-// HTML escaping is off so a signer URL reads as written.
+// encoding/json writes map keys sorted, so platforms are stable too. HTML
+// escaping is off so a signer URL reads as written.
 func marshal(v any) ([]byte, error) {
 	var b bytes.Buffer
 	enc := json.NewEncoder(&b)
@@ -277,7 +277,7 @@ var (
 )
 
 // Validate reports every problem with f: an unknown schema, duplicate
-// tools, names, repos, versions or sources that aren't valid, and
+// tools, names, repos, versions or sources that aren't valid and
 // hashes that aren't 64 lowercase hex digits.
 func (f *File) Validate() error {
 	var errs []error

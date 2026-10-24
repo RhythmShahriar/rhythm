@@ -7,7 +7,7 @@ package main
 
 import "os"
 
-// forwardSignals is empty: Windows has no signals to pass on, and the
+// forwardSignals is empty: Windows has no signals to pass on and the
 // console already delivers Ctrl-C and Ctrl-Break to the child.
 var forwardSignals []os.Signal
 

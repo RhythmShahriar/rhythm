@@ -35,7 +35,7 @@ type command struct {
 var commands = map[string]command{}
 
 // register adds a subcommand. Each command file calls it from init(), so
-// adding a command never means editing main.go, and help lists it.
+// adding a command never means editing main.go and help lists it.
 func register(c command) {
 	if _, dup := commands[c.name]; dup {
 		panic("rhythm: command registered twice: " + c.name)
@@ -105,7 +105,7 @@ func toolEnv(environ []string, invokedAs string) []string {
 
 // runChild runs a tool as a child process, for Windows (which has no
 // exec) and for when exec fails. It returns the tool's exit code mapped
-// the way a shell reports it, and an error only when the tool could not
+// the way a shell reports it and an error only when the tool could not
 // start.
 func runChild(bin string, args, env []string, stdout, stderr io.Writer) (int, error) {
 	cmd := exec.Command(bin, args...) //nolint:gosec // running rhythm-<tool> from PATH is the extension model

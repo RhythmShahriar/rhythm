@@ -36,8 +36,8 @@ func init() {
 
 const completionSynopsis = `Usage: rhythm completion bash|zsh|fish|powershell
 
-Prints a script that completes rhythm's commands, tools and flags, and
-each tool's own commands and flags. Load it from your shell's start-up
+Prints a script that completes rhythm's commands, tools and flags as
+well as each tool's own commands and flags. Load it from your shell's start-up
 file:
   bash        eval "$(rhythm completion bash)"            in ~/.bashrc
   zsh         rhythm completion zsh > "${fpath[1]}/_rhythm"

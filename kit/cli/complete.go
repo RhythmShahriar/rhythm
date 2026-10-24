@@ -19,6 +19,12 @@ import (
 // being the word under the cursor (empty when the cursor follows a
 // space). `rhythm completion` scripts call the router, which forwards
 // `rhythm <tool> ...` to the tool this way.
+//
+// The router forwards only to a tool in its registry or one the user
+// added as an extension. It first runs `<tool> version --json` to see that
+// the tool prints a rhythm-version/v1 document with a kit_version, as
+// Main does. A tool not built on Main that wants completion must answer
+// both the same way; one that doesn't is never sent __complete.
 const CompleteCommand = "__complete"
 
 // complete answers CompleteCommand from the tool's commands. Nothing it
