@@ -211,10 +211,9 @@ func install(args []string, stdout, stderr io.Writer) int {
 	}
 	if len(bad) > 0 {
 		for _, name := range bad {
+			fmt.Fprintf(stderr, "rhythm: unknown tool %q\n", name)
 			if near := suggest(name, names); near != "" {
-				fmt.Fprintf(stderr, "rhythm: unknown tool %q (did you mean %s?)\n", name, near)
-			} else {
-				fmt.Fprintf(stderr, "rhythm: unknown tool %q\n", name)
+				fmt.Fprintf(stderr, "  did you mean: rhythm install %s\n", near)
 			}
 		}
 		fmt.Fprintln(stderr, "  known:", strings.Join(names, ", "))

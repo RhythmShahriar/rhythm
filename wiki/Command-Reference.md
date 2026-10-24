@@ -159,7 +159,7 @@ Messages you may see, all before anything is downloaded:
 
 | Message | Exit |
 |---|---|
-| `rhythm: unknown tool "sondcheck" (did you mean soundcheck?)`<br>`rhythm: unknown tool "nope"`<br>`  known: echo, soundcheck, tuner` | 2 |
+| `rhythm: unknown tool "sondcheck"`<br>`  did you mean: rhythm install soundcheck`<br>`rhythm: unknown tool "nope"`<br>`  known: echo, soundcheck, tuner` | 2 |
 | `rhythm: rhythm installs tools, not itself; update it with: rhythm update --self-only` | 2 |
 | `usage: rhythm install <tool>[@version]... [flags]; name a tool, or use --defaults` | 2 |
 | `rhythm: tuner: invalid version "0.3.x"; use latest, an exact version such as 0.3.1, or 0.3 for the newest 0.3.x` | 2 |
@@ -198,7 +198,7 @@ Usage errors exit 2 before any request:
 
 | Message |
 |---|
-| `rhythm: unknown tool "tunr" (did you mean tuner?)`<br>`  known: rhythm, echo, soundcheck, tuner` |
+| `rhythm: unknown tool "tunr"`<br>`  did you mean: rhythm update tuner`<br>`  known: rhythm, echo, soundcheck, tuner` |
 | `rhythm: --self-only updates rhythm alone; drop the tool names or the flag` |
 | `rhythm: --json works with --check only` |
 | `rhythm: --json doesn't work with --lock; the lock is JSON already` |

@@ -345,7 +345,7 @@ func TestVerifyFailures(t *testing.T) {
 		t.Errorf("exit %d\n%s%s", code, out, errs)
 	}
 	// An unknown name is a usage error.
-	if code, _, errs := runCmd("verify", "tunr"); code != 2 || !strings.Contains(errs, `unknown tool "tunr" (did you mean tuner?)`) {
+	if code, _, errs := runCmd("verify", "tunr"); code != 2 || !strings.Contains(errs, "unknown tool \"tunr\"\n  did you mean: rhythm verify tuner\n") {
 		t.Errorf("exit %d: %s", code, errs)
 	}
 	// A missing bundle fails verify and says so.

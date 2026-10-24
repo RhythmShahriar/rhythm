@@ -97,7 +97,7 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 	}
 	// Names are checked before anything touches the network, so a typo
 	// costs nothing.
-	want, code := updateScope(names, *selfOnly, exts, stderr)
+	want, code := updateScope("rhythm update", names, *selfOnly, exts, stderr)
 	if code != 0 {
 		return code
 	}
@@ -532,7 +532,7 @@ func (r *updateReport) summary(checkOnly bool) string {
 // targets to update; nil means everything. Extensions are named as
 // listed. A non-zero code means the names were wrong and the update must
 // not start.
-func updateScope(names []string, selfOnly bool, exts []extension, stderr io.Writer) (map[string]bool, int) {
+func updateScope(command string, names []string, selfOnly bool, exts []extension, stderr io.Writer) (map[string]bool, int) {
 	list := splitNames(names)
 	if selfOnly {
 		if len(list) > 0 {
@@ -552,7 +552,11 @@ func updateScope(names []string, selfOnly bool, exts []extension, stderr io.Writ
 			ok = slices.ContainsFunc(exts, func(x extension) bool { return x.Name == tool })
 		}
 		if !ok {
-			fmt.Fprintf(stderr, "rhythm: unknown tool %q%s\n", n, suggest(n))
+			var extNames []string
+			for _, x := range exts {
+				extNames = append(extNames, x.Name)
+			}
+			unknownName(stderr, command, n, true, extNames...)
 			bad = true
 			continue
 		}

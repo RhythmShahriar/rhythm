@@ -225,7 +225,8 @@ if [ -n "$bad" ]; then
 	known=$(set -- $tools; while [ $# -gt 1 ]; do echo "$1"; shift 2; done | sort | tr '\n' ' ')
 	for n in $bad; do
 		near=$(suggest "$n" $known)
-		printf 'rhythm: unknown tool "%s"%s\n' "$n" "${near:+ (did you mean $near?)}" >&2
+		printf 'rhythm: unknown tool "%s"\n' "$n" >&2
+		[ -z "$near" ] || printf '  did you mean: rhythm install %s\n' "$near" >&2
 	done
 	printf '  known: %s\n' "$(echo $known | sed 's/ /, /g')" >&2
 	exit 2

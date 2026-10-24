@@ -208,7 +208,7 @@ func TestUninstallUsage(t *testing.T) {
 		t.Errorf("no names: exit %d: %s", code, errs)
 	}
 	if code, _, errs := runCmd("uninstall", "tuner", "tunr", "nope"); code != 2 ||
-		!strings.Contains(errs, `unknown tool "tunr" (did you mean tuner?)`) || !strings.Contains(errs, `unknown tool "nope"`) {
+		!strings.Contains(errs, "unknown tool \"tunr\"\n  did you mean: rhythm uninstall tuner\n") || !strings.Contains(errs, `unknown tool "nope"`) {
 		t.Errorf("bad names: exit %d: %s", code, errs)
 	}
 	if len(files(t, s.bin)) != 3 {

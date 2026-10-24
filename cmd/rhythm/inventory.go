@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path"
@@ -19,6 +20,7 @@ import (
 	"time"
 
 	"github.com/RhythmShahriar/rhythm/internal/lock"
+	"github.com/RhythmShahriar/rhythm/kit/cli"
 )
 
 // The router itself, as a target of rhythm update.
@@ -84,56 +86,30 @@ func splitNames(args []string) []string {
 	return list
 }
 
-// suggest returns " (did you mean tuner?)" for a name close to a known
-// one, or "" when nothing is close enough to be a typo.
-func suggest(name string) string {
-	name = strings.ToLower(name)
-	best, bestDist := "", 3 // only suggest within 2 edits
-	consider := func(candidate, full string) {
-		if d := levenshtein(name, candidate); d < bestDist {
-			best, bestDist = full, d
-		}
+// unknownName reports a name command (such as "rhythm install") doesn't
+// know, with the did-you-mean line when a known name is close: rhythm
+// itself when withSelf, each tool by name, as rhythm-<tool> and by any
+// alias long enough to be a typo of something, then extra (such as the
+// extensions rhythm update knows).
+func unknownName(stderr io.Writer, command, name string, withSelf bool, extra ...string) {
+	fmt.Fprintf(stderr, "rhythm: unknown tool %q\n", name)
+	var options []string
+	if withSelf {
+		options = append(options, selfName)
 	}
-	consider(selfName, selfName)
 	for _, t := range toolNames() {
-		consider(t, t)
-		consider("rhythm-"+t, t)
+		options = append(options, t, "rhythm-"+t)
 	}
 	for _, t := range registry {
 		for _, a := range t.Aliases {
 			// One- and two-letter aliases are within two edits of every
 			// short word, so they would suggest nonsense.
 			if len(a) > 2 {
-				consider(a, t.Name)
+				options = append(options, a)
 			}
 		}
 	}
-	if best == "" {
-		return ""
-	}
-	return " (did you mean " + best + "?)"
-}
-
-// levenshtein returns the edit distance between a and b.
-func levenshtein(a, b string) int {
-	ra, rb := []rune(a), []rune(b)
-	prev := make([]int, len(rb)+1)
-	cur := make([]int, len(rb)+1)
-	for j := range prev {
-		prev[j] = j
-	}
-	for i := 1; i <= len(ra); i++ {
-		cur[0] = i
-		for j := 1; j <= len(rb); j++ {
-			cost := 1
-			if ra[i-1] == rb[j-1] {
-				cost = 0
-			}
-			cur[j] = min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost)
-		}
-		prev, cur = cur, prev
-	}
-	return prev[len(rb)]
+	cli.DidYouMean(stderr, command, strings.ToLower(name), append(options, extra...))
 }
 
 // findTargets returns rhythm itself and every tool installed on PATH, or

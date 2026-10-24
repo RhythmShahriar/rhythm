@@ -826,7 +826,7 @@ func installScope(names []string, defaults, locked bool, stderr io.Writer) ([]in
 			fmt.Fprintln(stderr, "rhythm: rhythm installs tools, not itself; update it with: rhythm update --self-only")
 			bad = true
 		case !ok:
-			fmt.Fprintf(stderr, "rhythm: unknown tool %q%s\n", name, suggest(name))
+			unknownName(stderr, "rhythm install", name, false)
 			bad, badName = true, true
 		case pinned && locked && !exactSpec.MatchString(spec):
 			// An exact version is checked against the lock; a range can't be.

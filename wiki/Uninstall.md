@@ -29,7 +29,7 @@ For each tool it removes the copy that runs (the first on your `PATH`, plus the 
 |---|---|
 | `rhythm: to remove rhythm itself, run: rhythm uninstall --all rhythm` | 2 |
 | `usage: rhythm uninstall <tool>... [--purge] [--all]; name a tool, or use --all` | 2 |
-| `rhythm: unknown tool "tunr" (did you mean tuner?)`<br>`  known: rhythm, echo, soundcheck, tuner` | 2, nothing removed |
+| `rhythm: unknown tool "tunr"`<br>`  did you mean: rhythm uninstall tuner`<br>`  known: rhythm, echo, soundcheck, tuner` | 2, nothing removed |
 | `rhythm-tuner is managed by Homebrew; remove it with: brew uninstall rhythm-tuner` | 1, nothing removed, not even with `--purge` |
 | `rhythm-echo        can't remove /usr/local/bin/rhythm-echo; rerun with sudo` | 1 |
 

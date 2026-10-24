@@ -50,7 +50,7 @@ func TestDryRun(t *testing.T) {
 		t.Fatalf("dry run = %d %q", code, out)
 	}
 	// Every unknown name is listed, with a suggestion when one is close.
-	want := "rhythm: unknown tool \"tunr\" (did you mean tuner?)\nrhythm: unknown tool \"bogus\"\n  known: echo, tuner\n"
+	want := "rhythm: unknown tool \"tunr\"\n  did you mean: rhythm install tuner\nrhythm: unknown tool \"bogus\"\n  known: echo, tuner\n"
 	if code, _, errOut := call("install", "--dry-run", "tunr", "echo", "bogus"); code != 2 || errOut != want {
 		t.Fatalf("unknown = %d %q", code, errOut)
 	}

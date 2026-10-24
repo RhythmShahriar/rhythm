@@ -83,9 +83,7 @@ func cmdVersion(args []string, stdout, stderr io.Writer) int {
 // a rhythm-<name> on PATH, with a suggestion when one is close.
 func unknownTool(stderr io.Writer, name string) int {
 	fmt.Fprintf(stderr, "rhythm: unknown tool %q\n", name)
-	if s := cli.Suggest(name, suggestions()); s != "" {
-		fmt.Fprintf(stderr, "  did you mean: rhythm %s\n", s)
-	}
+	cli.DidYouMean(stderr, "rhythm", name, suggestions())
 	fmt.Fprintln(stderr, "  run 'rhythm help' to see the tools")
 	return cli.ExitUsage
 }

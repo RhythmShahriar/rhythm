@@ -324,7 +324,7 @@ func TestUpdateUnknownNameMakesNoRequest(t *testing.T) {
 		t.Errorf("exit %d: %s", code, errs)
 	}
 	code, _, errs = runCmd("update", "tunr")
-	if code != 2 || !strings.Contains(errs, "did you mean tuner?") {
+	if code != 2 || !strings.Contains(errs, "rhythm: unknown tool \"tunr\"\n  did you mean: rhythm update tuner\n") {
 		t.Errorf("exit %d: %s", code, errs)
 	}
 	if r := s.api.requests(); len(r) != 0 {

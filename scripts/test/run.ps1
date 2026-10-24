@@ -392,7 +392,9 @@ function Case-typo {
     Clear-Requests
     Invoke-Install @{ RHYTHM_TOOLS = 'tuner sondcheck' }
     Assert-Code 1
-    Assert-Out 'rhythm: unknown tool "sondcheck" (did you mean soundcheck?)'
+    Assert-Out 'rhythm: unknown tool "sondcheck"'
+    Assert-Out '  did you mean: rhythm install soundcheck'
+    Assert-NoOut '(did you mean'
     Assert-Out '  known: echo, soundcheck, tuner'
     Assert-Out "rhythm install: rhythm 0.7.0 doesn't know sondcheck; run '$(Get-Bin 'rhythm.exe') help' to see the tools"
     Assert-File 'rhythm.exe'
@@ -402,7 +404,8 @@ function Case-typo {
 
     Invoke-Install @{ RHYTHM_TOOLS = 'tunr,sondcheck,nope' }
     Assert-Code 1
-    Assert-Out 'rhythm: unknown tool "tunr" (did you mean tuner?)'
+    Assert-Out 'rhythm: unknown tool "tunr"'
+    Assert-Out '  did you mean: rhythm install tuner'
     Assert-Out 'rhythm: unknown tool "nope"'
     Assert-Out "rhythm install: rhythm 0.7.0 doesn't know tunr, sondcheck, nope;"
 }
