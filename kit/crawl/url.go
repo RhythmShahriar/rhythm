@@ -113,24 +113,43 @@ func port(scheme, p string) string {
 // IsPage reports whether u looks like a page rather than a file.
 func IsPage(u *url.URL) bool { return !nonPage.MatchString(u.Path) }
 
-// DefaultExcludes skips admin, login, feeds, APIs and URLs with side effects
-// (logout, add to cart, comment replies). Patterns match the path and query.
-var DefaultExcludes = []string{
+// DefaultExcludes skips admin, login, feeds, APIs and URLs with side
+// effects: logout, add to cart, comment replies, unsubscribe and opt-out
+// links, confirmations, delete and trash actions, and links carrying a
+// token or nonce, which can act on a real person's account just by being
+// visited. Patterns match the lower-cased path and query.
+var DefaultExcludes = append([]string{
 	"/wp-admin*", "/wp-login.php*", "/xmlrpc.php*", "/wp-json*", "*/feed", "*/feed/*", "/wp-cron.php*",
 	"*?*replytocom=*", "*?*add-to-cart=*", "*?*remove_item=*", "*?*undo_item=*", "*?*removed_item=*",
-	"*?*action=logout*", "*/logout*", "*/log-out*", "*/signout*", "*?*preview=*", "*?*attachment_id=*",
+	"*?*action=logout*", "*?*preview=*", "*?*attachment_id=*",
 	"*?*customize_changeset_uuid=*", "*?s=*", "*&s=*", "/cart/?*", "/my-account/customer-logout*",
+	"*unsubscribe*", "*/opt-out*", "*/optout*",
+	"*?*action=delete*", "*?*action=trash*", "*?*rest_route=*", "*?*token=*", "*?*_wpnonce=*",
+}, segment("logout", "log-out", "signout", "sign-out", "logoff", "confirm")...)
+
+// segment returns patterns that match each name only as a whole path
+// segment (/logout, /logout/, /logout/now, /logout.php, /logout?next=/),
+// so /blog/logout-tips-for-teams/ and /confirmation-policy are crawled.
+func segment(names ...string) []string {
+	var out []string
+	for _, n := range names {
+		out = append(out, "*/"+n, "*/"+n+"/*", "*/"+n+".*", "*/"+n+"?*")
+	}
+	return out
 }
 
 // Excluded reports whether u matches any pattern. A pattern is matched
 // against the path plus query ("/shop/?orderby=price"), with * matching
-// any run of characters, including /.
+// any run of characters, including /. Matching ignores case, for
+// DefaultExcludes and the caller's Include and Exclude patterns alike,
+// so /WP-ADMIN/ is as excluded as /wp-admin/.
 func Excluded(u *url.URL, patterns []string) bool {
 	target := u.EscapedPath()
 	if u.RawQuery != "" {
 		target += "?" + u.RawQuery
 	}
-	return slices.ContainsFunc(patterns, func(p string) bool { return glob(p, target) })
+	target = strings.ToLower(target)
+	return slices.ContainsFunc(patterns, func(p string) bool { return glob(strings.ToLower(p), target) })
 }
 
 // glob matches s against p where * is any run of characters.

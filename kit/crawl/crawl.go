@@ -43,8 +43,8 @@ type Options struct {
 	Limit        int      // most pages to return; 0 means 500
 	PerGroup     int      // pages kept per URL template; 0 means 3, <0 keeps every page
 	FanOut       int      // children before a path segment becomes a template; 0 means 10
-	Include      []string // if set, only paths matching one of these globs
-	Exclude      []string // added to DefaultExcludes
+	Include      []string // if set, only paths matching one of these globs (case-insensitive, see Excluded)
+	Exclude      []string // added to DefaultExcludes (case-insensitive)
 	IgnoreRobots bool     // for your own site, when robots.txt blocks pages you want checked or is unavailable
 	NoSitemaps   bool
 	// NoFollow stops after robots.txt, sitemaps and the start page: the
