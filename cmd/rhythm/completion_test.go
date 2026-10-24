@@ -244,7 +244,8 @@ func TestCompletionScripts(t *testing.T) {
 
 // TestBashScriptCompletes runs the bash script against a stand-in
 // rhythm that logs its arguments, so the words reach __complete as typed
-// (the empty word under the cursor included) and compgen filters them.
+// (the empty word under the cursor included) and the script filters
+// them by the word under the cursor.
 func TestBashScriptCompletes(t *testing.T) {
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("bash isn't installed")
@@ -280,6 +281,44 @@ func TestBashScriptCompletes(t *testing.T) {
 			t.Errorf("%s: rhythm got %q, want %q", c.words, got, c.args)
 		}
 	}
+}
+
+// TestBashScriptDoesNotExpandCandidates checks that a candidate is
+// offered as the literal text the tool printed: a $(...) in it must not
+// run, as it would if the script passed it through compgen -W.
+func TestBashScriptDoesNotExpandCandidates(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash isn't installed")
+	}
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "pwned")
+	script := filepath.Join(dir, "rhythm.bash")
+	if err := os.WriteFile(script, []byte(bashCompletion), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	candidate := "$(touch " + marker + ")"
+	fake := filepath.Join(dir, "rhythm")
+	body := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' %s snap1 '$HOME' '`id`'\n", shellQuote(candidate))
+	if err := os.WriteFile(fake, []byte(body), 0o755); err != nil { //nolint:gosec // the stand-in must be executable
+		t.Fatal(err)
+	}
+	cmd := exec.Command("bash", "--norc", "--noprofile", "-c", fmt.Sprintf(
+		`source %q; COMP_WORDS=(rhythm soundcheck ""); COMP_CWORD=2; _rhythm_complete; for w in "${COMPREPLY[@]}"; do printf '%%s\n' "$w"; done`,
+		script))
+	cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	out, err := cmd.CombinedOutput()
+	want := candidate + "\nsnap1\n$HOME\n`id`\n"
+	if err != nil || string(out) != want {
+		t.Errorf("completed %q (%v), want %q", out, err, want)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Error("a candidate ran as a command")
+	}
+}
+
+// shellQuote quotes s for a POSIX shell.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // TestZshScriptCompletes runs the zsh function outside the completion

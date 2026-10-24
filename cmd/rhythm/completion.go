@@ -221,7 +221,9 @@ func toolOutput(ctx context.Context, bin string, env []string, args ...string) (
 
 // The scripts pass every word up to the cursor to `rhythm __complete`,
 // the word under the cursor last even when it is empty and fall back to
-// file names when nothing comes back.
+// file names when nothing comes back. The bash script reads the lines
+// as they are: compgen -W would expand them again, so a candidate such
+// as $(cmd) taken from a file name would run as a command.
 
 const bashCompletion = `# bash completion for rhythm. Load it with:
 #   eval "$(rhythm completion bash)"
@@ -234,12 +236,11 @@ _rhythm_complete() {
         words=("${COMP_WORDS[@]}")
         cword=$COMP_CWORD
     fi
-    local candidates line IFS=$'\n'
-    candidates=$(rhythm __complete "${words[@]:1:cword}" 2>/dev/null)
+    local line
     COMPREPLY=()
     while IFS= read -r line; do
-        COMPREPLY+=("$line")
-    done < <(compgen -W "$candidates" -- "$cur")
+        [[ $line == "$cur"* ]] && COMPREPLY+=("$line")
+    done < <(rhythm __complete "${words[@]:1:cword}" 2>/dev/null)
     if declare -F __ltrim_colon_completions >/dev/null 2>&1; then
         __ltrim_colon_completions "$cur"
     fi
