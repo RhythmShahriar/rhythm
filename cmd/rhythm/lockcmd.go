@@ -140,6 +140,18 @@ func (f *lockFile) validate() error {
 				errs = append(errs, fmt.Errorf("%s: platforms[%q]: sha256 %q isn't 64 lowercase hex digits", where, p, e.Platforms[p]))
 			}
 		}
+		packs := map[string]bool{}
+		for _, d := range e.Data {
+			switch {
+			case d.Name == "":
+				errs = append(errs, fmt.Errorf("%s: a data pack has no name", where))
+			case packs[d.Name]:
+				errs = append(errs, fmt.Errorf("%s: data %q listed twice", where, d.Name))
+			case d.Version == "":
+				errs = append(errs, fmt.Errorf("%s: data %q has no version", where, d.Name))
+			}
+			packs[d.Name] = true
+		}
 	}
 	if f.Rhythm != nil {
 		check("rhythm", f.Rhythm)
@@ -312,7 +324,7 @@ Writes rhythm.lock in the current folder from what is installed: rhythm
 and each tool's version, the sha256 of every platform's release archive
 and, for tools that report it, the version of their data. Commit the file
 and run "rhythm install --locked" on every laptop and pipeline to get the
-same versions. Finding each tool's data refreshes it.
+same versions and data. Finding each tool's data refreshes it first.
 
 Exit status: 0 when the lock was written, 1 when any program couldn't be
 locked (nothing is written then), 2 for a usage error and 130 when
@@ -370,8 +382,11 @@ func cmdLock(args []string, stdout, stderr io.Writer) int {
 			failed = true
 			continue
 		}
-		if !*noData && t.tool != selfName {
-			e.Data = lockData(ctx, t, stderr)
+		if !*noData && t.tool != selfName && !t.hung {
+			if e.Data, err = lockData(ctx, t, stdout, stderr); err != nil {
+				failed = true
+				continue
+			}
 		}
 		if t.tool == selfName {
 			f.Rhythm = &e
@@ -406,9 +421,28 @@ func lockTarget(ctx context.Context, u *update.Updater, t target) (lockEntry, er
 	return lockEntryFor(ctx, u, t.tool, rel.Release)
 }
 
-// lockData is the data t reports, for the lock. Data is the tool's own
-// business, so a tool that can't report it is locked without it.
-func lockData(context.Context, target, io.Writer) []dataPack { return nil }
+// lockData refreshes t's data and returns the packs it reports, for the
+// lock. A tool that isn't on kit/cli.Main can't report its data, so it is
+// locked without it.
+func lockData(ctx context.Context, t target, stdout, stderr io.Writer) ([]dataPack, error) {
+	if !t.kitCLI {
+		return nil, nil
+	}
+	packs, err := refreshData(ctx, t, nil, stdout, stderr)
+	if err != nil {
+		if ctx.Err() == nil {
+			fmt.Fprintln(stderr, "  lock without the tools' data with: rhythm lock --no-data")
+		}
+		return nil, err
+	}
+	for _, p := range packs {
+		if p.Name == "" || p.Version == "" || !sha256Hex.MatchString(p.SHA256) {
+			fmt.Fprintf(stderr, "%s reported data %q version %q sha256 %q, which can't be locked\n", t.binary, p.Name, p.Version, p.SHA256)
+			return nil, errDataFailed
+		}
+	}
+	return packs, nil
+}
 
 // platformList is "darwin_arm64, linux_amd64, windows_amd64".
 func platformList(platforms map[string]string) string {

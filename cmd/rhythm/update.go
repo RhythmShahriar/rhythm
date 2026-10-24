@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 
@@ -202,6 +203,10 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 			continue
 		}
 		fmt.Fprintf(human, "%-18s %s → %s ✔\n", t.binary, t.current, rel.Version)
+		// The data step talks to the new binary, which may have moved to
+		// kit/cli.Main; the line names the version now installed.
+		p, _ := probeVersionInfo(ctx, t.path)
+		targets[i].current, targets[i].kitCLI = rel.Version, p.kitCLI
 		rep.updated++
 	}
 
@@ -210,7 +215,9 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 			if t.tool == selfName || t.hung || ctx.Err() != nil {
 				continue // rhythm has no data of its own; a hung tool would hang here too
 			}
-			refreshData(ctx, t, stdout, stderr, &rep)
+			if _, err := refreshData(ctx, t, nil, stdout, stderr); err != nil {
+				rep.failed = append(rep.failed, t.binary+" data")
+			}
 		}
 	}
 	if ctx.Err() != nil {
@@ -297,24 +304,121 @@ func writeJSON(w io.Writer, v any) error {
 	return enc.Encode(v)
 }
 
+// errDataFailed is refreshData's answer after it has reported a failed
+// refresh.
+var errDataFailed = errors.New("data refresh failed")
+
 // refreshData runs the tool's own update command, which refreshes its
-// data (Tuner's checks and vulnerability database, for example). The
-// tool explains a failure itself; rhythm adds which tool it was and how
-// it exited, so the failure isn't lost among the up-to-date lines.
-func refreshData(ctx context.Context, t target, stdout, stderr io.Writer, rep *updateReport) {
-	cmd := exec.CommandContext(ctx, t.path, "update") //nolint:gosec // our own tool binaries
-	cmd.Stdout, cmd.Stderr = stdout, stderr
+// data (Tuner's checks and vulnerability database, for example). A tool
+// on kit/cli.Main gets `update --json` and its rhythm-data/v1 report is
+// printed as one line and returned; any other tool gets plain `update`
+// and speaks for itself. pins, when given, ask for those pack versions
+// with --pin; a tool that can't pin is warned about and refreshed to its
+// latest data instead. The tool explains a failure itself; rhythm adds
+// which tool it was and how it exited, so the failure isn't lost among
+// the up-to-date lines.
+func refreshData(ctx context.Context, t target, pins []dataPack, stdout, stderr io.Writer) ([]dataPack, error) {
+	if !t.kitCLI {
+		if len(pins) > 0 {
+			fmt.Fprintf(stderr, "%s can't pin its data; refreshing it to the latest instead\n", t.binary)
+		}
+		cmd := exec.CommandContext(ctx, t.path, "update") //nolint:gosec // our own tool binaries
+		cmd.Stdout, cmd.Stderr = stdout, stderr
+		return nil, dataFailure(ctx, stderr, t.binary, cmd.Run())
+	}
+	args := []string{"update", "--json"}
+	if len(pins) > 0 {
+		args = append(args, "--pin", pinArg(pins))
+	}
+	out, err := runDataJSON(ctx, t.path, args, stderr)
+	var ee *exec.ExitError
+	if len(pins) > 0 && errors.As(err, &ee) && ee.ExitCode() == exitUsage {
+		// A usage error: this version of the tool has no --pin yet.
+		fmt.Fprintf(stderr, "%s can't pin its data; refreshing it to the latest instead\n", t.binary)
+		pins = nil
+		out, err = runDataJSON(ctx, t.path, args[:2], stderr)
+	}
+	if err := dataFailure(ctx, stderr, t.binary, err); err != nil {
+		return nil, err
+	}
+	packs, ok := parseDataReport(out)
+	if !ok {
+		fmt.Fprintf(stderr, "%s  data refresh failed (no rhythm-data/v1 report)\n", t.binary)
+		return nil, errDataFailed
+	}
+	fmt.Fprintf(stdout, "%s %s  data: %s  ok\n", t.binary, t.current, packList(packs))
+	for _, pin := range pins {
+		got := "(none)"
+		for _, p := range packs {
+			if p.Name == pin.Name {
+				got = p.Version
+			}
+		}
+		if got != pin.Version {
+			fmt.Fprintf(stderr, "%s data %s is %s, not the locked %s\n", t.binary, pin.Name, got, pin.Version)
+		}
+	}
+	return packs, nil
+}
+
+// runDataJSON runs a tool's update --json with its progress on stderr
+// and returns the report it printed, at most 1 MiB of it.
+func runDataJSON(ctx context.Context, bin string, args []string, stderr io.Writer) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, bin, args...) //nolint:gosec // our own tool binaries
+	out := &capped{max: 1 << 20}
+	cmd.Stdout, cmd.Stderr = out, stderr
 	err := cmd.Run()
+	return out.buf.Bytes(), err
+}
+
+// dataFailure reports a failed refresh and returns errDataFailed, or nil
+// when err is nil or Ctrl-C caused it.
+func dataFailure(ctx context.Context, stderr io.Writer, binary string, err error) error {
 	if err == nil || ctx.Err() != nil {
-		return
+		return nil
 	}
 	var ee *exec.ExitError
 	if errors.As(err, &ee) {
-		fmt.Fprintf(stderr, "%s  data refresh failed (exit %d)\n", t.binary, ee.ExitCode())
+		fmt.Fprintf(stderr, "%s  data refresh failed (exit %d)\n", binary, ee.ExitCode())
 	} else {
-		fmt.Fprintf(stderr, "%s  data refresh failed (%v)\n", t.binary, err)
+		fmt.Fprintf(stderr, "%s  data refresh failed (%v)\n", binary, err)
 	}
-	rep.failed = append(rep.failed, t.binary+" data")
+	return errDataFailed
+}
+
+// parseDataReport reads update --json's answer:
+// {"schema":"rhythm-data/v1","data":[{"name","version","sha256"}]}.
+func parseDataReport(out []byte) ([]dataPack, bool) {
+	var r struct {
+		Schema string     `json:"schema"`
+		Data   []dataPack `json:"data"`
+	}
+	if json.Unmarshal(out, &r) != nil || r.Schema != "rhythm-data/v1" {
+		return nil, false
+	}
+	slices.SortFunc(r.Data, func(a, b dataPack) int { return strings.Compare(a.Name, b.Name) })
+	return r.Data, true
+}
+
+// pinArg is the value of update --pin: "checks=2026.10.20,vulns=2026-10-24".
+func pinArg(pins []dataPack) string {
+	parts := make([]string, len(pins))
+	for i, p := range pins {
+		parts[i] = p.Name + "=" + p.Version
+	}
+	return strings.Join(parts, ",")
+}
+
+// packList is "checks 2026.10.20, vulns 2026-10-24", or "none".
+func packList(packs []dataPack) string {
+	if len(packs) == 0 {
+		return "none"
+	}
+	parts := make([]string, len(packs))
+	for i, p := range packs {
+		parts[i] = p.Name + " " + p.Version
+	}
+	return strings.Join(parts, ", ")
 }
 
 // firstRun reports whether a key is new on this machine and remembers

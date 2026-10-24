@@ -33,6 +33,7 @@ type target struct {
 	current string // the version the binary reports, or unknownVersion
 	probe   string // why the version is unknown
 	hung    bool   // the version probe timed out
+	kitCLI  bool   // built on kit/cli.Main, so it has update --json
 	path    string // where it was found
 	real    string // path with symlinks resolved; updates write here so links stay links
 	managed *manager
@@ -160,7 +161,9 @@ func findTargets(ctx context.Context, want map[string]bool) (targets []target, m
 		}
 		wg.Go(func() {
 			t := &targets[i]
-			t.current, t.probe, t.hung = probeVersion(ctx, t.path)
+			var p versionProbe
+			p, t.probe = probeVersionInfo(ctx, t.path)
+			t.current, t.hung, t.kitCLI = p.version, p.hung, p.kitCLI
 		})
 	}
 	wg.Wait()
@@ -286,29 +289,57 @@ var probeTimeout = 5 * time.Second
 // (the rhythm-version/v1 answer of tools built on kit/cli), then the
 // plain `--version` every tool has. hung reports a timeout.
 func probeVersion(ctx context.Context, bin string) (v, reason string, hung bool) {
+	p, reason := probeVersionInfo(ctx, bin)
+	return p.version, reason, p.hung
+}
+
+// versionProbe is what a tool says about itself.
+type versionProbe struct {
+	version string // or unknownVersion
+	hung    bool   // no answer within probeTimeout
+	kitCLI  bool   // version --json named a kit version: the tool runs on kit/cli.Main
+}
+
+// probeVersionInfo is probeVersion with what else the answer tells;
+// reason says why the version is unknown.
+func probeVersionInfo(ctx context.Context, bin string) (p versionProbe, reason string) {
 	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
 	timedOut := func() bool { return errors.Is(ctx.Err(), context.DeadlineExceeded) }
+	noAnswer := func() (versionProbe, string) {
+		return versionProbe{version: unknownVersion, hung: true}, fmt.Sprintf("no answer within %s", probeTimeout)
+	}
 
 	if out, err := probeOutput(ctx, bin, "version", "--json"); err == nil {
 		if v, ok := versionFromJSON(out); ok {
-			return v, "", false
+			return versionProbe{version: v, kitCLI: kitVersionIn(out)}, ""
 		}
 	}
 	if timedOut() {
-		return unknownVersion, fmt.Sprintf("no answer within %s", probeTimeout), true
+		return noAnswer()
 	}
 	out, err := probeOutput(ctx, bin, "--version")
+	unknown := versionProbe{version: unknownVersion}
 	switch {
 	case timedOut():
-		return unknownVersion, fmt.Sprintf("no answer within %s", probeTimeout), true
+		return noAnswer()
 	case err != nil:
-		return unknownVersion, fmt.Sprintf("%s --version failed: %v", filepath.Base(bin), err), false
+		return unknown, fmt.Sprintf("%s --version failed: %v", filepath.Base(bin), err)
 	}
 	if v, ok := versionFromText(out); ok {
-		return v, "", false
+		return versionProbe{version: v}, ""
 	}
-	return unknownVersion, fmt.Sprintf("%s --version printed no version number", filepath.Base(bin)), false
+	return unknown, fmt.Sprintf("%s --version printed no version number", filepath.Base(bin))
+}
+
+// kitVersionIn reports whether a rhythm-version/v1 answer names the kit
+// version the tool was built with. Only kit/cli.Main prints it. Tools
+// that print it also have the update --json data report.
+func kitVersionIn(out []byte) bool {
+	var v struct {
+		KitVersion string `json:"kit_version"`
+	}
+	return json.Unmarshal(out, &v) == nil && v.KitVersion != ""
 }
 
 // probeOutput runs bin with args and returns what it printed on stdout,

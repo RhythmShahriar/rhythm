@@ -40,15 +40,17 @@ type releaseAPI struct {
 	// tampered[repo@version] serves another archive. With sums true, a
 	// release that was replaced: checksums.txt matches the new archive.
 	tampered map[string]bool
-	// data[binary] is the shell a release's "update" runs.
+	// data[binary] is the shell a release's "update" runs; with
+	// kit[binary] the release is a kit/cli tool (see kitStub).
 	data  map[string]string
+	kit   map[string]bool
 	paths []string
 }
 
 // newReleaseAPI serves repos and points rhythm at it.
 func newReleaseAPI(t *testing.T, s *sandbox, repos map[string][]fakeRel) *releaseAPI {
 	t.Helper()
-	f := &releaseAPI{s: s, repos: repos, tampered: map[string]bool{}, data: map[string]string{}}
+	f := &releaseAPI{s: s, repos: repos, tampered: map[string]bool{}, data: map[string]string{}, kit: map[string]bool{}}
 	f.Server = httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.Close)
 	t.Setenv("RHYTHM_GITHUB_API", f.URL)
@@ -70,9 +72,12 @@ func (f *releaseAPI) archive(repo, version string) []byte {
 func (f *releaseAPI) build(repo, version string, tampered bool) []byte {
 	bin := binaryFor(repo)
 	f.mu.Lock()
-	data := f.data[bin]
+	data, kit := f.data[bin], f.kit[bin]
 	f.mu.Unlock()
 	body := stubScript(bin, version, f.s.log(bin), data)
+	if kit {
+		body = kitStub(bin, version, f.s.log(bin), data)
+	}
 	if tampered {
 		body = append(body, "# tampered\n"...)
 	}
@@ -708,5 +713,201 @@ func TestUpdateLockMinAge(t *testing.T) {
 		if !strings.Contains(errs, want) {
 			t.Errorf("stderr lacks %q:\n%s", want, errs)
 		}
+	}
+}
+
+// tunerData is the rhythm-data/v1 report of the kit stubs.
+const tunerData = `{"schema":"rhythm-data/v1","data":[` +
+	`{"name":"vulns","version":"2026-10-24","sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},` +
+	`{"name":"checks","version":"2026.10.20","sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}]}`
+
+// kitStub stands in for a tool on kit/cli.Main: version --json names a
+// kit version and update runs data, by default printing tunerData. It
+// logs its arguments like stubScript.
+func kitStub(binary, version, log, data string) []byte {
+	if data == "" {
+		data = "echo '" + tunerData + "'"
+	}
+	return fmt.Appendf(nil, `#!/bin/sh
+echo "$*" >> '%s'
+case "$1" in
+version) if [ "$2" = --json ]; then echo '{"schema":"rhythm-version/v1","name":"%s","version":"%s","kit_version":"v0.7.0"}'; else echo '%s %s'; fi ;;
+update) %s ;;
+*) echo '%s %s' ;;
+esac
+`, log, binary, version, binary, version, data, binary, version)
+}
+
+// kitTool installs a kit stub for binary at version in the sandbox.
+func (s *sandbox) kitTool(t *testing.T, binary, version, data string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(s.bin, binary), kitStub(binary, version, s.log(binary), data), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUpdateDataLine(t *testing.T) {
+	s, f := pinSandbox(t)
+	f.kit["rhythm-tuner"] = true
+	s.kitTool(t, "rhythm-tuner", "0.3.1", "")
+	s.stub(t, "rhythm-soundcheck", "0.4.2", "echo legacy data refreshed")
+	code, out, errs := runCmd("update", "tuner", "soundcheck")
+	if code != 0 {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	// The binary went to 0.4.0 first, so the line names that version.
+	if !strings.Contains(out, "rhythm-tuner 0.4.0  data: checks 2026.10.20, vulns 2026-10-24  ok\n") {
+		t.Errorf("no data line:\n%s", out)
+	}
+	if !slices.Contains(s.calls("rhythm-tuner"), "update --json") {
+		t.Errorf("tuner calls: %v", s.calls("rhythm-tuner"))
+	}
+	// A tool without kit/cli still refreshes, the old way.
+	if !strings.Contains(out, "legacy data refreshed") || !slices.Contains(s.calls("rhythm-soundcheck"), "update") {
+		t.Errorf("legacy refresh:\n%s\n%v", out, s.calls("rhythm-soundcheck"))
+	}
+}
+
+func TestUpdateDataReportUnreadable(t *testing.T) {
+	s, _ := pinSandbox(t)
+	s.kitTool(t, "rhythm-tuner", "0.4.0", "echo done")
+	code, _, errs := runCmd("update", "tuner")
+	if code != 1 || !strings.Contains(errs, "rhythm-tuner  data refresh failed (no rhythm-data/v1 report)") {
+		t.Errorf("exit %d\n%s", code, errs)
+	}
+}
+
+func TestLockRecordsData(t *testing.T) {
+	s, _ := pinSandbox(t)
+	s.kitTool(t, "rhythm-tuner", "0.3.1", "")
+	s.stub(t, "rhythm-soundcheck", "0.4.2", "")
+	code, out, errs := runManage("lock")
+	if code != 0 {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	if !strings.Contains(out, "rhythm-tuner 0.3.1  data: checks 2026.10.20, vulns 2026-10-24  ok") {
+		t.Errorf("no data line:\n%s", out)
+	}
+	lock, err := readLock(lockFileName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tuner, sc := lock.entry("tuner"), lock.entry("soundcheck")
+	want := []dataPack{
+		{Name: "checks", Version: "2026.10.20", SHA256: strings.Repeat("b", 64)},
+		{Name: "vulns", Version: "2026-10-24", SHA256: strings.Repeat("c", 64)},
+	}
+	if !slices.Equal(tuner.Data, want) || len(sc.Data) != 0 {
+		t.Errorf("tuner data %v, soundcheck data %v", tuner.Data, sc.Data)
+	}
+	// A failed refresh stops the lock.
+	s.kitTool(t, "rhythm-tuner", "0.3.1", "exit 3")
+	if err := os.Remove(lockFileName); err != nil {
+		t.Fatal(err)
+	}
+	code, _, errs = runManage("lock")
+	if code != 1 || !strings.Contains(errs, "rhythm-tuner  data refresh failed (exit 3)\n  lock without the tools' data with: rhythm lock --no-data") {
+		t.Errorf("exit %d\n%s", code, errs)
+	}
+	if _, err := os.Stat(lockFileName); err == nil {
+		t.Error("a lock was written")
+	}
+}
+
+// lockedWithData locks Tuner 0.3.1 with its data and leaves 0.4.0
+// installed, served as a kit tool when kit is true.
+func lockedWithData(t *testing.T, kit bool, data string) *sandbox {
+	t.Helper()
+	s, f := pinSandbox(t)
+	f.mu.Lock()
+	f.kit["rhythm-tuner"], f.data["rhythm-tuner"] = kit, data
+	f.mu.Unlock()
+	s.kitTool(t, "rhythm-tuner", "0.3.1", "")
+	if code, out, errs := runManage("lock"); code != 0 {
+		t.Fatalf("lock: exit %d\n%s%s", code, out, errs)
+	}
+	s.stub(t, "rhythm-tuner", "0.4.0", "")
+	if err := os.Remove(s.log("rhythm-tuner")); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+func TestInstallLockedPinsData(t *testing.T) {
+	s := lockedWithData(t, true, "")
+	code, out, errs := runCmd("install", "--locked", "--dir", s.bin)
+	if code != 0 {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	if !slices.Contains(s.calls("rhythm-tuner"), "update --json --pin checks=2026.10.20,vulns=2026-10-24") {
+		t.Errorf("calls: %v", s.calls("rhythm-tuner"))
+	}
+	if !strings.Contains(out, "rhythm-tuner 0.3.1  data: checks 2026.10.20, vulns 2026-10-24  ok") || errs != "" {
+		t.Errorf("output:\n%s%s", out, errs)
+	}
+}
+
+func TestInstallLockedDataDiffersFromPin(t *testing.T) {
+	s := lockedWithData(t, true, `echo '{"schema":"rhythm-data/v1","data":[{"name":"checks","version":"2026.10.21","sha256":"`+strings.Repeat("b", 64)+`"}]}'`)
+	code, out, errs := runCmd("install", "--locked", "--dir", s.bin)
+	if code != 0 {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	for _, want := range []string{
+		"rhythm-tuner data checks is 2026.10.21, not the locked 2026.10.20",
+		"rhythm-tuner data vulns is (none), not the locked 2026-10-24",
+	} {
+		if !strings.Contains(errs, want) {
+			t.Errorf("stderr lacks %q:\n%s", want, errs)
+		}
+	}
+}
+
+func TestInstallLockedToolsWithoutPins(t *testing.T) {
+	const warn = "rhythm-tuner can't pin its data; refreshing it to the latest instead\n"
+	t.Run("legacy", func(t *testing.T) {
+		s := lockedWithData(t, false, "echo legacy refresh")
+		code, out, errs := runCmd("install", "--locked", "--dir", s.bin)
+		if code != 0 || errs != warn || !strings.Contains(out, "legacy refresh") {
+			t.Errorf("exit %d\n%s%s", code, out, errs)
+		}
+		if !slices.Contains(s.calls("rhythm-tuner"), "update") {
+			t.Errorf("calls: %v", s.calls("rhythm-tuner"))
+		}
+	})
+	t.Run("kit without --pin", func(t *testing.T) {
+		s := lockedWithData(t, true, `case "$*" in *--pin*) echo 'unknown flag: --pin' >&2; exit 2 ;; esac; echo '`+tunerData+`'`)
+		code, out, errs := runCmd("install", "--locked", "--dir", s.bin)
+		if code != 0 || !strings.HasSuffix(errs, warn) || !strings.Contains(out, "data: checks 2026.10.20, vulns 2026-10-24  ok") {
+			t.Errorf("exit %d\n%s%s", code, out, errs)
+		}
+		calls := s.calls("rhythm-tuner")
+		if !slices.Contains(calls, "update --json --pin checks=2026.10.20,vulns=2026-10-24") || !slices.Contains(calls, "update --json") {
+			t.Errorf("calls: %v", calls)
+		}
+	})
+}
+
+func TestInstallLockedChecksTheRegistry(t *testing.T) {
+	s, f := pinSandbox(t)
+	sha := strings.Repeat("a", 64)
+	lock := &lockFile{Tools: []lockEntry{
+		{Name: "tuner", Repo: "someone/tuner", Version: "0.3.1", Platforms: map[string]string{thisPlatform(): sha}},
+		{Name: "zap", Repo: "someone/rhythm-zap", Version: "1.0.0", Platforms: map[string]string{thisPlatform(): sha}},
+	}}
+	if err := lock.write(lockFileName); err != nil {
+		t.Fatal(err)
+	}
+	code, _, errs := runCmd("install", "--locked", "--dir", s.bin)
+	for _, want := range []string{
+		"rhythm: rhythm.lock says tuner comes from someone/tuner; rhythm installs it from RhythmShahriar/tuner\n",
+		"rhythm: rhythm.lock locks zap, which this rhythm doesn't know; update rhythm first\n",
+	} {
+		if code != 1 || !strings.Contains(errs, want) {
+			t.Errorf("exit %d, stderr lacks %q:\n%s", code, want, errs)
+		}
+	}
+	if r := f.requests(); len(r) > 0 {
+		t.Errorf("asked the API: %v", r)
 	}
 }

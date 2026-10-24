@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -364,7 +365,8 @@ Pin a version with tool@version: tuner@0.3.1 installs exactly 0.3.1 and
 tuner@0.3 the newest 0.3.x. --min-age (or RHYTHM_MIN_RELEASE_AGE) passes
 over releases younger than the age given, except a version named exactly. --locked installs the versions rhythm.lock
 pins (see rhythm lock), checking each archive against its locked sha256;
-it installs nothing unless every tool matches.
+it installs nothing unless every tool matches. Data versions in the lock
+are passed to each tool as update --json --pin.
 
 Exit status: 0 when every tool was installed, 1 when any failed, 2 for a
 usage error and 130 when interrupted.`
@@ -525,6 +527,20 @@ func cmdInstall(args []string, stdout, stderr io.Writer) int {
 	}
 	if offPath {
 		fmt.Fprintf(stdout, "Note: %s isn't on your PATH.\n", opt.dir)
+	}
+	if lock != nil {
+		for _, it := range list {
+			if slices.Contains(failed, "rhythm-"+it.tool) {
+				continue
+			}
+			if !pinData(ctx, it, lock, opt.dir, stdout, stderr) {
+				failed = append(failed, "rhythm-"+it.tool+" data")
+			}
+		}
+		if ctx.Err() != nil {
+			fmt.Fprintln(stderr, "rhythm: install interrupted")
+			return exitInterrupted
+		}
 	}
 	nets.print(stderr)
 	if len(failed) > 0 {
@@ -687,6 +703,21 @@ func installTool(ctx context.Context, it installItem, opt installOptions, stdout
 	return installResult{note: pathNote(binary, dest)}, nil
 }
 
+// pinData brings an installed tool's data to the versions rhythm.lock
+// pins for it, if it pins any. It reports whether that worked.
+func pinData(ctx context.Context, it installItem, lock *lockFile, dir string, stdout, stderr io.Writer) bool {
+	e := lock.entry(it.tool)
+	if len(e.Data) == 0 {
+		return true
+	}
+	binary := "rhythm-" + it.tool
+	t := target{tool: it.tool, binary: binary, path: filepath.Join(dir, exe(binary))}
+	p, _ := probeVersionInfo(ctx, t.path)
+	t.current, t.kitCLI = p.version, p.kitCLI
+	_, err := refreshData(ctx, t, e.Data, stdout, stderr)
+	return err == nil || ctx.Err() != nil
+}
+
 // lockedScope narrows rhythm install --locked to the tools rhythm.lock
 // pins: all of them, or the named ones, each at its locked version.
 func lockedScope(named []installItem, stdout, stderr io.Writer) (*lockFile, string, []installItem, int) {
@@ -711,7 +742,7 @@ func lockedScope(named []installItem, stdout, stderr io.Writer) (*lockFile, stri
 			fmt.Fprintf(stderr, "rhythm: %s locks %s, which this rhythm doesn't know; update rhythm first\n", lockFileName, e.Name)
 			bad = true
 		case !strings.EqualFold(repo, e.Repo):
-			fmt.Fprintf(stderr, "rhythm: %s says %s comes from %s, but rhythm installs it from %s\n", lockFileName, e.Name, e.Repo, repo)
+			fmt.Fprintf(stderr, "rhythm: %s says %s comes from %s; rhythm installs it from %s\n", lockFileName, e.Name, e.Repo, repo)
 			bad = true
 		default:
 			list = append(list, installItem{tool: e.Name, spec: e.Version})
