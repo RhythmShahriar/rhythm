@@ -134,7 +134,15 @@
     catch {
         $Status = 0
         if ($_.Exception.Response) { $Status = [int]$_.Exception.Response.StatusCode }
-        if ($Status -eq 403 -or $Status -eq 429) { throw 'rhythm install: GitHub rate limit reached; set GITHUB_TOKEN' }
+        if ($Status -eq 403 -or $Status -eq 429) {
+            # The advice fits the API: GITHUB_TOKEN never goes to a mirror and
+            # a token already sent needs no "set" hint.
+            $OnGitHub = $ApiUri.Scheme -eq 'https' -and $ApiUri.Host -eq 'api.github.com'
+            $Limit = if ($OnGitHub) { 'GitHub rate limit reached' } else { "rate limit reached at $($ApiUri.Host)" }
+            if (-not $Headers.Authorization -and $OnGitHub) { $Limit += '; set GITHUB_TOKEN' }
+            elseif (-not $Headers.Authorization) { $Limit += '; set RHYTHM_GITHUB_TOKEN' }
+            throw "rhythm install: $Limit"
+        }
         if ($Status) { throw "rhythm install: couldn't fetch the release from GitHub ($ReleaseUrl): HTTP $Status" }
         if (Test-Timeout $_) { throw "rhythm install: timed out after $($Timeout)s waiting for $($ApiUri.Host) ($ReleaseUrl); set RHYTHM_INSTALL_TIMEOUT to wait longer" }
         throw "rhythm install: couldn't reach $($ApiUri.Host) ($ReleaseUrl): $($_.Exception.Message)"

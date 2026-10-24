@@ -835,11 +835,19 @@ function Case-rhythm_token {
 }
 
 function Case-rate_limit {
+    # A mirror: GITHUB_TOKEN never goes there, so the advice names
+    # RHYTHM_GITHUB_TOKEN. None is given once that token was sent.
     foreach ($Status in 403, 429) {
-        Invoke-Install @{ RHYTHM_GITHUB_API = "$BaseUrl/status/$Status" }
+        Invoke-Install @{ RHYTHM_GITHUB_API = "$BaseUrl/status/$Status"; GITHUB_TOKEN = 'gh-test-secret' }
         Assert-Code 1
-        Assert-Out 'rhythm install: GitHub rate limit reached; set GITHUB_TOKEN'
+        Assert-Out 'rhythm install: rate limit reached at 127.0.0.1; set RHYTHM_GITHUB_TOKEN'
+        Assert-NoOut 'GitHub rate limit'
         Assert-NoOut 'API rate limit exceeded'
+        Invoke-Install @{ RHYTHM_GITHUB_API = "$BaseUrl/status/$Status"; RHYTHM_GITHUB_TOKEN = 'mirror-test-secret' }
+        Assert-Code 1
+        Assert-Out 'rhythm install: rate limit reached at 127.0.0.1'
+        Assert-NoOut '; set'
+        Assert-NoOut 'mirror-test-secret'
     }
     Invoke-Install @{ RHYTHM_GITHUB_API = "$BaseUrl/status/500" }
     Assert-Code 1

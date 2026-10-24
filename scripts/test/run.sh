@@ -117,6 +117,16 @@ exit 6
 EOF
 chmod 0755 "$work/fakebin/curl"
 
+# A curl stand-in that answers every request with HTTP 403, for the rate
+# limit at api.github.com. It sends nothing.
+mkdir -p "$work/ratebin"
+cat >"$work/ratebin/curl" <<'EOF'
+#!/bin/sh
+[ -t 0 ] || cat >/dev/null
+printf 403
+EOF
+chmod 0755 "$work/ratebin/curl"
+
 # install runs the installer for the current case with the defaults below,
 # then the VAR=value arguments. It sets $code and leaves the output in
 # $cdir/out. $script overrides the installer, for the truncation cases.
@@ -837,12 +847,33 @@ case_rhythm_token() {
 }
 
 case_rate_limit() {
+	# A mirror: GITHUB_TOKEN never goes there, so the advice names
+	# RHYTHM_GITHUB_TOKEN. None is given once that token was sent.
 	for status in 403 429; do
-		install RHYTHM_GITHUB_API="$base/status/$status"
+		install RHYTHM_GITHUB_API="$base/status/$status" GITHUB_TOKEN=gh-test-secret
 		expect_code 1
-		expect_out "rhythm install: GitHub rate limit reached; set GITHUB_TOKEN"
+		expect_out "rhythm install: rate limit reached at 127.0.0.1; set RHYTHM_GITHUB_TOKEN"
+		expect_no_out "GitHub rate limit"
 		expect_no_out "curl:"
+		install RHYTHM_GITHUB_API="$base/status/$status" RHYTHM_GITHUB_TOKEN=mirror-test-secret
+		expect_code 1
+		expect_out "rhythm install: rate limit reached at 127.0.0.1"
+		expect_no_out "; set"
+		expect_no_out mirror-test-secret
 	done
+
+	# api.github.com, through a curl stand-in that answers 403: the advice
+	# is GITHUB_TOKEN until one was sent.
+	path=$work/ratebin:/usr/bin:/bin
+	install RHYTHM_GITHUB_API=
+	expect_code 1
+	expect_out "rhythm install: GitHub rate limit reached; set GITHUB_TOKEN"
+	install RHYTHM_GITHUB_API= GITHUB_TOKEN=gh-test-secret
+	path=
+	expect_code 1
+	expect_out "rhythm install: GitHub rate limit reached"
+	expect_no_out "; set"
+
 	install RHYTHM_GITHUB_API="$base/status/500"
 	expect_code 1
 	expect_out "couldn't fetch the release from GitHub ($base/status/500/repos/RhythmShahriar/rhythm/releases/latest): HTTP 500"

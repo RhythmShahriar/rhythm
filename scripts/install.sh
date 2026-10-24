@@ -389,7 +389,16 @@ main() {
 	esac
 	case $status in
 	200) ;;
-	403 | 429) die "GitHub rate limit reached; set GITHUB_TOKEN" ;;
+	403 | 429)
+		# The advice fits the API: GITHUB_TOKEN never goes to a mirror and
+		# a token already sent needs no "set" hint.
+		if [ "$proto" = '=https' ] && [ "$(url_host "$API")" = api.github.com ]; then
+			[ -z "$token" ] || die "GitHub rate limit reached"
+			die "GitHub rate limit reached; set GITHUB_TOKEN"
+		fi
+		[ -z "$token" ] || die "rate limit reached at $(url_host "$API")"
+		die "rate limit reached at $(url_host "$API"); set RHYTHM_GITHUB_TOKEN"
+		;;
 	*) die "couldn't fetch the release from GitHub ($release_url): HTTP $status" ;;
 	esac
 
