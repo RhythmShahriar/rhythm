@@ -1,4 +1,4 @@
-If you find a security vulnerability in `rhythm`, Tuner, Soundcheck, Echo or any Rhythm tool, please report it privately so it can be fixed before it's public. This page explains how, what to include, and what happens next.
+If you find a security vulnerability in `rhythm`, Tuner, Soundcheck, Echo or any Rhythm tool, please report it privately so it can be fixed before it's public. This page explains how, what to include and what happens next.
 
 > [!WARNING]
 > Please don't report vulnerabilities in public issues, pull requests or discussions. A public report puts every user at risk until a fix ships.
@@ -46,9 +46,9 @@ A good report lets the issue be reproduced quickly:
 
 - The affected tool and version (`rhythm version`, `rhythm tuner --version`, `rhythm soundcheck --version`, `rhythm echo --version`) and your OS and CPU.
 - What the problem is and what an attacker could do with it.
-- Steps to reproduce: the exact command, and a minimal input such as a check file, a server response or a test page. Use your own test setup, never a third-party site.
+- Steps to reproduce: the exact command plus a minimal input such as a check file, a server response or a test page. Use your own test setup, never a third-party site.
 - Any logs or output, with real secrets removed.
-- Whether you'd like to be credited in the advisory, and under what name.
+- Whether you'd like to be credited in the advisory and under what name.
 
 ## What to expect
 
@@ -60,7 +60,7 @@ There's no fixed response-time promise. Reports are handled as quickly as their 
 
 ## Testing safely
 
-When you research Rhythm's security, test against your own machines and your own test sites. Don't scan, or point Tuner, Soundcheck or Echo at, third-party sites to prove a point, and don't replay webhooks to services you don't run. The [Responsible Use](Responsible-Use) rules apply to security research too.
+When you research Rhythm's security, test against your own machines and your own test sites. Don't scan third-party sites or point Tuner, Soundcheck or Echo at them to prove a point. Don't replay webhooks to services you don't run. The [Responsible Use](Responsible-Use) rules apply to security research too.
 
 ---
 <sub>← [Responsible use](Responsible-Use) · [Home](Home) · [Contributing](Contributing) →</sub>

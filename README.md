@@ -20,7 +20,7 @@
 
 ## Documentation
 
-Everything about rhythm and its tools lives in the **[documentation wiki](https://github.com/RhythmShahriar/rhythm/wiki)**: installing and updating, every Tuner, Soundcheck and Echo feature, CI, writing checks, and the project's policies.
+Everything about rhythm and its tools lives in the **[documentation wiki](https://github.com/RhythmShahriar/rhythm/wiki)**: installing and updating, every Tuner, Soundcheck and Echo feature, CI, writing checks and the project's policies.
 
 ## Install
 
@@ -55,13 +55,13 @@ curl -fsSL https://rythm.sh/install | RHYTHM_INSTALL_DIR=/opt/bin RHYTHM_TOOLS="
 
 ## Tools
 
-Three questions, one for each tool: is my site safe, did my change break anything, and is it still saying what it should?
+Three questions, one for each tool: is my site safe, did my change break anything and is it still saying what it should?
 
 | Tool | What it does | |
 |---|---|---|
 | **[tuner](https://github.com/RhythmShahriar/tuner)** | Finds what's out of tune in WordPress &amp; PHP sites: leaked secrets, exposed files, known CVEs, weak configuration | `rhythm tuner scan yoursite.com` |
 | **[soundcheck](https://github.com/RhythmShahriar/soundcheck)** | Did your change break anything? Snapshots a whole site in a real browser, then shows what broke after an update or deploy: PHP and JS errors, dead buttons, forms, cache leaks, layout and speed | `rhythm soundcheck snapshot yoursite.com` |
-| **[echo](https://github.com/RhythmShahriar/echo)** | Is your site still saying what it should? Captures every email, SMS, webhook and API call it sends, seals staging so nothing reaches real people, and shows what changed after an update. WordPress, Laravel, Next.js | `rhythm echo up` |
+| **[echo](https://github.com/RhythmShahriar/echo)** | Is your site still saying what it should? Captures every email, SMS, webhook and API call it sends, seals staging so nothing reaches real people and shows what changed after an update. WordPress, Laravel, Next.js | `rhythm echo up` |
 
 More are on the way. Each lives in its own repository and releases on its own schedule; `rhythm <tool>` runs the `rhythm-<tool>` binary, the same extension model as `git` and `gh`.
 
@@ -72,7 +72,7 @@ rhythm tuner scan yoursite.com   # run a tool (short: rhythm t scan …)
 rhythm sc compare                # Soundcheck, by its short name
 rhythm e watch                   # Echo: every message as it's sent
 rhythm install tuner             # add a tool
-rhythm update                    # update rhythm, every tool, and their data
+rhythm update                    # update rhythm, every tool and their data
 rhythm update --check            # only report what's out of date
 rhythm version
 ```
@@ -112,7 +112,7 @@ make check   # lint + tests
 
 ## Responsible use
 
-Rhythm tools are for securing **your own** systems, or systems you have explicit permission to test. You are responsible for using them lawfully. They are provided "as is", without warranty, as set out in the [license](LICENSE), and the authors are not liable for misuse or for any damage arising from their use.
+Rhythm tools are for securing **your own** systems, or systems you have explicit permission to test. You are responsible for using them lawfully. They are provided "as is", without warranty, as set out in the [license](LICENSE). The authors are not liable for misuse or for any damage arising from their use.
 
 ## License
 

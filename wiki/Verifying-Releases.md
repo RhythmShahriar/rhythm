@@ -1,4 +1,4 @@
-Every `rhythm` and tool release ships a `checksums.txt`, and that file is signed with keyless [cosign](https://docs.sigstore.dev/) from GitHub Actions. This page shows how to check both, and what is and isn't signed.
+Every `rhythm` and tool release ships a `checksums.txt`. That file is signed with keyless [cosign](https://docs.sigstore.dev/) from GitHub Actions. This page shows how to check both and what is and isn't signed.
 
 The installers and `rhythm update` already check every download against `checksums.txt`. Verifying the signature yourself adds one more guarantee: that the checksums were produced by Rhythm's release workflow on GitHub, not by someone who swapped files on the release page.
 
@@ -63,7 +63,7 @@ cosign verify-blob --bundle checksums.txt.sigstore.json \
   checksums.txt
 ```
 
-Every repository (`rhythm`, `tuner`, `soundcheck`, `echo`) releases through that same shared workflow, so the identity is the same for all of them. `Verified OK` means `checksums.txt` was signed by Rhythm's release workflow (the shared `release-go.yml` in the `RhythmShahriar/.github` repository, run from its `master` branch) through GitHub Actions, and the signature is recorded in Sigstore's public transparency log. Together with step 1, that ties your archive to that workflow. Any other identity, even another workflow under `RhythmShahriar`, is rejected.
+Every repository (`rhythm`, `tuner`, `soundcheck`, `echo`) releases through that same shared workflow, so the identity is the same for all of them. `Verified OK` means `checksums.txt` was signed by Rhythm's release workflow (the shared `release-go.yml` in the `RhythmShahriar/.github` repository, run from its `master` branch) through GitHub Actions. The signature is recorded in Sigstore's public transparency log. Together with step 1, that ties your archive to that workflow. Any other identity, even another workflow under `RhythmShahriar`, is rejected.
 
 > [!NOTE]
 > There is no long-lived signing key to publish or rotate. Keyless signing uses a short-lived certificate that GitHub's OIDC token proves came from the release workflow.
@@ -93,7 +93,7 @@ On a project that has `@rhythmsh/echo` installed, the output counts verified reg
 | Tuner [check packs](Tuner-Check-Packs) (`checks-latest` release) | Yes, `checks-sha256.txt` | **No** |
 | `install.sh` and `install.ps1` | No | No |
 
-Check packs are verified against `checks-sha256.txt` before use, which protects against corruption and partial uploads, but not against someone able to publish to the Tuner repository's releases. A pack can't run code: it's declarative YAML that can only make GET requests to the site being scanned, and Tuner rejects any field it doesn't know. Scan with `--no-check-updates` to use only the checks built into your binary, which shipped in a signed release. See [Check Packs](Tuner-Check-Packs) for the full trust model.
+Check packs are verified against `checks-sha256.txt` before use, which protects against corruption and partial uploads. It doesn't protect against someone able to publish to the Tuner repository's releases. A pack can't run code: it's declarative YAML that can only make GET requests to the site being scanned. Tuner rejects any field it doesn't know. Scan with `--no-check-updates` to use only the checks built into your binary, which shipped in a signed release. See [Check Packs](Tuner-Check-Packs) for the full trust model.
 
 The install scripts download from GitHub over HTTPS and refuse to install anything that doesn't match the release's `checksums.txt`. They don't check the cosign signature themselves. If you'd rather not pipe a script into your shell, download it, read it, then run it, or follow the [manual download](Install#manual-download) steps.
 

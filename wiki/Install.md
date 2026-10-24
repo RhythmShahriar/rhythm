@@ -1,4 +1,4 @@
-Install `rhythm`, Tuner, Soundcheck and Echo with one command on macOS, Linux or Windows. This page also covers `go install`, manual downloads, the installer's options, and how to add a single tool later.
+Install `rhythm`, Tuner, Soundcheck and Echo with one command on macOS, Linux or Windows. This page also covers `go install`, manual downloads, the installer's options and how to add a single tool later.
 
 > [!NOTE]
 > Echo is one of the default tools, with the alias `e`, from rhythm v0.5.0. An older `rhythm` installs only Tuner and Soundcheck and doesn't know `rhythm install echo`; run `rhythm update` (or the installer again) first. It still runs `rhythm echo …` when `rhythm-echo` is on your `PATH`, since the router runs any `rhythm-<tool>` it finds.
@@ -61,7 +61,7 @@ Soundcheck drives a real browser. It uses Chrome or Chromium if you have one; ot
 
 ### Requirements
 
-- macOS and Linux: `curl`, `tar`, and `sha256sum` or `shasum`.
+- macOS and Linux: `curl`, `tar` and either `sha256sum` or `shasum`.
 - Windows: PowerShell (Windows PowerShell 5.1 or PowerShell 7).
 
 ## Installer options
@@ -74,7 +74,7 @@ Set these environment variables to change what the installer does. Both scripts 
 | `RHYTHM_VERSION` | latest | Install a specific `rhythm` version, e.g. `0.1.0` (a leading `v` is fine). |
 | `RHYTHM_TOOLS` | `tuner soundcheck echo` | Space-separated tools to install alongside `rhythm`. Set it empty to install `rhythm` alone, or `tuner` for Tuner only. |
 | `RHYTHM_GITHUB_API` | `https://api.github.com` | GitHub API base, for a mirror or GitHub Enterprise. |
-| `RHYTHM_ARCH` | — | Windows only: CPU to use when `PROCESSOR_ARCHITECTURE` is neither `AMD64` nor `ARM64`. |
+| `RHYTHM_ARCH` | none | Windows only: CPU to use when `PROCESSOR_ARCHITECTURE` is neither `AMD64` nor `ARM64`. |
 
 ```sh
 # Install rhythm and Soundcheck only

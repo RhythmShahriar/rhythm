@@ -1,4 +1,4 @@
-Removing Rhythm means deleting the binaries, then, if you like, the cache and settings folders. Nothing else is installed: no services, no background jobs, no system-wide settings. If you used Echo, also remove its connectors from your sites, and stop trusting its certificate authority wherever you added it.
+Removing Rhythm means deleting the binaries, then, if you like, the cache and settings folders. Nothing else is installed: no services, no background jobs, no system-wide settings. If you used Echo, also remove its connectors from your sites and stop trusting its certificate authority wherever you added it.
 
 ## Linux
 
@@ -21,8 +21,8 @@ rm -r ~/Library/Caches/rhythm "$HOME/Library/Application Support/rhythm"   # opt
 
 ## Windows
 
-1. Delete the install folder, `%LOCALAPPDATA%\Programs\rhythm` (or your `RHYTHM_INSTALL_DIR`). It holds `rhythm.exe`, the tools, and any `.exe.old` files left by updates.
-2. Remove that folder from your **user** `PATH`: **Settings → System → About → Advanced system settings → Environment Variables**, select `Path` under *User variables*, **Edit**, and delete the entry.
+1. Delete the install folder, `%LOCALAPPDATA%\Programs\rhythm` (or your `RHYTHM_INSTALL_DIR`). It holds `rhythm.exe`, the tools and any `.exe.old` files left by updates.
+2. Remove that folder from your **user** `PATH`: **Settings → System → About → Advanced system settings → Environment Variables**, select `Path` under *User variables*, choose **Edit** and delete the entry.
 3. Optional: delete the cache and settings folders, `%LOCALAPPDATA%\rhythm` and `%APPDATA%\rhythm`.
 
 The same in PowerShell:
@@ -45,7 +45,7 @@ Then remove the cache and settings folders for your platform as above.
 
 ## What's in the cache and settings folders
 
-Both are safe to delete at any time. Tuner downloads what it needs again on the next scan, Soundcheck downloads Chromium again if it needs it, and Echo makes a new CA the next time its proxy decrypts HTTPS (clients then have to trust the new one).
+Both are safe to delete at any time. Tuner downloads what it needs again on the next scan. Soundcheck downloads Chromium again if it needs it. Echo makes a new CA the next time its proxy decrypts HTTPS (clients then have to trust the new one).
 
 | Folder | Linux | macOS | Windows |
 |---|---|---|---|
@@ -95,7 +95,7 @@ Echo added a `# Echo snapshots and reports` block to `.git/info/exclude`, which 
 Delete the CA folder (`~/.cache/rhythm/echo/ca` on Linux, `~/Library/Caches/rhythm/echo/ca` on macOS, `%LOCALAPPDATA%\rhythm\echo\ca` on Windows), then remove it wherever you trusted it:
 
 - a system store: delete `/usr/local/share/ca-certificates/rhythm-echo.crt` and run `sudo update-ca-certificates --fresh` (Debian, Ubuntu, Alpine);
-- a bundle you built, such as `/etc/rhythm-echo/bundle.pem`, and the `curl.cainfo`, `openssl.cafile` or `env[]` lines pointing at it in php.ini or a php-fpm pool;
+- a bundle you built, such as `/etc/rhythm-echo/bundle.pem`, plus the `curl.cainfo`, `openssl.cafile` or `env[]` lines pointing at it in php.ini or a php-fpm pool;
 - `NODE_EXTRA_CA_CERTS`, `REQUESTS_CA_BUNDLE`, `SSL_CERT_FILE` or `CURL_CA_BUNDLE` in your environment or `.env` files;
 - `HTTPS_PROXY` and `https_proxy` pointing at Echo's proxy, which would otherwise make requests fail once Echo is gone.
 
@@ -106,9 +106,9 @@ Remove each site's connector, or its requests fail while sealed with Echo no lon
 | Stack | Remove |
 |---|---|
 | WordPress | `rhythm echo install wordpress /var/www/staging --uninstall` (or with `--wp-cli` or `--container <name>`), before removing `rhythm-echo`. Or delete `wp-content/mu-plugins/rhythm-echo.php` and the `rhythm-echo/` folder next to it. Remove any `RHYTHM_ECHO_*` constants from `wp-config.php`. |
-| Laravel | `composer remove rhythmsh/echo-laravel`, then delete the `RHYTHM_ECHO_*` lines from `.env`, `config/rhythm-echo.php` if you published it, and any `MAIL_HOST=127.0.0.1` / `MAIL_PORT=1025` you pointed at Echo. |
-| Next.js, Node | `npm uninstall @rhythmsh/echo`, then remove the `register()` call from `instrumentation.ts` (or the file, if Echo wrote it), `withEcho` from `next.config`, `--import @rhythmsh/echo/register` from your scripts, and `RHYTHM_ECHO_*` variables. |
-| Generic | Remove `sendmail_path = "… rhythm-echo sendmail …"` from php.ini or the pool, and SMTP settings pointing at `127.0.0.1:1025`. |
+| Laravel | `composer remove rhythmsh/echo-laravel`, then delete the `RHYTHM_ECHO_*` lines from `.env`, `config/rhythm-echo.php` if you published it and any `MAIL_HOST=127.0.0.1` / `MAIL_PORT=1025` you pointed at Echo. |
+| Next.js, Node | `npm uninstall @rhythmsh/echo`, then remove the `register()` call from `instrumentation.ts` (or the file, if Echo wrote it), `withEcho` from `next.config`, `--import @rhythmsh/echo/register` from your scripts and `RHYTHM_ECHO_*` variables. |
+| Generic | Remove `sendmail_path = "… rhythm-echo sendmail …"` from php.ini or the pool. Also remove SMTP settings pointing at `127.0.0.1:1025`. |
 | Hard seal | `sudo nft delete table inet echo_seal`, or `sudo sh iptables-echo.sh off`; for Docker, `docker compose down` on the sealed stack. |
 
 > [!TIP]

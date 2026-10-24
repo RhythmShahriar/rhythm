@@ -1,4 +1,4 @@
-One command keeps `rhythm`, every installed tool and their data current. This page explains what `rhythm update` does, how downloads are verified, the once-a-day release notice, how Tuner refreshes its vulnerability data and checks on its own, how Soundcheck keeps its browser current, and what Echo updates.
+One command keeps `rhythm`, every installed tool and their data current. This page explains what `rhythm update` does, how downloads are verified, the once-a-day release notice, how Tuner refreshes its vulnerability data and checks on its own, how Soundcheck keeps its browser current and what Echo updates.
 
 ## Update everything
 
@@ -50,7 +50,7 @@ Binaries built from source or with `go install` report their version as `dev`. `
 
 ## How updates are verified
 
-Every binary update, and every `rhythm install`, goes through the same steps:
+Every binary update and every `rhythm install` goes through the same steps:
 
 1. Read the tool's latest release from the GitHub API (`/releases/latest`, which never returns a prerelease).
 2. Download `checksums.txt` and the archive for your platform, named `<binary>_<os>_<arch>.tar.gz` (`.zip` on Windows).
@@ -81,8 +81,8 @@ A new release of rhythm-tuner is available: 0.3.0 → 0.3.1
   run: rhythm update
 ```
 
-- Each tool asks GitHub at most **once a day**, in the background while it runs, and never delays the run for it. The answer is remembered in `update-check/rhythm-tuner.json` (or `rhythm-soundcheck.json`, `rhythm-echo.json`) under your config directory (`~/.config/rhythm` on Linux).
-- The notice only appears with the terminal view, and not with `--quiet`.
+- Each tool asks GitHub at most **once a day**, in the background while it runs. It never delays the run for it. The answer is remembered in `update-check/rhythm-tuner.json` (or `rhythm-soundcheck.json`, `rhythm-echo.json`) under your config directory (`~/.config/rhythm` on Linux).
+- The notice only appears with the terminal view. It doesn't appear with `--quiet`.
 - It never installs anything. Rhythm doesn't update binaries silently; you run `rhythm update` when you choose to.
 
 To turn the check off, set either variable:
@@ -96,7 +96,7 @@ Development builds never check.
 
 ## Vulnerability data
 
-Tuner matches versions against data from WPVulnerability, the wordpress.org API and php.net, and Composer packages against OSV.dev. Every lookup is cached on disk and **refreshed automatically once it's more than 24 hours old**, the next time a scan needs it. If the network is down, Tuner uses the cached copy and says so. See [Known Vulnerabilities](Tuner-Known-Vulnerabilities) for the details.
+Tuner matches versions against data from WPVulnerability, the wordpress.org API and php.net. It matches Composer packages against OSV.dev. Every lookup is cached on disk and **refreshed automatically once it's more than 24 hours old**, the next time a scan needs it. If the network is down, Tuner uses the cached copy and says so. See [Known Vulnerabilities](Tuner-Known-Vulnerabilities) for the details.
 
 You don't need to do anything to keep it current. To refresh it right away:
 
@@ -121,7 +121,7 @@ The next scan downloads what it needs again.
 
 ## Check packs
 
-New Tuner checks reach you without a new binary. Tuner looks for a newer check pack at most once a day during scans, verifies it against its checksums, and uses it when it's newer than the checks built into your binary. `rhythm tuner update` checks for one immediately. Any problem with a pack prints a warning and the scan carries on with cached or built-in checks.
+New Tuner checks reach you without a new binary. Tuner looks for a newer check pack at most once a day during scans, verifies it against its checksums and uses it when it's newer than the checks built into your binary. `rhythm tuner update` checks for one immediately. Any problem with a pack prints a warning and the scan carries on with cached or built-in checks.
 
 Use `--no-check-updates` to scan with the built-in checks only, or `--offline` to use only what's cached. How packs are built, verified and trusted is on [Check Packs](Tuner-Check-Packs).
 
@@ -161,7 +161,7 @@ $ rhythm echo update
 Echo has nothing to refresh; provider recognizers update with the binary (rhythm update).
 ```
 
-Echo's connectors update separately, with the site: the WordPress mu-plugin by running `rhythm echo install wordpress` again after updating Echo (it replaces its own file), the Laravel package with `composer update rhythmsh/echo-laravel`, and the Node package with `npm update @rhythmsh/echo`. The proxy's CA renews itself when it has less than 30 days left; clients then have to trust the new one.
+Echo's connectors update separately, with the site: the WordPress mu-plugin by running `rhythm echo install wordpress` again after updating Echo (it replaces its own file), the Laravel package with `composer update rhythmsh/echo-laravel` and the Node package with `npm update @rhythmsh/echo`. The proxy's CA renews itself when it has less than 30 days left; clients then have to trust the new one.
 
 Snapshots and runs in `.echo/` are never touched by an update.
 

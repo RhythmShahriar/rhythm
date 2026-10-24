@@ -5,7 +5,7 @@
   </picture>
 </p>
 
-Welcome to the documentation for **rhythm**, one CLI for every Rhythm tool, and for the three tools that run on it: **Tuner**, the WordPress &amp; PHP security scanner; **Soundcheck**, which checks a whole site before and after a change and shows what broke; and **Echo**, which captures everything a site sends, seals staging so nothing reaches real people, and shows what each form or order sends before and after a change. Everything lives here; the tools' READMEs link back to these pages.
+Welcome to the documentation for **rhythm** (one CLI for every Rhythm tool) and for the three tools that run on it: **Tuner**, the WordPress &amp; PHP security scanner; **Soundcheck**, which checks a whole site before and after a change and shows what broke; and **Echo**, which captures everything a site sends, seals staging so nothing reaches real people and shows what each form or order sends before and after a change. Everything lives here; the tools' READMEs link back to these pages.
 
 ## The Rhythm set: safe, works, says
 
@@ -15,7 +15,7 @@ Welcome to the documentation for **rhythm**, one CLI for every Rhythm tool, and 
 | ✅ [Soundcheck](Soundcheck) | Does it still **work**? | what visitors see and do: errors, layout, forms, cache, speed | [Your first check](Soundcheck-First-Check) |
 | 📣 [Echo](Echo) | Is it still **saying** what it should? | everything the site sends: email, SMS, webhooks, chat, analytics, payments | [Your first run](Echo-First-Run) |
 
-They work on the same change: Tuner says a plugin needs updating, Soundcheck shows what the update did to the pages, and Echo shows what it did to the messages. Run Soundcheck with `--echo` and it submits the real forms and compares what each one sent.
+They work on the same change: Tuner says a plugin needs updating, Soundcheck shows what the update did to the pages and Echo shows what it did to the messages. Run Soundcheck with `--echo` and it submits the real forms and compares what each one sent.
 
 ## Start in one minute
 

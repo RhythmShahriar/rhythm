@@ -1,4 +1,4 @@
-Contributions are welcome, and new Tuner checks, Soundcheck testbed scenarios and Echo recognizers are the most welcome of all. This page covers setting up the code, the commit message rules the hooks enforce, how pull requests are reviewed and merged, and where to start with a check.
+Contributions are welcome. New Tuner checks, Soundcheck testbed scenarios and Echo recognizers are the most welcome of all. This page covers setting up the code, the commit message rules the hooks enforce, how pull requests are reviewed and merged and where to start with a check.
 
 For big changes, open an issue first so the approach can be agreed before you write the code. Keep each pull request focused on one thing.
 
@@ -6,7 +6,7 @@ For big changes, open an issue first so the approach can be agreed before you wr
 
 | Repository | What's in it |
 |---|---|
-| [`RhythmShahriar/rhythm`](https://github.com/RhythmShahriar/rhythm) | The `rhythm` CLI, the install scripts, and `kit/`, the shared base every tool imports |
+| [`RhythmShahriar/rhythm`](https://github.com/RhythmShahriar/rhythm) | The `rhythm` CLI, the install scripts and `kit/`, the shared base every tool imports |
 | [`RhythmShahriar/tuner`](https://github.com/RhythmShahriar/tuner) | Tuner (`rhythm-tuner`) and its checks in `checks/` |
 | [`RhythmShahriar/soundcheck`](https://github.com/RhythmShahriar/soundcheck) | Soundcheck (`rhythm-soundcheck`), its modules in `checks/`, the GitHub Action (`action.yml`) and the testbed in `testbed/` |
 | [`RhythmShahriar/echo`](https://github.com/RhythmShahriar/echo) | Echo (`rhythm-echo`), its recognizers in `recognize/`, the connectors in `connectors/` (WordPress, Laravel, Node), the hard-seal recipes in `docs/seal/` and the GitHub Action |
@@ -105,11 +105,11 @@ Then run `make hooks` and `make check` in each repository you change.
 | `make testbed`, `make testbed-down` | Soundcheck and Echo: start or delete the testbed in Docker ([Soundcheck's](#soundcheck-and-the-testbed), [Echo's](#echo-and-its-connectors)) |
 | `make bench` | Soundcheck and Echo: build, then run the benchmark ([Soundcheck](Soundcheck-Benchmark), [Echo](Echo-Benchmark)) against the testbed |
 
-CI runs the same checks on every pull request, plus `gofmt`, `go vet`, a build, `shellcheck` on scripts and hooks, and `goreleaser check`.
+CI runs the same checks on every pull request, plus `gofmt`, `go vet`, a build, `shellcheck` on scripts and hooks and `goreleaser check`.
 
 ## Commit messages
 
-Commits and pull request titles follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/). The `commit-msg` hook checks each commit locally, and CI runs the same script on every commit in a pull request and on the pull request title.
+Commits and pull request titles follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/). The `commit-msg` hook checks each commit locally. CI runs the same script on every commit in a pull request and on the pull request title.
 
 ```text
 type(scope): subject in lowercase, no period, 72 characters max
@@ -121,7 +121,7 @@ Optional body explaining why, after a blank line.
 
 | Rule | Detail |
 |---|---|
-| Format | `type(scope): subject`, or `type: subject`. Exactly one space after the colon, and the subject can't start with a space. |
+| Format | `type(scope): subject`, or `type: subject`. Exactly one space after the colon. The subject can't start with a space. |
 | Type | One of `feat` `fix` `perf` `refactor` `docs` `test` `build` `ci` `chore` `style` `revert` |
 | Scope | Optional. Lowercase letters and digits, plus `.` `_` `/` `-` after the first character, e.g. `engine`, `checks`, `cli`, `kit/update` |
 | Breaking change | `!` right before the colon: `feat(cli)!: rename --list to --targets`. Explain it in a `BREAKING CHANGE:` footer. |
@@ -166,12 +166,12 @@ When the hook rejects a message, it prints the reason and a reminder of the form
 
 ## Pull requests
 
-The **pull request title** follows the same rules as a commit message, and so does **every commit** in the pull request: CI's commitlint job checks both, so whichever merge method a repository uses, only well-formed messages reach `master`. Write the title as the one line you'd want in the history.
+The **pull request title** follows the same rules as a commit message. So does **every commit** in the pull request: CI's commitlint job checks both, so whichever merge method a repository uses, only well-formed messages reach `master`. Write the title as the one line you'd want in the history.
 
 The pull request template asks for:
 
 - **What and why**: the change and the reason for it.
-- **How it was tested**, and three checkboxes:
+- **How it was tested**, plus three checkboxes:
   - [ ] `make check` passes (lint + tests)
   - [ ] New or changed checks have positive and negative fixtures
   - [ ] No exploit payloads; secrets stay masked in all output
@@ -186,7 +186,7 @@ The ground rules for every check:
 
 - **Detect, never exploit.** Plain GET requests for public URLs, no payloads.
 - **Never print a secret unmasked.** Use `extract.secrets`; evidence is redacted automatically.
-- **Every check needs positive and negative fixtures**, and good negatives cover the ways it could misfire: the file blocked, a soft-404 catch-all, a similar-looking page.
+- **Every check needs positive and negative fixtures.** Good negatives cover the ways it could misfire: the file blocked, a soft-404 catch-all, a similar-looking page.
 
 Checks in `checks/` are MIT licensed so anyone can reuse them; the rest of Tuner is AGPL-3.0. Once a check lands on `master` it reaches users through the next [check pack](Tuner-Check-Packs), without waiting for a release.
 
@@ -205,9 +205,9 @@ make bench                         # every scenario; writes docs/benchmark.md
 make testbed-down                  # throw everything away
 ```
 
-To add a scenario, add its page (`wp/seed.sh`, or a file in `php/`), implement the broken state behind `testbed_broken('sNN')` next to the code it breaks, describe it in `testbed/scenarios.yaml` with the change Soundcheck should report, and run it with `-only`. The [testbed README](https://github.com/RhythmShahriar/soundcheck/blob/master/testbed/README.md) has the details. Keep scenarios to one problem each, and break things the way a real update does.
+To add a scenario, add its page (`wp/seed.sh`, or a file in `php/`), implement the broken state behind `testbed_broken('sNN')` next to the code it breaks, describe it in `testbed/scenarios.yaml` with the change Soundcheck should report and run it with `-only`. The [testbed README](https://github.com/RhythmShahriar/soundcheck/blob/master/testbed/README.md) has the details. Keep scenarios to one problem each. Break things the way a real update does.
 
-Like Tuner's checks, Soundcheck must never exploit anything, must mask secrets, and must stay safe on real sites: new clicks and submits respect the destructive blocklist and the production guard. Soundcheck is MIT licensed.
+Like Tuner's checks, Soundcheck must never exploit anything, must mask secrets and must stay safe on real sites: new clicks and submits respect the destructive blocklist and the production guard. Soundcheck is MIT licensed.
 
 ## Echo and its connectors
 
@@ -215,10 +215,10 @@ Echo's own code is Go; its connectors are PHP (WordPress, Laravel) and TypeScrip
 
 - **A new service** is a recognizer in `recognize/`: how to match the request, what to record (recipients, content, event) and what to answer when sealed, shaped like the provider's real response. Add fixtures from the provider's documented requests to the file's `_test.go`, including a request that must **not** match. Payment recognizers must refuse live mode.
 - **A new check** goes in `check/`, with a message that triggers it and one that doesn't. Titles must be stable across runs (no IDs or times), since `compare` keys on them.
-- **The WordPress connector** is one file, `connectors/wordpress/echo.php`, for PHP 7.4 and WordPress 5.7 or later. It's tested against a real WordPress in Docker (`go test -tags docker ./connectors/wordpress`). Keep it to WordPress core APIs, and keep the production guard and fail-closed behavior intact.
+- **The WordPress connector** is one file, `connectors/wordpress/echo.php`, for PHP 7.4 and WordPress 5.7 or later. It's tested against a real WordPress in Docker (`go test -tags docker ./connectors/wordpress`). Keep it to WordPress core APIs. Keep the production guard and fail-closed behavior intact.
 - **The Laravel and Node connectors** follow the [capture protocol](Echo-API#the-capture-protocol); change `wire/` only in a backward-compatible way, since connectors in the wild speak it.
 
-Echo must never deliver anything while sealed, must mask secrets, and must keep replay's safety rules: tests should prove a sealed path doesn't reach the network, using `127.0.0.1` fixtures only. Echo and its connectors are MIT licensed.
+Echo must never deliver anything while sealed, must mask secrets and must keep replay's safety rules: tests should prove a sealed path doesn't reach the network, using `127.0.0.1` fixtures only. Echo and its connectors are MIT licensed.
 
 End to end, Echo is tested against its **testbed**: WordPress, Laravel, Next.js and plain PHP in Docker, behind a network with no way out, with 20 scenarios, each with a good and a broken state. It's also the [benchmark](Echo-Benchmark).
 
@@ -231,7 +231,7 @@ make bench                                            # every scenario; writes d
 make testbed-down                                     # throw everything away
 ```
 
-To add a scenario, implement its broken state behind a `testbed/state/<id>` check next to the code it breaks, add the action that shows it to `testbed/.echo/config.yaml` if it needs a new one, describe it in `testbed/scenarios.yaml` with the change Echo should report, and run it with `-only`. The [testbed README](https://github.com/RhythmShahriar/echo/blob/master/testbed/README.md) has the details.
+To add a scenario, implement its broken state behind a `testbed/state/<id>` check next to the code it breaks, add the action that shows it to `testbed/.echo/config.yaml` if it needs a new one, describe it in `testbed/scenarios.yaml` with the change Echo should report and run it with `-only`. The [testbed README](https://github.com/RhythmShahriar/echo/blob/master/testbed/README.md) has the details.
 
 ## Code of conduct
 

@@ -1,4 +1,4 @@
-How `rhythm` and its tools are released, and how a new tool is added, for maintainers. A release is a pushed `vX.Y.Z` tag; a shared workflow builds, checksums, signs and publishes it. Tuner's checks also publish on their own, as a check pack, on every push to `master`, and an Echo release also publishes its npm and Composer connectors.
+How `rhythm` and its tools are released and how a new tool is added, for maintainers. A release is a pushed `vX.Y.Z` tag; a shared workflow builds, checksums, signs and publishes it. Tuner's checks also publish on their own, as a check pack, on every push to `master`. An Echo release also publishes its npm and Composer connectors.
 
 ## Release a version
 
@@ -16,7 +16,7 @@ How `rhythm` and its tools are released, and how a new tool is added, for mainta
 3. The repository's `release` workflow runs, builds every platform and publishes the GitHub release with notes generated from the commits.
 4. [Verify the release](#verify-a-release).
 
-Any tag starting with `v` triggers a release, so only push tags you mean to ship. A tag with a suffix, like `v0.4.0-rc1`, is published as a **prerelease** (`release.prerelease: auto` in `.goreleaser.yaml`): GitHub never reports a prerelease as "latest", so `rhythm update` and the installers don't offer it, and you can test it by downloading it directly.
+Any tag starting with `v` triggers a release, so only push tags you mean to ship. A tag with a suffix, like `v0.4.0-rc1`, is published as a **prerelease** (`release.prerelease: auto` in `.goreleaser.yaml`): GitHub never reports a prerelease as "latest", so `rhythm update` and the installers don't offer it. You can test it by downloading it directly.
 
 ## The release workflow
 
@@ -43,13 +43,13 @@ GoReleaser reads the repository's [`.goreleaser.yaml`](https://github.com/Rhythm
 ### The naming contract
 
 > [!IMPORTANT]
-> The archive names and `checksums.txt` are a contract. `kit/update` (used by `rhythm update` and `rhythm install`), `install.sh` and `install.ps1` look for exactly `<binary>_<os>_<arch>.tar.gz` (`.zip` on Windows) and `checksums.txt`, and refuse to install anything without a matching checksum line. Renaming the binary, the project or the archive template breaks installs and updates for every user.
+> The archive names and `checksums.txt` are a contract. `kit/update` (used by `rhythm update` and `rhythm install`), `install.sh` and `install.ps1` look for exactly `<binary>_<os>_<arch>.tar.gz` (`.zip` on Windows) and `checksums.txt`. They refuse to install anything without a matching checksum line. Renaming the binary, the project or the archive template breaks installs and updates for every user.
 
 Keep these in sync when adding a tool: the GoReleaser `project_name` must equal the binary name (`rhythm-<tool>`), so archives come out as `rhythm-<tool>_<os>_<arch>`.
 
 ### CI checks before you tag
 
-The shared `ci-go.yml` workflow runs on every push to `master` and every pull request: `gofmt`, `go vet`, `golangci-lint`, `go test -race`, a build, `shellcheck`, and `goreleaser check` to validate the release config. A clean CI run on the tagged commit is the best sign the release will build.
+The shared `ci-go.yml` workflow runs on every push to `master` and every pull request: `gofmt`, `go vet`, `golangci-lint`, `go test -race`, a build, `shellcheck` and `goreleaser check` to validate the release config. A clean CI run on the tagged commit is the best sign the release will build.
 
 ## When the kit changes
 
@@ -83,18 +83,18 @@ Soundcheck is the worked example: a new repository, `RhythmShahriar/soundcheck`,
 
 - **Module and binary.** The module is `github.com/RhythmShahriar/<tool>` and the command lives in `cmd/rhythm-<tool>`. The binary must be `rhythm-<tool>`: the router runs `rhythm-<tool>` from the `PATH`.
 - **The kit.** Require a tagged `rhythm` for the kit (Soundcheck requires `v0.2.1`) and use it for the banner, theme, user folders, update notice and shared flags, so the tool looks and behaves like the others.
-- **The standard commands.** `version` (printing `rhythm-<tool> <version>`), `help`, the exit codes `0`, `1` (`--fail-on`), `2` (usage), `3` (couldn't run), `130` (interrupted), and `update`, which `rhythm update` calls after updating the binary to refresh the tool's data (for Soundcheck, its browser). An `update` with nothing to do should still exit `0`.
-- **Responsible use.** A one-time notice through `kit/config.FirstRun` (Soundcheck's marker is `soundcheck-authorised-use`), and the background release check through `kit/update.Notice` with the tool's repository and binary.
+- **The standard commands.** `version` (printing `rhythm-<tool> <version>`), `help`, the exit codes `0`, `1` (`--fail-on`), `2` (usage), `3` (couldn't run), `130` (interrupted) and `update`, which `rhythm update` calls after updating the binary to refresh the tool's data (for Soundcheck, its browser). An `update` with nothing to do should still exit `0`.
+- **Responsible use.** A one-time notice through `kit/config.FirstRun` (Soundcheck's marker is `soundcheck-authorised-use`) and the background release check through `kit/update.Notice` with the tool's repository and binary.
 - **Release config.** Copy `.goreleaser.yaml`, `.github/workflows/release.yml` and `ci.yml` from an existing tool. Set `project_name` to the binary name so archives are named `rhythm-<tool>_<os>_<arch>`; see [the naming contract](#the-naming-contract).
-- **Community files.** `make hooks` and the commit message hook, a README that links into this wiki, the license, and private vulnerability reporting turned on in the repository's security settings.
+- **Community files.** `make hooks` and the commit message hook, a README that links into this wiki, the license and private vulnerability reporting turned on in the repository's security settings.
 
 ### 2. Release the tool
 
-Tag and push `v1.0.0` (or whatever the first version is) as in [Release a version](#release-a-version), and [verify the release](#verify-a-release). The release must exist before the router points at it: `rhythm install` and `rhythm update` read `/releases/latest`.
+Tag and push `v1.0.0` (or whatever the first version is) as in [Release a version](#release-a-version). Then [verify the release](#verify-a-release). The release must exist before the router points at it: `rhythm install` and `rhythm update` read `/releases/latest`.
 
 ### 3. Register it in the router
 
-The router only knows the tools listed in [`cmd/rhythm/main.go`](https://github.com/RhythmShahriar/rhythm/blob/master/cmd/rhythm/main.go): the `tools` map (name → repository), its `aliases`, and the tools list in the help text. For Soundcheck and Echo:
+The router only knows the tools listed in [`cmd/rhythm/main.go`](https://github.com/RhythmShahriar/rhythm/blob/master/cmd/rhythm/main.go): the `tools` map (name → repository), its `aliases` and the tools list in the help text. For Soundcheck and Echo:
 
 ```go
 var tools = map[string]string{
@@ -110,7 +110,7 @@ To install it by default, add it to the installers' default `RHYTHM_TOOLS` (`tun
 
 ### 4. Release rhythm
 
-Release `rhythm` with the registration. Users get the tool with `rhythm install <tool>`, and new installs get it by default.
+Release `rhythm` with the registration. Users get the tool with `rhythm install <tool>`. New installs get it by default.
 
 ### The order
 
@@ -118,19 +118,19 @@ Release `rhythm` with the registration. Users get the tool with `rhythm install 
 rhythm (kit the tool needs)  →  the tool's first release  →  rhythm (registers the tool)
 ```
 
-1. **`rhythm` with the kit**, if the tool needs kit packages that aren't released yet. For Soundcheck that was `v0.2.0`, which added `kit/crawl`, `kit/ratelimit`, `kit/cache` and `kit/cli`, and then `v0.2.1` for the crawl fixes it now requires. For Echo it's `v0.4.0`, which added `kit/secrets`.
-2. **The tool**, requiring that `rhythm` version. For Echo, the one `v1.0.0` tag releases the binary and the npm package, and `split-laravel.sh v1.0.0` then publishes the Laravel package (see [Echo's packages](#echos-packages)). A tool that others build on releases before them: Soundcheck `v1.1.0`, which imports Echo's `client` and `compare`, comes after Echo `v1.0.0`.
+1. **`rhythm` with the kit**, if the tool needs kit packages that aren't released yet. For Soundcheck that was `v0.2.0`, which added `kit/crawl`, `kit/ratelimit`, `kit/cache` and `kit/cli`. Then came `v0.2.1` for the crawl fixes it now requires. For Echo it's `v0.4.0`, which added `kit/secrets`.
+2. **The tool**, requiring that `rhythm` version. For Echo, the one `v1.0.0` tag releases the binary and the npm package. `split-laravel.sh v1.0.0` then publishes the Laravel package (see [Echo's packages](#echos-packages)). A tool that others build on releases before them: Soundcheck `v1.1.0`, which imports Echo's `client` and `compare`, comes after Echo `v1.0.0`.
 3. **`rhythm` again**, registering the tool and installing it by default. For Echo, `v0.5.0` registers `echo` with the alias `e` and makes the installers default to `tuner soundcheck echo`.
 
-Registering a tool before it has a release breaks the installer: `rhythm install` finds no release, and the installer stops (`installing <tool> failed`) for everyone using the default `RHYTHM_TOOLS`.
+Registering a tool before it has a release breaks the installer: `rhythm install` finds no release and the installer stops (`installing <tool> failed`) for everyone using the default `RHYTHM_TOOLS`.
 
 ## Echo's packages
 
-An Echo release ships three things from one tag of [`RhythmShahriar/echo`](https://github.com/RhythmShahriar/echo): the `rhythm-echo` binary (through the shared release workflow, like every tool), the Next.js and Node connector on npm, and the Laravel connector on Packagist. The WordPress connector is embedded in the binary and needs nothing extra.
+An Echo release ships three things from one tag of [`RhythmShahriar/echo`](https://github.com/RhythmShahriar/echo): the `rhythm-echo` binary (through the shared release workflow, like every tool), the Next.js and Node connector on npm and the Laravel connector on Packagist. The WordPress connector is embedded in the binary and needs nothing extra.
 
 ### npm: `@rhythmsh/echo`
 
-The Echo repository's [`npm` workflow](https://github.com/RhythmShahriar/echo/blob/master/.github/workflows/npm.yml) runs on the same `v*` tag push. In `connectors/node`, it installs with `npm ci`, sets the package version from the tag (`npm version "${GITHUB_REF_NAME#v}"`), runs `npm test`, and publishes with provenance:
+The Echo repository's [`npm` workflow](https://github.com/RhythmShahriar/echo/blob/master/.github/workflows/npm.yml) runs on the same `v*` tag push. In `connectors/node`, it installs with `npm ci`, sets the package version from the tag (`npm version "${GITHUB_REF_NAME#v}"`), runs `npm test` and publishes with provenance:
 
 ```sh
 npm publish --provenance --access public --tag latest   # or --tag next for a v1.1.0-rc1 style tag
@@ -146,7 +146,7 @@ Packagist needs a repository whose root is the package, so `connectors/laravel` 
 scripts/split-laravel.sh v1.0.0
 ```
 
-It runs `git subtree split --prefix connectors/laravel`, pushes the result to `echo-laravel`'s `master`, and creates the same tag there, then prints `Pushed connectors/laravel at v1.0.0 to <remote>`. `ECHO_LARAVEL_REMOTE` overrides the remote. Packagist reads `rhythmsh/echo-laravel` from that repository and picks up the new tag through its GitHub hook (or **Update** on the package's Packagist page). Run it from an up-to-date `master` after tagging Echo, since the subtree history is pushed as it is.
+It runs `git subtree split --prefix connectors/laravel`, pushes the result to `echo-laravel`'s `master` and creates the same tag there. Then it prints `Pushed connectors/laravel at v1.0.0 to <remote>`. `ECHO_LARAVEL_REMOTE` overrides the remote. Packagist reads `rhythmsh/echo-laravel` from that repository and picks up the new tag through its GitHub hook (or **Update** on the package's Packagist page). Run it from an up-to-date `master` after tagging Echo, since the subtree history is pushed as it is.
 
 No workflow runs the split: the Echo repository's workflows are `ci.yml`, `release.yml` (the binaries) and `npm.yml` (the Node package), so after each Echo tag, run `scripts/split-laravel.sh` yourself.
 
@@ -158,7 +158,7 @@ No workflow runs the split: the Echo repository's workflows are `ci.yml`, `relea
 
 ## Check packs
 
-Tuner's checks also ship without a release. The [`checks-pack`](https://github.com/RhythmShahriar/tuner/blob/master/.github/workflows/checks-pack.yml) workflow runs on every push to `master` that touches `checks/**` (or the workflow itself), and can be run by hand:
+Tuner's checks also ship without a release. The [`checks-pack`](https://github.com/RhythmShahriar/tuner/blob/master/.github/workflows/checks-pack.yml) workflow runs on every push to `master` that touches `checks/**` (or the workflow itself). It can also be run by hand:
 
 1. Runs every check's fixtures: `go test ./engine ./checkpack`.
 2. Builds the pack with `make pack` (`checks.tar.gz`, `checks-manifest.json`, `checks-sha256.txt`), byte for byte as you'd get locally from the same commit and Go version.
@@ -181,7 +181,7 @@ After the workflow finishes:
    gh release view v0.3.2 -R RhythmShahriar/tuner --json assets --jq '.assets[].name'
    ```
 
-2. **Latest.** The new version is marked *Latest*, and `checks-latest` is still a *Pre-release*:
+2. **Latest.** The new version is marked *Latest* while `checks-latest` is still a *Pre-release*:
 
    ```sh
    gh release list -R RhythmShahriar/tuner --limit 5
@@ -202,15 +202,15 @@ After the workflow finishes:
      checksums.txt
    ```
 
-4. **Update path.** On a machine with the previous version, `rhythm update --check` should offer the new one, and `rhythm update` should install it:
+4. **Update path.** On a machine with the previous version, `rhythm update --check` should offer the new one and `rhythm update` should install it:
 
    ```text
    rhythm-tuner       0.3.1 → 0.3.2 available
    ```
 
-5. **Fresh install.** Run the installer in a clean environment, such as a throwaway container or VM, and check `rhythm tuner --version`.
+5. **Fresh install.** Run the installer in a clean environment, such as a throwaway container or VM. Then check `rhythm tuner --version`.
 
-6. **Notes.** Read the generated release notes, and edit them if a change needs more explanation, such as a breaking change.
+6. **Notes.** Read the generated release notes and edit them if a change needs more explanation, such as a breaking change.
 
 ---
 <sub>← [Contributing](Contributing) · [Home](Home) · [Architecture](Architecture) →</sub>
