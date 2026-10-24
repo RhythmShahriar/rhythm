@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -132,9 +133,26 @@ func TestUserAgentIsTheUpdaters(t *testing.T) {
 
 // TestDefaultClientUsesHTTPSProxy runs Latest in a child process, because
 // Go reads the proxy variables once per process. The proxy on 127.0.0.1
-// refuses the CONNECT, so nothing leaves the machine.
+// refuses the CONNECT, so nothing leaves the machine. The child's
+// transport dials only loopback addresses, so a proxy that is ignored
+// fails the test instead of reaching GitHub.
 func TestDefaultClientUsesHTTPSProxy(t *testing.T) {
 	if os.Getenv("UPDATE_PROXY_CHILD") == "1" {
+		base, ok := http.DefaultTransport.(*http.Transport)
+		if !ok {
+			t.Fatal("http.DefaultTransport isn't an *http.Transport")
+		}
+		dialer := &net.Dialer{}
+		base.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, _, err := net.SplitHostPort(addr)
+			if err != nil {
+				return nil, err
+			}
+			if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() {
+				return nil, fmt.Errorf("test dials only loopback, not %s", addr)
+			}
+			return dialer.DialContext(ctx, network, addr)
+		}
 		_, err := (&Updater{Repo: "RhythmShahriar/tuner", Binary: "rhythm-tuner"}).Latest(context.Background())
 		fmt.Println("child:", err)
 		return
@@ -147,7 +165,7 @@ func TestDefaultClientUsesHTTPSProxy(t *testing.T) {
 	defer proxy.Close()
 	cmd := exec.Command(os.Args[0], "-test.run=^TestDefaultClientUsesHTTPSProxy$")
 	cmd.Env = append(os.Environ(), "UPDATE_PROXY_CHILD=1", "HTTPS_PROXY="+proxy.URL, "https_proxy="+proxy.URL,
-		"NO_PROXY=", "no_proxy=", "RHYTHM_OFFLINE=", "GITHUB_TOKEN=", "RHYTHM_GITHUB_TOKEN=")
+		"NO_PROXY=", "no_proxy=", "RHYTHM_OFFLINE=", "GITHUB_TOKEN=", "RHYTHM_GITHUB_TOKEN=", "RHYTHM_GITHUB_API=")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("child: %v\n%s", err, out)

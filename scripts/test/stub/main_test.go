@@ -220,3 +220,13 @@ func TestAlreadyInstalled(t *testing.T) {
 		t.Fatalf("an already installed tool was copied: %v", err)
 	}
 }
+
+// TestMain clears the variables users are told to set, so a mirror, a
+// token or offline mode in the environment doesn't change the results.
+func TestMain(m *testing.M) {
+	for _, v := range []string{"RHYTHM_OFFLINE", "RHYTHM_GITHUB_API", "RHYTHM_GITHUB_TOKEN", "GITHUB_TOKEN",
+		"RHYTHM_MIN_RELEASE_AGE", "RHYTHM_DOWNLOAD_CACHE", "RHYTHM_TEST_LOG", "RHYTHM_TEST_VERIFY", "RHYTHM_TEST_ALREADY"} {
+		_ = os.Unsetenv(v)
+	}
+	os.Exit(m.Run())
+}
