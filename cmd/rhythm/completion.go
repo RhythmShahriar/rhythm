@@ -220,7 +220,7 @@ func toolOutput(ctx context.Context, bin string, env []string, args ...string) (
 }
 
 // The scripts pass every word up to the cursor to `rhythm __complete`,
-// the word under the cursor last even when it is empty, and fall back to
+// the word under the cursor last even when it is empty and fall back to
 // file names when nothing comes back.
 
 const bashCompletion = `# bash completion for rhythm. Load it with:

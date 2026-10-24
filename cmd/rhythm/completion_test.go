@@ -111,7 +111,7 @@ func TestCompleteListsEverything(t *testing.T) {
 }
 
 // toolStub writes a rhythm-tuner that answers like a kit/cli.Main tool:
-// version --json with a kit_version, and __complete by logging how it
+// version --json with a kit_version and __complete by logging how it
 // was called to log and printing two candidates.
 func toolStub(t *testing.T, dir, log string) {
 	t.Helper()
