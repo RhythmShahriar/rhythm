@@ -17,6 +17,7 @@ jobs:
     uses: RhythmShahriar/.github/.github/workflows/ci-go.yml@master
     with:
       os: '["ubuntu-latest", "windows-latest", "macos-latest"]'
+      pin-check: true
       bench: Crawl10k
       bench-packages: ./kit/crawl
   commitlint:
