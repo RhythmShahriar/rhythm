@@ -38,6 +38,20 @@ import (
 // Largest archive we'll download.
 const maxArchive = 200 << 20
 
+// Updater checks for and installs releases of one binary.
+//
+// It reads these environment variables:
+//
+//   - GITHUB_TOKEN is sent only to api.github.com and to the github.com
+//     and objects.githubusercontent.com download hosts, and only when API
+//     is api.github.com. It lifts the 60 requests an hour anonymous limit
+//     in CI.
+//   - RHYTHM_GITHUB_TOKEN is sent to the host named by API (a mirror or
+//     GitHub Enterprise) and takes precedence over GITHUB_TOKEN.
+//
+// The API base and every download URL must be https; plain http is only
+// accepted for loopback hosts, for tests. A token is never sent on a
+// redirect to another host and never logged.
 type Updater struct {
 	Repo      string // e.g. RhythmShahriar/tuner
 	Binary    string // e.g. rhythm-tuner
@@ -48,33 +62,23 @@ type Updater struct {
 	OS, Arch  string // default runtime.GOOS, runtime.GOARCH
 }
 
+// Release is one published release and its downloadable assets.
 type Release struct {
 	Version string            // without the leading v
 	Assets  map[string]string // name → download URL
 }
 
-func (u *Updater) client() *http.Client {
-	if u.HTTP != nil {
-		return u.HTTP
-	}
-	return &http.Client{Timeout: 5 * time.Minute}
-}
-
 // Latest fetches the newest published release.
 func (u *Updater) Latest(ctx context.Context) (*Release, error) {
-	api := u.API
-	if api == "" {
-		api = "https://api.github.com"
+	api := u.apiBase()
+	if err := checkURL(api); err != nil {
+		return nil, fmt.Errorf("refusing to use the release API: %w", err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, api+"/repos/"+u.Repo+"/releases/latest", nil)
+	req, err := u.newRequest(ctx, api+"/repos/"+u.Repo+"/releases/latest")
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", u.UserAgent)
-	if tok := os.Getenv("GITHUB_TOKEN"); tok != "" {
-		req.Header.Set("Authorization", "Bearer "+tok) // avoids the 60/hour anonymous limit in CI
-	}
 	resp, err := u.client().Do(req)
 	if err != nil {
 		return nil, err
@@ -221,11 +225,13 @@ func (u *Updater) Install(ctx context.Context, rel *Release, dest string) error 
 }
 
 func (u *Updater) download(ctx context.Context, url string, limit int64) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err := checkURL(url); err != nil {
+		return nil, err
+	}
+	req, err := u.newRequest(ctx, url)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", u.UserAgent)
 	resp, err := u.client().Do(req)
 	if err != nil {
 		return nil, err
