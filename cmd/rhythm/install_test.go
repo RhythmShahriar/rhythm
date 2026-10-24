@@ -4,6 +4,8 @@
 package main
 
 import (
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -109,7 +111,7 @@ func TestInstallNotesARealShadow(t *testing.T) {
 	// A link on PATH that points at the new install is not a shadow.
 	os.Remove(shadow)
 	os.Symlink(filepath.Join(s.bin, "rhythm-tuner"), shadow)
-	if code, out, _ := runCmd("install", "tuner", "--dir", s.bin); code != 0 || strings.Contains(out, "Note:") {
+	if code, out, _ := runCmd("install", "tuner", "--dir", s.bin, "--force"); code != 0 || strings.Contains(out, "Note:") {
 		t.Errorf("exit %d\n%s", code, out)
 	}
 }
@@ -262,5 +264,117 @@ func TestInstallOffPathNoteOnce(t *testing.T) {
 	code, out, _ := runCmd("install", "tuner", "echo", "--dir", dir)
 	if code != 0 || strings.Count(out, "Note:") != 1 || !strings.HasSuffix(out, "Note: "+dir+" isn't on your PATH.\n") {
 		t.Errorf("exit %d\n%s", code, out)
+	}
+}
+
+// archiveRequests counts the archive downloads the fake API served.
+func (s *sandbox) archiveRequests() int {
+	n := 0
+	for _, p := range s.api.requests() {
+		if strings.HasPrefix(p, "/dl/") {
+			n++
+		}
+	}
+	return n
+}
+
+func TestInstallAlreadyInstalled(t *testing.T) {
+	_, latest := allTools()
+	s := newSandbox(t, nil, latest)
+	if code, out, errs := runCmd("install", "tuner", "--dir", s.bin); code != 0 {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	if n := s.archiveRequests(); n != 1 {
+		t.Fatalf("%d archive requests", n)
+	}
+
+	code, out, errs := runCmd("install", "tuner", "--dir", s.bin, "--quiet")
+	want := "rhythm-tuner 0.2.0 is already installed at " + filepath.Join(s.bin, "rhythm-tuner") + " (use --force to reinstall)\n"
+	if code != 0 || out != want || errs != "" {
+		t.Errorf("exit %d\n%q\nwant\n%q%s", code, out, want, errs)
+	}
+	if n := s.archiveRequests(); n != 1 {
+		t.Errorf("the second install downloaded again (%d archive requests)", n)
+	}
+
+	code, out, _ = runCmd("install", "tuner", "--dir", s.bin, "--force")
+	if code != 0 || !strings.Contains(out, "Installed rhythm-tuner 0.2.0") || s.archiveRequests() != 2 {
+		t.Errorf("--force: exit %d, %d archive requests\n%s", code, s.archiveRequests(), out)
+	}
+
+	// An older version is replaced as before.
+	s.stub(t, "rhythm-tuner", "0.1.0", "")
+	if code, out, _ := runCmd("install", "tuner", "--dir", s.bin); code != 0 || !strings.Contains(out, "Installed rhythm-tuner 0.2.0") {
+		t.Errorf("older install: exit %d\n%s", code, out)
+	}
+}
+
+func TestInstallSummaryCountsAlreadyInstalled(t *testing.T) {
+	_, latest := allTools()
+	delete(latest, tools["echo"])
+	s := newSandbox(t, nil, latest)
+	s.stub(t, "rhythm-tuner", "0.2.0", "")
+	code, _, errs := runCmd("install", "tuner", "echo", "soundcheck", "--dir", s.bin)
+	if code != 1 || !strings.HasSuffix(errs, "Installed 1, already installed 1, failed 1: rhythm-echo\n") {
+		t.Errorf("exit %d\n%s", code, errs)
+	}
+}
+
+// fakeTerminal makes every writer count as a terminal.
+func fakeTerminal(t *testing.T) {
+	t.Helper()
+	old := isTerminal
+	isTerminal = func(io.Writer) bool { return true }
+	t.Cleanup(func() { isTerminal = old })
+}
+
+func TestInstallProgressOnlyOnATerminal(t *testing.T) {
+	_, latest := allTools()
+	s := newSandbox(t, nil, latest)
+	if _, _, errs := runCmd("install", "tuner", "--dir", s.bin); errs != "" {
+		t.Errorf("progress without a terminal: %q", errs)
+	}
+
+	fakeTerminal(t)
+	_, out, errs := runCmd("install", "echo", "--dir", s.bin)
+	if !strings.Contains(errs, "\rDownloading rhythm-echo 0.2.0  0.0/0.0 MB") || !strings.HasSuffix(errs, "\r\x1b[K") {
+		t.Errorf("no progress line on a terminal: %q", errs)
+	}
+	if strings.Contains(out, "Downloading") {
+		t.Errorf("progress on stdout: %q", out)
+	}
+	// Only the archive reports progress, not the API or checksums.
+	if strings.Count(errs, "Downloading") != 1 {
+		t.Errorf("progress for other requests: %q", errs)
+	}
+	if _, _, errs := runCmd("install", "soundcheck", "--dir", s.bin, "--quiet"); errs != "" {
+		t.Errorf("progress with --quiet: %q", errs)
+	}
+}
+
+func TestProgressLine(t *testing.T) {
+	var b strings.Builder
+	p := &progressLine{w: &b, label: "Downloading rhythm-tuner 0.3.2"}
+	p.update(13002342, 28416409)
+	p.update(13002343, 28416409) // within 100ms: not redrawn
+	p.update(28416409, 28416409) // the end is always drawn
+	p.clear()
+	want := "\rDownloading rhythm-tuner 0.3.2  12.4/27.1 MB\rDownloading rhythm-tuner 0.3.2  27.1/27.1 MB\r\x1b[K"
+	if b.String() != want {
+		t.Errorf("got  %q\nwant %q", b.String(), want)
+	}
+	b.Reset()
+	(&progressLine{w: &b, label: "x"}).update(1<<20, -1)
+	if b.String() != "\rx  1.0 MB" {
+		t.Errorf("unknown size: %q", b.String())
+	}
+}
+
+func TestProgressFollowsRedirects(t *testing.T) {
+	first, _ := http.NewRequest(http.MethodGet, "https://github.com/o/r/releases/download/v1/a.tar.gz", nil)
+	cdn, _ := http.NewRequest(http.MethodGet, "https://objects.githubusercontent.com/x", nil)
+	cdn.Response = &http.Response{Request: first}
+	if !requested(cdn, first.URL.String()) || requested(cdn, "https://github.com/other") {
+		t.Error("redirect chain not followed")
 	}
 }

@@ -51,6 +51,10 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 		rep.failed = append(rep.failed, "rhythm-"+tool)
 	}
 
+	var progress io.Writer // the download progress line, on a terminal only
+	if isTerminal(stderr) {
+		progress = stderr
+	}
 	for _, t := range targets {
 		if ctx.Err() != nil {
 			break
@@ -87,7 +91,7 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 			rep.updated++
 			continue
 		}
-		if err := u.Install(ctx, rel, t.real); err != nil {
+		if err := installWithProgress(ctx, u, rel, t.real, progress); err != nil {
 			rep.fail(ctx, stderr, t.binary, err)
 			continue
 		}

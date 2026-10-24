@@ -23,6 +23,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/RhythmShahriar/rhythm/kit/cli"
 	"github.com/RhythmShahriar/rhythm/kit/update"
 )
 
@@ -116,6 +117,11 @@ type explainTransport struct {
 	base http.RoundTripper
 	api  string // the API base asked, without a trailing slash
 	repo string
+
+	// While archiveURL is set, its download body reports to progress.
+	// kit/update has no progress callback of its own yet.
+	archiveURL string
+	progress   func(done, total int64)
 }
 
 func (t *explainTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -139,8 +145,25 @@ func (t *explainTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		strings.HasSuffix(req.URL.Path, "/releases/latest"):
 		_ = resp.Body.Close()
 		return nil, &noReleaseError{api: t.api, repo: t.repo}
+	case code == http.StatusOK && t.progress != nil && t.archiveURL != "" && requested(req, t.archiveURL):
+		resp.Body = &countingBody{ReadCloser: resp.Body, total: resp.ContentLength, progress: t.progress}
 	}
 	return resp, nil
+}
+
+// requested reports whether req asks for rawURL, directly or as the end
+// of a redirect: GitHub sends release downloads on to its CDN.
+func requested(req *http.Request, rawURL string) bool {
+	for r := req; r != nil; {
+		if r.URL.String() == rawURL {
+			return true
+		}
+		if r.Response == nil {
+			break
+		}
+		r = r.Response.Request
+	}
+	return false
 }
 
 // rateLimitedError is a 403 or 429 that the release API marks as rate
@@ -319,8 +342,10 @@ usage error and 130 when interrupted.`
 // installOptions are the rhythm install flags that shape each tool's
 // install.
 type installOptions struct {
-	dir   string // absolute install folder
-	quiet bool
+	dir      string // absolute install folder
+	quiet    bool
+	force    bool      // reinstall a binary already on the latest release
+	progress io.Writer // where the download progress line goes; nil for none
 }
 
 func cmdInstall(args []string, stdout, stderr io.Writer) int {
@@ -329,6 +354,7 @@ func cmdInstall(args []string, stdout, stderr io.Writer) int {
 	quiet := flags.Bool("quiet", false, "print only the Installed lines and errors")
 	dryRun := flags.Bool("dry-run", false, "check the names and print the tools, one per line, without installing")
 	defaults := flags.Bool("defaults", false, "also install the tools a fresh setup gets")
+	force := flags.Bool("force", false, "reinstall tools that are already on the latest release")
 	pos, code, ok := parseArgs(flags, args, stdout, stderr)
 	if !ok {
 		return code
@@ -373,11 +399,14 @@ func cmdInstall(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "rhythm:", err)
 		return 1
 	}
-	opt := installOptions{dir: abs, quiet: *quiet}
+	opt := installOptions{dir: abs, quiet: *quiet, force: *force}
+	if !*quiet && isTerminal(stderr) {
+		opt.progress = stderr
+	}
 
 	ctx, stop := signalContext()
 	defer stop()
-	var installed, failed []string
+	var installed, already, failed []string
 	var nets netReport
 	offPath := false
 	for _, tool := range list {
@@ -386,7 +415,7 @@ func cmdInstall(args []string, stdout, stderr io.Writer) int {
 			failed = append(failed, binary)
 			continue
 		}
-		note, err := installTool(ctx, tool, opt, stdout)
+		res, err := installTool(ctx, tool, opt, stdout)
 		if ctx.Err() != nil {
 			fmt.Fprintln(stderr, "rhythm: install interrupted")
 			return exitInterrupted
@@ -405,13 +434,17 @@ func cmdInstall(args []string, stdout, stderr io.Writer) int {
 			failed = append(failed, binary)
 			continue
 		}
+		if res.already {
+			already = append(already, binary)
+			continue
+		}
 		installed = append(installed, binary)
 		switch {
-		case opt.quiet || note == "":
-		case note == noteOffPath:
+		case opt.quiet || res.note == "":
+		case res.note == noteOffPath:
 			offPath = true // said once below, not once per tool
 		default:
-			fmt.Fprintln(stdout, note)
+			fmt.Fprintln(stdout, res.note)
 		}
 	}
 	if offPath {
@@ -420,11 +453,23 @@ func cmdInstall(args []string, stdout, stderr io.Writer) int {
 	nets.print(stderr)
 	if len(failed) > 0 {
 		if len(list) > 1 {
-			fmt.Fprintf(stderr, "Installed %d, failed %d: %s\n", len(installed), len(failed), strings.Join(failed, ", "))
+			fmt.Fprintln(stderr, installSummary(len(installed), len(already), failed))
 		}
 		return 1
 	}
 	return 0
+}
+
+// installSummary is the closing line of an install where something
+// failed, e.g. "Installed 2, already installed 1, failed 1: rhythm-echo".
+func installSummary(installed, already int, failed []string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Installed %d", installed)
+	if already > 0 {
+		fmt.Fprintf(&b, ", already installed %d", already)
+	}
+	fmt.Fprintf(&b, ", failed %d: %s", len(failed), strings.Join(failed, ", "))
+	return b.String()
 }
 
 // installScope turns the names given to rhythm install into the tools to
@@ -494,32 +539,112 @@ func (e *managedError) Error() string {
 // cmdInstall prints it once for all tools.
 const noteOffPath = "off-path"
 
+// installResult is what installTool did with one tool.
+type installResult struct {
+	note    string // the PATH note for the new binary, if any
+	already bool   // the latest release was there already; nothing was downloaded
+}
+
 // installTool downloads tool's latest release into opt.dir and prints the
-// Installed line. note is the PATH note for the new binary, if any.
-func installTool(ctx context.Context, tool string, opt installOptions, stdout io.Writer) (note string, err error) {
+// Installed line, or says the release is there already.
+func installTool(ctx context.Context, tool string, opt installOptions, stdout io.Writer) (installResult, error) {
 	// An existing symlink is followed, so a link into a tool folder stays
 	// a link; a package manager's install is left to the manager.
 	binary := "rhythm-" + tool
 	dest := filepath.Join(opt.dir, exe(binary))
 	writeTo := resolve(dest)
 	if m := managedBy(writeTo, binary); m != nil {
-		return "", &managedError{binary, m}
+		return installResult{}, &managedError{binary, m}
 	}
 	if target := filepath.Dir(writeTo); target != opt.dir {
 		if err := prepareDir(opt.dir, target); err != nil {
-			return "", err
+			return installResult{}, err
 		}
 	}
 	u := updater(tools[tool], binary, "")
 	rel, err := u.Latest(ctx)
 	if err != nil {
-		return "", err
+		return installResult{}, err
 	}
-	if err := u.Install(ctx, rel, writeTo); err != nil {
-		return "", err
+	if !opt.force {
+		if _, err := os.Stat(writeTo); err == nil {
+			if v, _, _ := probeVersion(ctx, dest); v == rel.Version {
+				fmt.Fprintf(stdout, "%s %s is already installed at %s (use --force to reinstall)\n", binary, v, dest)
+				return installResult{already: true}, nil
+			}
+		}
+	}
+	if err := installWithProgress(ctx, u, rel, writeTo, opt.progress); err != nil {
+		return installResult{}, err
 	}
 	fmt.Fprintf(stdout, "Installed %s %s to %s\n", binary, rel.Version, dest)
-	return pathNote(binary, dest), nil
+	return installResult{note: pathNote(binary, dest)}, nil
+}
+
+// isTerminal reports whether w is an interactive terminal. Tests replace
+// it to see the progress line without a terminal.
+var isTerminal = cli.IsTerminal
+
+// installWithProgress runs u.Install and, when w is not nil, keeps one
+// line on w updated with how much of the archive has arrived. The line
+// is cleared when the download ends, so the Installed line takes its
+// place.
+func installWithProgress(ctx context.Context, u *update.Updater, rel *update.Release, dest string, w io.Writer) error {
+	t, ok := u.HTTP.Transport.(*explainTransport)
+	if w == nil || !ok {
+		return u.Install(ctx, rel, dest)
+	}
+	line := &progressLine{w: w, label: fmt.Sprintf("Downloading %s %s", u.Binary, rel.Version)}
+	t.archiveURL, t.progress = rel.Assets[u.ArchiveName()], line.update
+	defer func() { t.archiveURL, t.progress = "", nil }()
+	defer line.clear()
+	return u.Install(ctx, rel, dest)
+}
+
+// progressLine draws "Downloading rhythm-tuner 0.3.2  12.4/27.1 MB" over
+// itself with a carriage return, at most ten times a second.
+type progressLine struct {
+	w     io.Writer
+	label string
+	last  time.Time
+	drawn bool
+}
+
+func (p *progressLine) update(done, total int64) {
+	if time.Since(p.last) < 100*time.Millisecond && done != total {
+		return
+	}
+	p.last = time.Now()
+	const mb = 1 << 20
+	if total > 0 {
+		fmt.Fprintf(p.w, "\r%s  %.1f/%.1f MB", p.label, float64(done)/mb, float64(total)/mb)
+	} else {
+		fmt.Fprintf(p.w, "\r%s  %.1f MB", p.label, float64(done)/mb)
+	}
+	p.drawn = true
+}
+
+// clear erases the line, if it was drawn.
+func (p *progressLine) clear() {
+	if p.drawn {
+		fmt.Fprint(p.w, "\r\x1b[K")
+	}
+}
+
+// countingBody reports each read of a download body to progress.
+type countingBody struct {
+	io.ReadCloser
+	done, total int64
+	progress    func(done, total int64)
+}
+
+func (c *countingBody) Read(p []byte) (int, error) {
+	n, err := c.ReadCloser.Read(p)
+	c.done += int64(n)
+	if n > 0 || err == io.EOF {
+		c.progress(c.done, c.total)
+	}
+	return n, err
 }
 
 // prepareDir makes sure the install folder exists and that the binary

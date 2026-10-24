@@ -645,3 +645,17 @@ func TestInstallUnreachableSaidOnce(t *testing.T) {
 		t.Errorf("exit %d\n%s%s", code, out, errs)
 	}
 }
+
+func TestUpdateProgressOnATerminal(t *testing.T) {
+	installed, latest := allTools()
+	newSandbox(t, installed, latest)
+	if _, _, errs := runCmd("update", "tuner", "--no-data"); errs != "" {
+		t.Errorf("progress without a terminal: %q", errs)
+	}
+	newSandbox(t, installed, latest)
+	fakeTerminal(t)
+	code, _, errs := runCmd("update", "tuner", "--no-data")
+	if code != 0 || !strings.Contains(errs, "\rDownloading rhythm-tuner 0.2.0  ") || !strings.HasSuffix(errs, "\r\x1b[K") {
+		t.Errorf("exit %d: %q", code, errs)
+	}
+}
