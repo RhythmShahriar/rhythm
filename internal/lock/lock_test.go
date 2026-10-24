@@ -237,6 +237,13 @@ func TestFind(t *testing.T) {
 	if _, err := Find(nested); !errors.Is(err, ErrNotFound) || !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("a lock above the repository was found: %v", err)
 	}
+	// The message names the folders that were looked in.
+	if _, err := Find(nested); err == nil || err.Error() != "no rhythm.lock in "+nested+" or its parents up to the repository root "+repo {
+		t.Errorf("in a repository: %v", err)
+	}
+	if _, err := Find(repo); err == nil || err.Error() != "no rhythm.lock in "+repo+", the root of its git repository" {
+		t.Errorf("at the repository root: %v", err)
+	}
 	touch(t, filepath.Join(repo, FileName))
 	if got, err := Find(nested); err != nil || got != filepath.Join(repo, FileName) {
 		t.Errorf("Find(nested) = %q, %v; want the repository's lock", got, err)
@@ -261,6 +268,9 @@ func TestFind(t *testing.T) {
 	}
 	if got, err := Find(plain); !errors.Is(err, ErrNotFound) {
 		t.Errorf("outside a repository Find walked up to %q", got)
+	}
+	if _, err := Find(plain); err == nil || err.Error() != "no rhythm.lock in "+plain+", which isn't in a git repository, so no other folder was checked" {
+		t.Errorf("outside a repository: %v", err)
 	}
 	touch(t, filepath.Join(plain, FileName))
 	if got, err := Find(plain); err != nil || got != filepath.Join(plain, FileName) {

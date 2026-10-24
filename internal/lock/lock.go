@@ -248,8 +248,28 @@ func (f *File) Tool(name string) (Entry, bool) {
 	return Entry{}, false
 }
 
-// ErrNotFound is what Find returns when no lock file is in reach.
+// ErrNotFound is what Find returns when no lock file is in reach, as a
+// *NotFoundError that says where it looked.
 var ErrNotFound = fmt.Errorf("no %s found: %w", FileName, fs.ErrNotExist)
+
+// NotFoundError is Find's answer when no lock file is in reach. Its
+// message names exactly the folders Find looked in. It wraps ErrNotFound.
+type NotFoundError struct {
+	Dir  string // the folder Find started in
+	Root string // the root of the git repository Dir is in, or "" outside one
+}
+
+func (e *NotFoundError) Error() string {
+	switch e.Root {
+	case "":
+		return fmt.Sprintf("no %s in %s, which isn't in a git repository, so no other folder was checked", FileName, e.Dir)
+	case e.Dir:
+		return fmt.Sprintf("no %s in %s, the root of its git repository", FileName, e.Dir)
+	}
+	return fmt.Sprintf("no %s in %s or its parents up to the repository root %s", FileName, e.Dir, e.Root)
+}
+
+func (e *NotFoundError) Unwrap() error { return ErrNotFound }
 
 // Find returns the path of the rhythm.lock that applies in dir: the
 // nearest one in dir or a parent, up to and including the root of the
@@ -261,7 +281,8 @@ func Find(dir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	root := repoRoot(dir)
+	repo := repoRoot(dir)
+	root := repo
 	if root == "" {
 		root = dir
 	}
@@ -271,7 +292,7 @@ func Find(dir string) (string, error) {
 			return p, nil
 		}
 		if d == root || filepath.Dir(d) == d {
-			return "", ErrNotFound
+			return "", &NotFoundError{Dir: dir, Root: repo}
 		}
 	}
 }
