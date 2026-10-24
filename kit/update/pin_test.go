@@ -328,3 +328,32 @@ func TestPinningIsOffline(t *testing.T) {
 		t.Errorf("requests while offline: %v", api.hits)
 	}
 }
+
+func TestByTagRefusesAnotherRelease(t *testing.T) {
+	// A mirror that answers /releases/tags/v0.2.0 with the 0.1.0 release
+	// must not downgrade a pinned install.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/RhythmShahriar/tuner/releases/tags/v0.2.0", "/repos/RhythmShahriar/tuner/releases/tags/v0.1.0":
+			fmt.Fprint(w, `{"tag_name":"v0.1.0","assets":[]}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	u := &Updater{Repo: "RhythmShahriar/tuner", Binary: "rhythm-tuner", API: srv.URL}
+	_, err := u.ByTag(context.Background(), "0.2.0")
+	var tm *ErrTagMismatch
+	if !errors.As(err, &tm) || tm.Want != "v0.2.0" || tm.Got != "v0.1.0" {
+		t.Fatalf("err = %v, want ErrTagMismatch", err)
+	}
+	if want := srv.URL + ` answered RhythmShahriar/tuner v0.2.0 with release "v0.1.0"; refusing it`; err.Error() != want {
+		t.Errorf("message = %q, want %q", err, want)
+	}
+	if _, err := u.Resolve(context.Background(), "0.2.0"); !errors.As(err, &tm) {
+		t.Errorf("Resolve: err = %v, want ErrTagMismatch", err)
+	}
+	if rel, err := u.ByTag(context.Background(), "0.1.0"); err != nil || rel.Version != "0.1.0" {
+		t.Errorf("the matching tag: %+v, %v", rel, err)
+	}
+}

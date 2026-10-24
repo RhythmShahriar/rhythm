@@ -61,6 +61,11 @@ func (g gitHub) ByTag(ctx context.Context, version string) (*Release, error) {
 	if v.Draft {
 		return nil, &ErrNoRelease{Repo: g.u.Repo, API: g.u.apiBase(), Version: tag}
 	}
+	// A broken or hostile mirror could answer with another release, an
+	// older one still signed, to downgrade a pinned install.
+	if got := strings.TrimPrefix(v.TagName, "v"); got != version {
+		return nil, &ErrTagMismatch{Repo: g.u.Repo, API: g.u.apiBase(), Want: tag, Got: v.TagName}
+	}
 	return v.release(), nil
 }
 

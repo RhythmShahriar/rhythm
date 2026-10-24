@@ -98,6 +98,20 @@ func (e *ErrNoRelease) Error() string {
 // Unwrap returns the cause, for errors.Is and errors.As.
 func (e *ErrNoRelease) Unwrap() error { return e.Err }
 
+// ErrTagMismatch means the release API answered a request for one tag
+// with a release of another, so nothing was installed from it.
+type ErrTagMismatch struct {
+	Repo string
+	API  string // the API base asked
+	Want string // the tag asked for, e.g. v0.3.1
+	Got  string // the tag of the release that came back
+}
+
+// Error names both tags and the API that answered.
+func (e *ErrTagMismatch) Error() string {
+	return fmt.Sprintf("%s answered %s %s with release %q; refusing it", redactURL(e.API), e.Repo, e.Want, e.Got)
+}
+
 // ErrTooNew means every release that would match is younger than
 // Updater.MinAge, so none was picked.
 type ErrTooNew struct {
