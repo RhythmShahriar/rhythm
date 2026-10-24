@@ -294,7 +294,7 @@ func (e *rateLimitedError) explain(binaries string) string {
 // version it has no release for.
 type noReleaseError struct {
 	api, repo string
-	version   string // the tag or spec asked for, e.g. v0.9.9 or 0.9.*; "" for the latest
+	version   string // the tag or spec asked for, e.g. v0.9.9 or 0.9.x; "" for the latest
 }
 
 func (e *noReleaseError) Error() string {
@@ -1233,10 +1233,12 @@ func resolveSpec(ctx context.Context, u *update.Updater, spec string, minAge tim
 		}
 		return r.picked(), nil
 	}
-	prefix, want := "", "*"
+	// want is "0.3.x" for a range. For the latest release it is "", so a
+	// 404 reads "has no release for" or "has no published releases yet".
+	prefix, want := "", ""
 	if !latest {
 		prefix = strings.TrimPrefix(spec, "v") + "."
-		want = prefix + "*"
+		want = prefix + "x"
 	}
 	var list []ghRelease
 	if err := apiGet(ctx, u, "/releases?per_page=100", want, &list); err != nil {

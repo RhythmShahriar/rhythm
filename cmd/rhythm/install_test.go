@@ -952,3 +952,17 @@ func TestRouterLookupRedirects(t *testing.T) {
 		t.Errorf("the mirror itself: %v, want its token", got)
 	}
 }
+
+// TestMinAgeMissingReleaseWording: a --min-age lookup at a mirror that
+// lacks the repository says "has no release for", not "has no release *".
+func TestMinAgeMissingReleaseWording(t *testing.T) {
+	newSandbox(t, map[string]string{"rhythm-tuner": "0.1.0"}, nil)
+	srv := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(srv.Close)
+	t.Setenv("RHYTHM_GITHUB_API", srv.URL)
+	code, out, errs := runCmd("update", "tuner", "--check", "--min-age", "1d")
+	want := "mirror " + srv.URL + " has no release for RhythmShahriar/tuner; check RHYTHM_GITHUB_API"
+	if code == 0 || !strings.Contains(errs, want) || strings.Contains(errs, "*") {
+		t.Errorf("exit %d\n%s%s\nwant %q", code, out, errs, want)
+	}
+}

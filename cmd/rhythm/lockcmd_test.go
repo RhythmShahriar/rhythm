@@ -348,7 +348,7 @@ func TestInstallBadSpecs(t *testing.T) {
 func TestInstallSpecWithoutRelease(t *testing.T) {
 	s, f := pinSandbox(t)
 	code, _, errs := runCmd("install", "tuner@0.9", "--dir", s.bin)
-	want := fmt.Sprintf("mirror %s has no release 0.9.* for RhythmShahriar/tuner; check RHYTHM_GITHUB_API", f.URL)
+	want := fmt.Sprintf("mirror %s has no release 0.9.x for RhythmShahriar/tuner; check RHYTHM_GITHUB_API", f.URL)
 	if code != 1 || !strings.Contains(errs, want) {
 		t.Errorf("exit %d\n%s", code, errs)
 	}
