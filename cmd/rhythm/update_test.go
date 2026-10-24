@@ -28,14 +28,15 @@ import (
 	"time"
 )
 
+// startEnv is the environment the tests started with, before TestMain
+// moved HOME and the config folders.
+var startEnv = os.Environ()
+
 // TestMain points the config and cache folders at a temp folder, so no
 // test reads or writes the real ~/.config/rhythm (first-run markers,
 // update-check state) or ~/.cache/rhythm. It also clears the settings a
 // developer may have exported, so the tests see rhythm's defaults; tests
 // that need one set it themselves.
-// startEnv is the environment the tests started with, before TestMain
-// moved HOME and the config folders.
-var startEnv = os.Environ()
 
 func TestMain(m *testing.M) {
 	home, err := os.MkdirTemp("", "rhythm-test-home-*")
@@ -51,9 +52,7 @@ func TestMain(m *testing.M) {
 	}
 	code := m.Run()
 	_ = os.RemoveAll(home)
-	if builtBin != "" {
-		_ = os.RemoveAll(filepath.Dir(builtBin))
-	}
+	cleanupBuilt()
 	os.Exit(code)
 }
 

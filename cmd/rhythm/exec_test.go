@@ -25,6 +25,13 @@ var (
 	buildErr  error
 )
 
+// cleanupBuilt removes the router rhythmBinary built, if it built one.
+func cleanupBuilt() {
+	if builtBin != "" {
+		_ = os.RemoveAll(filepath.Dir(builtBin))
+	}
+}
+
 // rhythmBinary builds the router once per test run, because exec only
 // shows in a real process: one that replaces itself with the tool.
 func rhythmBinary(t *testing.T) string {

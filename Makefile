@@ -3,7 +3,7 @@ ACTIONLINT := go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
 GORELEASER := go run github.com/goreleaser/goreleaser/v2@v2.18.3
 GOVULNCHECK := go run golang.org/x/vuln/cmd/govulncheck@v1.8.0
 
-.PHONY: build test lint fmt check hooks actionlint pins release-check vuln test-installers trusted-root dist-check
+.PHONY: build test cross lint fmt check hooks actionlint pins release-check vuln test-installers trusted-root dist-check
 
 build: ## build bin/rhythm
 	go build -o bin/rhythm ./cmd/rhythm
@@ -11,13 +11,21 @@ build: ## build bin/rhythm
 test: ## run tests
 	go test -race ./...
 
+# Vets every package and compiles the router's tests for Windows and
+# macOS, so a test that refers to a unix-only helper fails here and not
+# only on the CI runners.
+cross: ## vet for Windows and macOS and compile the router's tests there
+	GOOS=windows go vet ./...
+	GOOS=windows go test -c -o /dev/null ./cmd/rhythm
+	GOOS=darwin go vet ./...
+
 lint:
 	$(GOLANGCI) run ./...
 
 fmt:
 	gofmt -w .
 
-check: lint test ## everything CI runs
+check: lint test cross ## everything CI runs
 
 hooks: ## enable the Conventional Commits hook
 	git config core.hooksPath .githooks
