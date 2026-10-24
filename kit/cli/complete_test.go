@@ -5,6 +5,7 @@ package cli
 
 import (
 	"context"
+	"flag"
 	"io"
 	"slices"
 	"strings"
@@ -18,15 +19,20 @@ func completeTool() Tool {
 	tool.Commands = append(tool.Commands, Command{
 		Name: "check", Summary: "check a site",
 		Run: func(_ context.Context, args []string, _, stderr io.Writer) error {
-			fs := NewFlagSet("check", "Usage: rhythm-fake check <site>", stderr)
-			fs.String("preset", "", "use a `name`d preset")
-			fs.Bool("json", false, "print JSON")
-			_, err := ParseArgs(fs, args)
+			_, err := ParseArgs(checkFlags(stderr), args)
 			return err
 		},
+		Flags:    func() *flag.FlagSet { return checkFlags(io.Discard) },
 		Complete: func([]string) []string { return []string{"wordpress", "woocommerce", "laravel"} },
 	})
 	return tool
+}
+
+func checkFlags(stderr io.Writer) *flag.FlagSet {
+	fs := NewFlagSet("check", "Usage: rhythm-fake check <site>", stderr)
+	fs.String("preset", "", "use a `name`d preset")
+	fs.Bool("json", false, "print JSON")
+	return fs
 }
 
 func completeLines(t *testing.T, tool Tool, words ...string) []string {
@@ -96,6 +102,44 @@ func TestMainCompleteRunsNothing(t *testing.T) {
 	}
 	if ran {
 		t.Error("__complete ran the first-run note")
+	}
+}
+
+// TestCompleteNeverRunsACommand checks that a command whose Run ignores
+// its arguments isn't run on Tab: only Flags is asked for flags.
+func TestCompleteNeverRunsACommand(t *testing.T) {
+	ran := 0
+	tool := fakeTool()
+	tool.Commands = append(tool.Commands, Command{Name: "wipe", Run: func(context.Context, []string, io.Writer, io.Writer) error {
+		ran++
+		return nil
+	}})
+	for _, words := range [][]string{{"wipe", "--"}, {"wipe", "x", ""}, {"wipe", "--force", "x"}} {
+		if got := completeLines(t, tool, words...); !slices.Equal(got, nil) && !slices.Equal(got, []string{"--help"}) {
+			t.Errorf("__complete %q = %q", words, got)
+		}
+	}
+	if ran != 0 {
+		t.Errorf("Run ran %d times on Tab", ran)
+	}
+	if got := completeLines(t, tool, "update", "--"); !slices.Equal(got, []string{"--help", "--json"}) {
+		t.Errorf("update flags = %q", got)
+	}
+	tool.UpdatePinned = func(context.Context, io.Writer, map[string]string) ([]DataPack, error) { return nil, nil }
+	if got := completeLines(t, tool, "update", "--"); !slices.Equal(got, []string{"--help", "--json", "--pin"}) {
+		t.Errorf("update flags with UpdatePinned = %q", got)
+	}
+}
+
+func TestSetFlags(t *testing.T) {
+	fs := checkFlags(io.Discard)
+	fs.Bool("help", false, "")
+	want := []HelpFlag{{"json", false}, {"preset", true}}
+	if got := SetFlags(fs); !slices.Equal(got, want) {
+		t.Errorf("SetFlags = %+v, want %+v", got, want)
+	}
+	if SetFlags(nil) != nil {
+		t.Error("nil flag set has flags")
 	}
 }
 

@@ -8,8 +8,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -21,16 +23,20 @@ import (
 	"time"
 )
 
+func scanFlags(stderr io.Writer) *flag.FlagSet {
+	fs := NewFlagSet("scan", "Usage: rhythm-fake scan <what> [flags]", stderr)
+	fs.Bool("offline", false, "stay off the network")
+	return fs
+}
+
 // fakeTool is a tool whose scan command does what its first argument
 // says, so one Tool covers every way a command can end.
 func fakeTool() Tool {
 	return Tool{
 		Name: "rhythm-fake", Version: "1.2.3", Commit: "abc1234", Summary: "a tool for tests",
 		Commands: []Command{
-			{Name: "scan", Args: "<what>", Summary: "end the way <what> says", Run: func(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-				fs := NewFlagSet("scan", "Usage: rhythm-fake scan <what> [flags]", stderr)
-				fs.Bool("offline", false, "stay off the network")
-				pos, err := ParseArgs(fs, args)
+			{Name: "scan", Args: "<what>", Summary: "end the way <what> says", Flags: func() *flag.FlagSet { return scanFlags(io.Discard) }, Run: func(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+				pos, err := ParseArgs(scanFlags(stderr), args)
 				if err != nil {
 					return err
 				}
@@ -191,6 +197,83 @@ func TestMainUpdateJSON(t *testing.T) {
 		if code != 3 || stdout != "" || stderr != "rhythm fake: update failed: HTTP 503\n" {
 			t.Errorf("%q: exit %d %q %q", args, code, stdout, stderr)
 		}
+	}
+}
+
+// pinningTool is fakeTool with UpdatePinned, which reports the pinned
+// versions it was given except "7x", which it can't get.
+func pinningTool(got *map[string]string) Tool {
+	tool := fakeTool()
+	tool.UpdatePinned = func(_ context.Context, _ io.Writer, pins map[string]string) ([]DataPack, error) {
+		*got = pins
+		packs, _ := tool.Update(context.Background(), io.Discard)
+		for i, p := range packs {
+			if v, ok := pins[p.Name]; ok && v != "7x" {
+				packs[i].Version = v
+			}
+		}
+		return packs, nil
+	}
+	return tool
+}
+
+func TestMainUpdatePin(t *testing.T) {
+	var got map[string]string
+	tool := pinningTool(&got)
+	code, stdout, stderr := runTool(t, tool, "update", "--json", "--pin", "wpvulnerability=2026-10-20, signatures=6")
+	want := `{"schema":"rhythm-data/v1","data":[` +
+		`{"name":"wpvulnerability","version":"2026-10-20","sha256":"` + strings.Repeat("a", 64) + `","pinned":true},` +
+		`{"name":"signatures","version":"6","sha256":"` + strings.Repeat("b", 64) + `","pinned":true}]}` + "\n"
+	if code != 0 || stdout != want || stderr != "" {
+		t.Errorf("exit %d\nstdout: %s\nwant:   %s\nstderr: %q", code, stdout, want, stderr)
+	}
+	if !maps.Equal(got, map[string]string{"wpvulnerability": "2026-10-20", "signatures": "6"}) {
+		t.Errorf("pins passed: %v", got)
+	}
+
+	// Only the named pack is marked; plain update still runs Update.
+	got = nil
+	if _, stdout, _ := runTool(t, tool, "update", "--pin", "signatures=6"); stdout != "wpvulnerability 2026-10-24\nsignatures 6\n" {
+		t.Errorf("one pin: %q", stdout)
+	}
+	got = nil
+	if _, _, _ = runTool(t, tool, "update"); got != nil {
+		t.Errorf("update without --pin called UpdatePinned with %v", got)
+	}
+
+	for spec, msg := range map[string]string{
+		"signatures=7x":   "rhythm fake: update failed: signatures 7x isn't available (got 7)\n",
+		"browser=131":     "rhythm fake: update failed: no browser data to pin at 131\n",
+		"signatures":      "rhythm fake: --pin: \"signatures\" isn't name=version\n",
+		"=6":              "rhythm fake: --pin: \"=6\" isn't name=version\n",
+		"a=1,a=2":         "rhythm fake: --pin: a is pinned twice\n",
+		"signatures=6,,b": "rhythm fake: --pin: \"\" isn't name=version\n",
+	} {
+		want := 3
+		if strings.Contains(msg, "--pin:") {
+			want = 2
+		}
+		code, stdout, stderr := runTool(t, tool, "update", "--json", "--pin", spec)
+		if code != want || stdout != "" || stderr != msg {
+			t.Errorf("--pin %q: exit %d %q %q", spec, code, stdout, stderr)
+		}
+	}
+
+	_, help, _ := runTool(t, tool, "update", "--help")
+	for _, want := range []string{"update [--json] [--pin name=version,...]", "--pin string   download these data versions, as name=version,..."} {
+		if !strings.Contains(help, want) {
+			t.Errorf("help lacks %q:\n%s", want, help)
+		}
+	}
+}
+
+func TestMainUpdateWithoutPinning(t *testing.T) {
+	code, stdout, stderr := runTool(t, fakeTool(), "update", "--json", "--pin", "signatures=6")
+	if code != 2 || stdout != "" || !strings.Contains(stderr, "flag provided but not defined: -pin") {
+		t.Errorf("exit %d %q %q", code, stdout, stderr)
+	}
+	if _, help, _ := runTool(t, fakeTool(), "update", "--help"); strings.Contains(help, "pin") {
+		t.Errorf("help offers --pin:\n%s", help)
 	}
 }
 
@@ -356,6 +439,7 @@ func TestToolCheck(t *testing.T) {
 		"no Run":           {Name: "x", Commands: []Command{{Name: "a"}}},
 		"no name":          {Name: "x", Commands: []Command{{Run: run}}},
 		"missing default":  {Name: "x", Default: "scan"},
+		"pinned no update": {Name: "x", UpdatePinned: func(context.Context, io.Writer, map[string]string) ([]DataPack, error) { return nil, nil }},
 	} {
 		func() {
 			defer func() {

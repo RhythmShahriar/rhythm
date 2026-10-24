@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -50,6 +51,17 @@ type Tool struct {
 	// `update` is an ordinary command name the tool may use.
 	Update func(ctx context.Context, w io.Writer) ([]DataPack, error)
 
+	// UpdatePinned, when set with Update, brings the data to the versions
+	// `update --pin name=version,...` names (rhythm install --locked
+	// passes the versions rhythm.lock records) and reports what it now
+	// has. pins maps a pack name to its version; packs it doesn't name
+	// are refreshed as Update would. Main checks the report and exits 3
+	// when a pinned pack is missing or has another version, so a tool
+	// that can't get a version may return what it has. When nil,
+	// --pin is a usage error (exit 2), which tells the router the tool
+	// can't pin.
+	UpdatePinned func(ctx context.Context, w io.Writer, pins map[string]string) ([]DataPack, error)
+
 	// Offline reports whether the user asked the tool to stay off the
 	// network, so Main skips the release check. It runs before the command
 	// parses its flags; HasFlag reads a flag such as --offline from the
@@ -86,7 +98,17 @@ type Command struct {
 	// for, a UsageError for bad arguments (exit 2), an *ExitError for any
 	// other exit code and any other error when the run failed (exit 3).
 	// cli.ErrHelp, as ParseArgs returns it, exits 0.
+	//
+	// `help <command>` runs Run with the single argument --help, so Run
+	// must answer --help by printing its usage and returning ErrHelp
+	// without doing any of its work. ParseArgs on a NewFlagSet does that.
 	Run func(ctx context.Context, args []string, stdout, stderr io.Writer) error
+
+	// Flags, when set, returns a fresh flag set with the flags Run
+	// parses, usually the same NewFlagSet call. Shell completion offers
+	// its flags on Tab without running the command; a command without
+	// Flags completes only --help, so a key press never runs Run.
+	Flags func() *flag.FlagSet
 
 	// Complete, when set, offers values for the word being typed after
 	// the command's name in shell completion: args are the words after
@@ -101,6 +123,10 @@ type DataPack struct {
 	Name    string `json:"name"`    // "wpvulnerability"
 	Version string `json:"version"` // the data's own version or date
 	SHA256  string `json:"sha256"`  // hex digest of what is on disk
+
+	// Pinned is set by Main for a pack update --pin named, so the
+	// report shows which versions were asked for. Tools leave it false.
+	Pinned bool `json:"pinned,omitempty"`
 }
 
 // ExitError ends a command with a chosen exit code. Main prints Err, when
@@ -134,7 +160,8 @@ var noticeWait = 200 * time.Millisecond
 // Besides the tool's commands it answers help, -h and --help, version and
 // --version (`<name> <version>`; with --json the rhythm-version/v1
 // document) and update when Update is set (with --json the
-// rhythm-data/v1 document; exit 3 when it fails). Commands run under a
+// rhythm-data/v1 document; exit 3 when it fails; --pin when UpdatePinned
+// is set, exit 3 when a pinned version can't be had). Commands run under a
 // context canceled by Ctrl-C or SIGTERM, which exits 130. While a command
 // runs, Main checks for a newer release in the background, unless the
 // tool is offline and prints the notice at the end. The hidden
@@ -167,7 +194,7 @@ func (t Tool) main(args []string, stdout, stderr io.Writer) int {
 	case name == "update" && t.Update != nil:
 		return t.update(ctx, prog, args[1:], stdout, stderr)
 	case name == CompleteCommand:
-		return t.complete(ctx, args[1:], stdout)
+		return t.complete(args[1:], stdout)
 	}
 
 	c, ok := t.command(args[0])
@@ -260,6 +287,9 @@ func (t Tool) check() {
 	if t.Default != "" && !seen[t.Default] {
 		panic(fmt.Sprintf("cli: %s: default command %q isn't defined", t.Name, t.Default))
 	}
+	if t.UpdatePinned != nil && t.Update == nil {
+		panic(fmt.Sprintf("cli: %s: UpdatePinned needs Update", t.Name))
+	}
 }
 
 func (t Tool) command(name string) (Command, bool) {
@@ -315,19 +345,41 @@ func (t Tool) version(prog string, args []string, stdout, stderr io.Writer) int 
 }
 
 func (t Tool) update(ctx context.Context, prog string, args []string, stdout, stderr io.Writer) int {
-	fs := NewFlagSet("update", "Usage: "+prog+" update [--json]\n\nDownloads the latest data the tool works from.", stderr)
+	synopsis := "Usage: " + prog + " update [--json]\n\nDownloads the latest data the tool works from."
+	if t.UpdatePinned != nil {
+		synopsis = "Usage: " + prog + " update [--json] [--pin name=version,...]\n\n" +
+			"Downloads the latest data the tool works from, or with --pin the versions named."
+	}
+	fs := NewFlagSet("update", synopsis, stderr)
 	asJSON := fs.Bool("json", false, "print the "+DataSchema+" JSON document")
+	var pinSpec string
+	if t.UpdatePinned != nil {
+		fs.StringVar(&pinSpec, "pin", "", "download these data versions, as name=version,...")
+	}
 	if code, done := parseOnly(fs, args, stdout); done {
 		return code
+	}
+	pins, err := ParsePins(pinSpec)
+	if err != nil {
+		fmt.Fprintf(stderr, "%s: --pin: %v\n", prog, err)
+		return ExitUsage
 	}
 	progress := stdout
 	if *asJSON {
 		progress = stderr // stdout carries only the JSON
 	}
-	packs, err := t.Update(ctx, progress)
+	var packs []DataPack
+	if len(pins) > 0 {
+		packs, err = t.UpdatePinned(ctx, progress, pins)
+	} else {
+		packs, err = t.Update(ctx, progress)
+	}
 	if ctx.Err() != nil {
 		fmt.Fprintf(stderr, "%s: update interrupted\n", prog)
 		return ExitInterrupted
+	}
+	if err == nil {
+		err = checkPins(packs, pins)
 	}
 	if err != nil {
 		fmt.Fprintf(stderr, "%s: update failed: %v\n", prog, err)
@@ -346,6 +398,53 @@ func (t Tool) update(ctx context.Context, prog string, args []string, stdout, st
 		fmt.Fprintf(stdout, "%s %s\n", p.Name, p.Version)
 	}
 	return ExitOK
+}
+
+// ParsePins reads the value of update --pin, "checks=2026.10.20,vulns=2026-10-24",
+// into a map from pack name to version. An empty value gives no pins.
+func ParsePins(spec string) (map[string]string, error) {
+	if spec == "" {
+		return nil, nil
+	}
+	pins := map[string]string{}
+	for _, part := range strings.Split(spec, ",") {
+		name, ver, ok := strings.Cut(part, "=")
+		name, ver = strings.TrimSpace(name), strings.TrimSpace(ver)
+		switch {
+		case !ok || name == "" || ver == "":
+			return nil, fmt.Errorf("%q isn't name=version", part)
+		case pins[name] != "":
+			return nil, fmt.Errorf("%s is pinned twice", name)
+		}
+		pins[name] = ver
+	}
+	return pins, nil
+}
+
+// checkPins marks the packs pins named and reports the first pin the
+// tool couldn't meet, by name order.
+func checkPins(packs []DataPack, pins map[string]string) error {
+	names := make([]string, 0, len(pins))
+	for name := range pins {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		got := ""
+		for i := range packs {
+			if packs[i].Name == name {
+				got = packs[i].Version
+				packs[i].Pinned = true
+			}
+		}
+		switch {
+		case got == "":
+			return fmt.Errorf("no %s data to pin at %s", name, pins[name])
+		case got != pins[name]:
+			return fmt.Errorf("%s %s isn't available (got %s)", name, pins[name], got)
+		}
+	}
+	return nil
 }
 
 // parseOnly parses the flags of a built-in command that takes no
