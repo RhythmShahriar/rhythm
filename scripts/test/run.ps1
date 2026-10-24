@@ -204,6 +204,26 @@ function Assert-Tools([string[]]$Want = @()) {
 }
 function Get-Version { (& (Get-Bin 'rhythm.exe') --version) }
 
+# Assert-Started checks the closing lines: one first step for each tool
+# named, in order, or the "Install a tool" line for none. Never a real site.
+function Assert-Started([string[]]$Want = @()) {
+    Assert-NoOut 'example.com'
+    Assert-Out 'Rhythm tools are for sites you own or have permission to test: https://github.com/RhythmShahriar/rhythm/wiki/Responsible-Use'
+    if (-not $Want.Count) {
+        Assert-Out 'Install a tool: rhythm install tuner'
+        Assert-NoOut 'Get started'
+        return
+    }
+    Assert-NoOut 'Install a tool'
+    $Steps = @{ tuner = '  rhythm tuner scan ./your-site'; soundcheck = '  rhythm soundcheck snapshot http://localhost:8080'; echo = '  rhythm echo up' }
+    $WantLines = ($Want | ForEach-Object { $Steps[$_] }) -join '|'
+    $Lines = $script:Out -split "`n"
+    $At = [Array]::IndexOf($Lines, 'Get started:')
+    if ($At -lt 0) { Fail 'no Get started line' }
+    $Got = ($Lines[($At + 1)..($Lines.Count - 1)] | Where-Object { $_ -like '  rhythm *' }) -join '|'
+    if ($Got -ne $WantLines) { Fail "first steps are '$Got', want '$WantLines'" }
+}
+
 function Case-default {
     Invoke-Install
     Assert-Code 0
@@ -213,6 +233,7 @@ function Case-default {
     if (-not (Select-String -Path (Join-Path $script:CaseDir 'argv.log') -SimpleMatch 'rhythm install --dry-run tuner' -Quiet)) {
         Fail "the router wasn't asked about tuner"
     }
+    Assert-Started 'tuner', 'soundcheck', 'echo'
 }
 
 function Case-none {
@@ -226,6 +247,7 @@ function Case-none {
         Assert-Code 0
         Assert-File 'rhythm.exe'
         Assert-Tools
+        Assert-Started
     }
 }
 
@@ -233,6 +255,23 @@ function Case-some {
     Invoke-Install @{ RHYTHM_TOOLS = 'soundcheck  echo' }
     Assert-Code 0
     Assert-Tools 'soundcheck', 'echo'
+    Assert-Started 'soundcheck', 'echo'
+
+    Remove-Item -Recurse -Force (Join-Path $script:CaseDir 'bin')
+    Invoke-Install @{ RHYTHM_TOOLS = 'tuner' }
+    Assert-Code 0
+    Assert-Tools 'tuner'
+    Assert-Started 'tuner'
+
+    # Aliases name the same tool, which gets one line.
+    Remove-Item -Recurse -Force (Join-Path $script:CaseDir 'bin'), (Join-Path $script:CaseDir 'argv.log')
+    Invoke-Install @{ RHYTHM_TOOLS = 'e t echo' }
+    Assert-Code 0
+    Assert-Tools 'tuner', 'echo'
+    Assert-Started 'echo', 'tuner'
+    if (@(Get-Content (Join-Path $script:CaseDir 'argv.log') | Where-Object { $_ -match '^rhythm install (e|echo) ' }).Count -ne 1) {
+        Fail 'echo was installed more than once'
+    }
 }
 
 function Case-bad_checksum {
@@ -348,6 +387,7 @@ function Case-old_router {
     Assert-Code 0
     Assert-Out "warning: rhythm 0.4.0 doesn't know echo; skipped"
     Assert-Tools 'tuner', 'soundcheck'
+    Assert-Started 'tuner', 'soundcheck'
     if (Select-String -Path (Join-Path $script:CaseDir 'argv.log') -SimpleMatch 'install echo' -Quiet) {
         Fail 'the router was asked to install echo'
     }

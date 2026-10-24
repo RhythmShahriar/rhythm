@@ -132,6 +132,27 @@ main() {
 		return 1
 	}
 
+	# first_step prints a first command to try with tool $1, by its name or
+	# alias. The targets are local, since the tools are for sites you own.
+	first_step() {
+		case $1 in
+		tuner) echo "rhythm tuner scan ./your-site" ;;
+		soundcheck) echo "rhythm soundcheck snapshot http://localhost:8080" ;;
+		echo) echo "rhythm echo up" ;;
+		*) echo "rhythm $1 --help" ;;
+		esac
+	}
+
+	# tool_name turns an alias or a rhythm-<tool> name into the tool's name.
+	tool_name() {
+		case ${1#rhythm-} in
+		t) echo tuner ;;
+		sc) echo soundcheck ;;
+		e) echo echo ;;
+		*) echo "${1#rhythm-}" ;;
+		esac
+	}
+
 	command -v curl >/dev/null 2>&1 || die "curl is required"
 	command -v tar >/dev/null 2>&1 || die "tar is required"
 
@@ -234,9 +255,16 @@ main() {
 	probe=
 	known=
 	todo=
+	names=
 	set -f
 	for tool in $tools; do
 		if router_knows "$tool"; then
+			# An alias and the name are one tool, installed once.
+			t=$(tool_name "$tool")
+			case " $names " in
+			*" $t "*) continue ;;
+			esac
+			names="$names $t"
 			todo="$todo $tool"
 		elif [ -n "$explicit" ]; then
 			[ -s "$tmp/probe.out" ] && cat "$tmp/probe.out" >&2
@@ -245,16 +273,26 @@ main() {
 			warn "$installed doesn't know $tool; skipped"
 		fi
 	done
+	done_tools=
 	for tool in $todo; do
 		"$dir/rhythm" install "$tool" --dir "$dir" >&2 || die "installing $tool failed"
+		done_tools="$done_tools $(tool_name "$tool")"
 	done
-	set +f
 
 	case ":$PATH:" in
 	*":$dir:"*) ;;
 	*) say "Add $dir to your PATH, e.g.: echo 'export PATH=\"$dir:\$PATH\"' >> ~/.profile" ;;
 	esac
-	say "Get started: rhythm tuner scan example.com · rhythm soundcheck snapshot example.com · rhythm echo up"
+	if [ -n "$done_tools" ]; then
+		say "Get started:"
+		for t in $done_tools; do
+			say "  $(first_step "$t")"
+		done
+	else
+		say "Install a tool: rhythm install tuner"
+	fi
+	set +f
+	say "Rhythm tools are for sites you own or have permission to test: https://github.com/RhythmShahriar/rhythm/wiki/Responsible-Use"
 }
 
 main "$@"

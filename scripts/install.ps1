@@ -244,17 +244,32 @@
     $Tools = @($ToolList -split '\s+' | Where-Object { $_ })
     if ($Tools.Count -eq 1 -and $Tools[0] -eq 'none') { $Tools = @() }
     $Todo = @()
+    # Get-ToolName turns an alias or a rhythm-<tool> name into the tool's name.
+    function Get-ToolName([string]$Tool) {
+        $Name = $Tool -replace '^rhythm-', ''
+        switch ($Name) { 't' { 'tuner' } 'sc' { 'soundcheck' } 'e' { 'echo' } default { $Name } }
+    }
+    $Names = @()
     foreach ($Tool in $Tools) {
-        if (Test-RouterKnows $Tool) { $Todo += $Tool; continue }
+        if (Test-RouterKnows $Tool) {
+            # An alias and the name are one tool, installed once.
+            $Name = Get-ToolName $Tool
+            if ($Names -notcontains $Name) { $Names += $Name; $Todo += $Tool }
+            continue
+        }
         if ($Explicit) {
             if ($Probe.Out) { Write-Host $Probe.Out }
             throw "rhythm install: $Installed doesn't know $Tool; run '$Rhythm help' to see the tools"
         }
         Write-Host "warning: $Installed doesn't know $Tool; skipped"
     }
+    # The tools that were installed, by name rather than alias, for the
+    # closing lines.
+    $Done = @()
     foreach ($Tool in $Todo) {
         & $Rhythm install $Tool --dir $Dir
         if ($LASTEXITCODE -ne 0) { throw "rhythm install: installing $Tool failed" }
+        $Done += Get-ToolName $Tool
     }
 
     if ($OnWindows) {
@@ -264,5 +279,22 @@
             Write-Host "Added $Dir to your PATH. Open a new terminal to use rhythm."
         }
     }
-    Write-Host 'Get started: rhythm tuner scan example.com · rhythm soundcheck snapshot example.com · rhythm echo up'
+    # A first command for each tool installed. The targets are local, since
+    # the tools are for sites you own.
+    if ($Done.Count) {
+        Write-Host 'Get started:'
+        foreach ($Name in $Done) {
+            $Step = switch ($Name) {
+                'tuner' { 'rhythm tuner scan ./your-site' }
+                'soundcheck' { 'rhythm soundcheck snapshot http://localhost:8080' }
+                'echo' { 'rhythm echo up' }
+                default { "rhythm $Name --help" }
+            }
+            Write-Host "  $Step"
+        }
+    }
+    else {
+        Write-Host 'Install a tool: rhythm install tuner'
+    }
+    Write-Host 'Rhythm tools are for sites you own or have permission to test: https://github.com/RhythmShahriar/rhythm/wiki/Responsible-Use'
 }

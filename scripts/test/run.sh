@@ -106,6 +106,29 @@ expect_tools() {
 	done
 }
 
+# expect_started checks the closing lines: one first step for each tool
+# named, in order, or the "Install a tool" line for none. Never a real site.
+expect_started() {
+	expect_no_out example.com
+	expect_out "Rhythm tools are for sites you own or have permission to test: https://github.com/RhythmShahriar/rhythm/wiki/Responsible-Use"
+	if [ $# -eq 0 ]; then
+		expect_out "Install a tool: rhythm install tuner"
+		expect_no_out "Get started"
+		return
+	fi
+	expect_no_out "Install a tool"
+	want=
+	for t in "$@"; do
+		case $t in
+		tuner) want="$want  rhythm tuner scan ./your-site|" ;;
+		soundcheck) want="$want  rhythm soundcheck snapshot http://localhost:8080|" ;;
+		echo) want="$want  rhythm echo up|" ;;
+		esac
+	done
+	got=$(sed -n '/^Get started:$/,$p' "$cdir/out" | grep '^  rhythm ' | tr '\n' '|')
+	[ "$got" = "$want" ] || fail "first steps are '$got', want '$want'"
+}
+
 case_default() {
 	install
 	expect_code 0
@@ -113,6 +136,7 @@ case_default() {
 	expect_tools tuner soundcheck echo
 	expect_out "Installed rhythm 0.6.0 to $cdir/bin"
 	grep -qx 'rhythm install --dry-run tuner' "$cdir/argv.log" || fail "the router wasn't asked about tuner"
+	expect_started tuner soundcheck echo
 }
 
 case_none() {
@@ -122,6 +146,7 @@ case_none() {
 		expect_code 0
 		expect_file rhythm
 		expect_tools
+		expect_started
 	done
 }
 
@@ -129,6 +154,21 @@ case_some() {
 	install RHYTHM_TOOLS='soundcheck  echo'
 	expect_code 0
 	expect_tools soundcheck echo
+	expect_started soundcheck echo
+
+	rm -rf "${cdir:?}/bin"
+	install RHYTHM_TOOLS=tuner
+	expect_code 0
+	expect_tools tuner
+	expect_started tuner
+
+	# Aliases name the same tool, which gets one line.
+	rm -rf "${cdir:?}/bin" "${cdir:?}/argv.log"
+	install RHYTHM_TOOLS='e t echo'
+	expect_code 0
+	expect_tools tuner echo
+	expect_started echo tuner
+	[ "$(grep -c '^rhythm install \(e\|echo\) ' "$cdir/argv.log")" = 1 ] || fail "echo was installed more than once"
 }
 
 case_bad_checksum() {
@@ -282,6 +322,7 @@ case_old_router() {
 	expect_out "warning: rhythm 0.4.0 doesn't know echo; skipped"
 	expect_tools tuner soundcheck
 	! grep -q 'install echo' "$cdir/argv.log" || fail "the router was asked to install echo"
+	expect_started tuner soundcheck
 }
 
 case_old_router_named() {
