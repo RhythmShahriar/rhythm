@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/RhythmShahriar/rhythm/kit"
+	"github.com/RhythmShahriar/rhythm/kit/cli"
 )
 
 var version = "dev"
@@ -73,6 +74,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	tool := args[0]
+	if !validToolName(tool) {
+		fmt.Fprintf(stderr, "rhythm: invalid tool name %q\n", tool)
+		return cli.ExitUsage
+	}
 	if t, ok := lookupTool(tool); ok {
 		tool = t.Name
 	}

@@ -5,6 +5,7 @@ package main
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -26,5 +27,18 @@ func TestToolNames(t *testing.T) {
 	}
 	if got := defaultTools(); !slices.Equal(got, want) {
 		t.Errorf("defaultTools() = %v", got)
+	}
+}
+
+func TestValidToolName(t *testing.T) {
+	for _, name := range []string{"tuner", "my-tool2", "t", "0", strings.Repeat("a", 64)} {
+		if !validToolName(name) {
+			t.Errorf("%q rejected", name)
+		}
+	}
+	for _, name := range []string{"", "/x", "../x", "a/b", `a\b`, "-x", "UPPER", "日本", "a b", "a.b", strings.Repeat("a", 65)} {
+		if validToolName(name) {
+			t.Errorf("%q accepted", name)
+		}
 	}
 }

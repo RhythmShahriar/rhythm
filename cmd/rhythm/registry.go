@@ -3,7 +3,10 @@
 
 package main
 
-import "sort"
+import (
+	"regexp"
+	"sort"
+)
 
 // toolInfo describes one tool the router knows by name.
 type toolInfo struct {
@@ -18,6 +21,16 @@ type toolInfo struct {
 	// means any.
 	MinRhythm string
 }
+
+// toolNameRE is the shape of every tool name and alias. The router joins
+// the name onto "rhythm-" and looks it up on PATH, and exec.LookPath
+// treats anything with a slash as a path, so `rhythm /../evil` would run
+// a file relative to the current folder. Allowing only lowercase letters,
+// digits and dashes keeps the lookup on PATH.
+var toolNameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
+
+// validToolName reports whether s may name a tool or alias.
+func validToolName(s string) bool { return toolNameRE.MatchString(s) }
 
 // registry lists the known tools in the order help shows them.
 var registry = []toolInfo{
