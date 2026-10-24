@@ -10,11 +10,13 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/RhythmShahriar/rhythm/kit/config"
 )
 
 func TestExtensions(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv(configDirEnv, dir)
+	t.Setenv(config.EnvConfigDir, dir)
 	s, err := OpenExtensions()
 	if err != nil {
 		t.Fatal(err)
@@ -117,14 +119,14 @@ func TestExtensionsRejects(t *testing.T) {
 		}
 	}
 
-	t.Setenv(configDirEnv, "relative/dir")
+	t.Setenv(config.EnvConfigDir, "relative/dir")
 	if _, err := OpenExtensions(); err == nil || !strings.Contains(err.Error(), "absolute") {
-		t.Errorf("a relative %s gave %v", configDirEnv, err)
+		t.Errorf("a relative %s gave %v", config.EnvConfigDir, err)
 	}
 }
 
 func TestOpenExtensionsDefault(t *testing.T) {
-	t.Setenv(configDirEnv, "")
+	t.Setenv(config.EnvConfigDir, "")
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	s, err := OpenExtensions()
 	if err != nil {

@@ -23,11 +23,6 @@ const ExtensionsSchema = "rhythm-extensions/v1"
 // ExtensionsFile is the extensions file's name in the config folder.
 const ExtensionsFile = "extensions.json"
 
-// configDirEnv moves the config folder, as kit/config will once its
-// RHYTHM_CONFIG_DIR support is released; until then the store reads it
-// itself so tests and CI can keep the store out of the real home folder.
-const configDirEnv = "RHYTHM_CONFIG_DIR"
-
 // Extension is a third-party tool the user added: `rhythm <Name>` runs
 // rhythm-<Name> from Repo's releases.
 type Extension struct {
@@ -47,15 +42,9 @@ type Extensions struct {
 // (RHYTHM_CONFIG_DIR when set, else ~/.config/rhythm or the OS
 // equivalent). Nothing is created until the first Add.
 func OpenExtensions() (*Extensions, error) {
-	dir := os.Getenv(configDirEnv)
-	if dir != "" && !filepath.IsAbs(dir) {
-		return nil, fmt.Errorf("%s must be an absolute path, not %q", configDirEnv, dir)
-	}
-	if dir == "" {
-		var err error
-		if dir, err = config.Dir(); err != nil {
-			return nil, err
-		}
+	dir, err := config.Dir()
+	if err != nil {
+		return nil, err
 	}
 	return ExtensionsAt(filepath.Join(dir, ExtensionsFile)), nil
 }
