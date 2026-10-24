@@ -564,7 +564,7 @@ case_signature_cosign() {
 		case $flag in
 		--bundle*) flag="--bundle $cdir/tmp/" ;;
 		esac
-		grep -qF -- "$flag" "$cdir/sig.log" || fail "cosign wasn't given $flag"
+		grep -qF -- "$flag" "$cdir/sig.log" || fail "cosign wasn't given $flag; it ran: $(cat "$cdir/sig.log")"
 	done <"$cdir/readme.flags"
 	grep -q ' --certificate-github-workflow-repository RhythmShahriar/rhythm ' "$cdir/sig.log" || fail "the repository isn't pinned"
 	grep -q ' --certificate-github-workflow-ref refs/tags/v0.7.0 ' "$cdir/sig.log" || fail "the tag isn't pinned"
