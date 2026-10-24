@@ -194,7 +194,7 @@ main() {
 			fi
 			why="the release has no checksums.txt.sigstore.json"
 		fi
-		# gh needs a login to ask for attestations, and --source-ref to pin the tag.
+		# gh needs a login to ask for attestations and --source-ref to pin the tag.
 		if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1 &&
 			gh attestation verify --help 2>&1 | grep -q -- --source-ref; then
 			if gh attestation verify "$tmp/checksums.txt" --repo "$REPO" \
@@ -384,7 +384,7 @@ main() {
 	say "Installed $installed to $dir"
 
 	# An unset RHYTHM_TOOLS means the defaults. Names are separated by spaces
-	# or commas, like rhythm's own lists, and "none" stands for no tool. An
+	# or commas as in rhythm's own lists; "none" stands for no tool. An
 	# old pinned rhythm may not know every default tool; those are skipped.
 	# A name the user asked for must be known, or no tool is installed.
 	explicit=${RHYTHM_TOOLS+yes}

@@ -140,7 +140,7 @@
             }
             $Why = 'the release has no checksums.txt.sigstore.json'
         }
-        # gh needs a login to ask for attestations, and --source-ref to pin the tag.
+        # gh needs a login to ask for attestations and --source-ref to pin the tag.
         if ((Get-Command gh -CommandType Application -ErrorAction SilentlyContinue) -and
             (Invoke-Exe 'gh' @('auth', 'status')).Code -eq 0 -and
             (Invoke-Exe 'gh' @('attestation', 'verify', '--help')).Out -match '--source-ref') {
@@ -336,7 +336,7 @@
     Write-Host "Installed $Installed to $Dir"
 
     # An unset RHYTHM_TOOLS means the defaults. Names are separated by
-    # spaces or commas, like rhythm's own lists, and "none" stands for no
+    # spaces or commas as in rhythm's own lists; "none" stands for no
     # tool. Windows PowerShell 5.1 can't set a variable to '' (that deletes
     # it), so "none" is the way to ask for none there. An old pinned rhythm
     # may not know every default tool; those are skipped. A name the user

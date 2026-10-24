@@ -685,8 +685,8 @@ help_commands() {
 	awk '/^Commands:/ { on = 1; next } on && /^[^ ]/ { on = 0 } on && $1 == "rhythm" && $2 ~ /^[a-z]/ { print $2 }' "$1" | sort -u
 }
 
-# check_commands fails for a command that help ($2) lists and README ($1)
-# doesn't, and says which README commands this build doesn't have yet.
+# check_commands fails for a command that help ($2) lists but README ($1)
+# doesn't. It also says which README commands this build doesn't have yet.
 check_commands() {
 	help_commands "$2" >"$cdir/help.cmds"
 	readme_commands "$1" >"$cdir/readme.cmds"
