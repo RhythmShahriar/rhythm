@@ -9,13 +9,14 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"net/netip"
 	"reflect"
 	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/RhythmShahriar/rhythm/kit/httpx"
 )
 
 func TestSameSite(t *testing.T) {
@@ -40,41 +41,6 @@ func TestSameSite(t *testing.T) {
 	} {
 		if got := SameSite(mustURL(t, c.start), mustURL(t, c.u)); got != c.want {
 			t.Errorf("SameSite(%s, %s) = %v, want %v", c.start, c.u, got, c.want)
-		}
-	}
-}
-
-func TestAllowAddr(t *testing.T) {
-	public := []netip.Addr{netip.MustParseAddr("93.184.216.34")}
-	loopback := []netip.Addr{netip.MustParseAddr("127.0.0.1"), netip.MustParseAddr("::1")}
-	office := []netip.Addr{netip.MustParseAddr("192.168.1.20")}
-	for _, c := range []struct {
-		ip                       string
-		public, loopback, office bool
-	}{
-		{"127.0.0.1", false, true, false},
-		{"::1", false, true, false},
-		{"0.0.0.0", false, true, false},
-		{"169.254.169.254", false, false, false},
-		{"fe80::1%eth0", false, false, false},
-		{"10.0.0.1", false, false, true},
-		{"fd00::1", false, false, true},
-		{"::ffff:10.0.0.1", false, false, true},
-		{"8.8.8.8", true, true, true},
-		{"2001:4860:4860::8888", true, true, true},
-	} {
-		ip := netip.MustParseAddr(c.ip)
-		if got := allowAddr(public, ip); got != c.public {
-			t.Errorf("public start: allowAddr(%s) = %v", c.ip, got)
-		}
-		if got := allowAddr(loopback, ip); got != c.loopback {
-			t.Errorf("loopback start: allowAddr(%s) = %v", c.ip, got)
-		}
-		if got := allowAddr(office, ip); got != c.office {
-			t.Errorf("private start: allowAddr(%s) = %v", c.ip, got)
-		}
-		if got := allowAddr(nil, ip); got != c.public {
-			t.Errorf("unresolved start: allowAddr(%s) = %v", c.ip, got)
 		}
 	}
 }
@@ -237,7 +203,7 @@ func TestRedirectRules(t *testing.T) {
 		http.Redirect(w, r, fmt.Sprintf("/loop/%d", hops.Load()), http.StatusFound)
 	}))
 	t.Cleanup(srv.Close)
-	ctx := context.WithValue(context.Background(), stateKey{}, &crawlState{start: mustURL(t, srv.URL), startIPs: resolve(context.Background(), "127.0.0.1")})
+	ctx := context.WithValue(context.Background(), stateKey{}, &crawlState{start: mustURL(t, srv.URL), guard: httpx.NewGuard("127.0.0.1")})
 
 	c := New(Options{})
 	resp, err := c.get(ctx, srv.URL+"/")
@@ -277,26 +243,18 @@ func TestDialRefusesPrivate(t *testing.T) {
 
 	// A public start host: the loopback server is refused before any
 	// connection is made.
-	st := &crawlState{startIPs: []netip.Addr{netip.MustParseAddr("93.184.216.34")}}
+	st := &crawlState{guard: httpx.NewGuard("93.184.216.34")}
 	ctx := context.WithValue(context.Background(), stateKey{}, st)
-	if _, err := dial(ctx, "tcp", addr); !errors.Is(err, errPrivate) {
-		t.Errorf("public start: err = %v, want errPrivate", err)
+	if _, err := dial(ctx, "tcp", addr); !errors.Is(err, httpx.ErrPrivate) {
+		t.Errorf("public start: err = %v, want httpx.ErrPrivate", err)
 	}
-	if _, err := dial(context.Background(), "tcp", addr); !errors.Is(err, errPrivate) {
-		t.Errorf("no crawl state: err = %v, want errPrivate", err)
+	if _, err := dial(context.Background(), "tcp", addr); !errors.Is(err, httpx.ErrPrivate) {
+		t.Errorf("no crawl state: err = %v, want httpx.ErrPrivate", err)
 	}
-
-	// A proxy the user configured is dialed as is.
-	st.proxies.Store(addr, true)
-	conn, err := dial(ctx, "tcp", addr)
-	if err != nil {
-		t.Fatalf("proxy: %v", err)
-	}
-	_ = conn.Close()
 
 	// A loopback start host may reach loopback addresses.
-	st = &crawlState{startIPs: resolve(context.Background(), "127.0.0.1")}
-	conn, err = dial(context.WithValue(context.Background(), stateKey{}, st), "tcp", addr)
+	st = &crawlState{guard: httpx.NewGuard("127.0.0.1")}
+	conn, err := dial(context.WithValue(context.Background(), stateKey{}, st), "tcp", addr)
 	if err != nil {
 		t.Fatalf("loopback start: %v", err)
 	}
@@ -304,34 +262,27 @@ func TestDialRefusesPrivate(t *testing.T) {
 
 	// Through the default client: refused for a public start, allowed
 	// with AllowPrivate.
-	ctx = context.WithValue(context.Background(), stateKey{}, &crawlState{start: mustURL(t, srv.URL), startIPs: []netip.Addr{netip.MustParseAddr("93.184.216.34")}})
+	ctx = context.WithValue(context.Background(), stateKey{}, &crawlState{start: mustURL(t, srv.URL), guard: httpx.NewGuard("93.184.216.34")})
 	for _, allow := range []bool{false, true} {
 		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, nil)
 		resp, err := New(Options{AllowPrivate: allow}).http.Do(req)
 		if err == nil {
 			_ = resp.Body.Close()
 		}
-		if refused := errors.Is(err, errPrivate); refused == allow {
+		if refused := errors.Is(err, httpx.ErrPrivate); refused == allow {
 			t.Errorf("AllowPrivate %v: err = %v", allow, err)
 		}
 	}
 }
 
 func TestRecordProxy(t *testing.T) {
-	if got := canonicalAddr(mustURL(t, "http://proxy.local")); got != "proxy.local:80" {
-		t.Errorf("canonicalAddr = %s", got)
-	}
-	if got := canonicalAddr(mustURL(t, "socks5://[::1]")); got != "[::1]:1080" {
-		t.Errorf("canonicalAddr = %s", got)
-	}
-	if got := canonicalAddr(mustURL(t, "https://p:3128")); got != "p:3128" {
-		t.Errorf("canonicalAddr = %s", got)
-	}
-	// Requests to loopback are never proxied, so nothing is recorded.
-	st := &crawlState{}
-	req, _ := http.NewRequestWithContext(context.WithValue(context.Background(), stateKey{}, st), http.MethodGet, "http://127.0.0.1/", nil)
-	if p, err := recordProxy(req); p != nil || err != nil {
-		t.Errorf("recordProxy = %v, %v", p, err)
+	// Requests to loopback are never proxied, so nothing is recorded, with
+	// or without crawl state.
+	for _, ctx := range []context.Context{context.Background(), context.WithValue(context.Background(), stateKey{}, &crawlState{guard: httpx.NewGuard("")})} {
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1/", nil)
+		if p, err := recordProxy(req); p != nil || err != nil {
+			t.Errorf("recordProxy = %v, %v", p, err)
+		}
 	}
 }
 
@@ -368,7 +319,7 @@ func TestRedirectHopsWaitOnLimiter(t *testing.T) {
 		}
 	}))
 	t.Cleanup(srv.Close)
-	ctx := context.WithValue(context.Background(), stateKey{}, &crawlState{start: mustURL(t, srv.URL), startIPs: resolve(context.Background(), "127.0.0.1")})
+	ctx := context.WithValue(context.Background(), stateKey{}, &crawlState{start: mustURL(t, srv.URL), guard: httpx.NewGuard("127.0.0.1")})
 	began := time.Now()
 	resp, err := New(Options{Rate: 10}).get(ctx, srv.URL+"/a")
 	if err != nil {

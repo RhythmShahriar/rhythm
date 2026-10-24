@@ -64,6 +64,7 @@ import (
 
 	"golang.org/x/net/html"
 
+	"github.com/RhythmShahriar/rhythm/kit/httpx"
 	"github.com/RhythmShahriar/rhythm/kit/ratelimit"
 )
 
@@ -293,7 +294,7 @@ func (c *Crawler) Crawl(ctx context.Context, start *url.URL) (*Frontier, error) 
 	f := NewFrontier(start, c.opts)
 	st := &crawlState{start: start, front: f}
 	if c.opts.HTTP == nil && !c.opts.AllowPrivate {
-		st.startIPs = resolve(ctx, start.Hostname())
+		st.guard = httpx.NewGuard(start.Hostname())
 	}
 	ctx = context.WithValue(ctx, stateKey{}, st)
 	if !c.opts.IgnoreRobots || !c.opts.NoSitemaps {

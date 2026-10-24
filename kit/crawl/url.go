@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/RhythmShahriar/rhythm/kit/httpx"
 )
 
 // Query parameters that only track visits; dropping them dedupes URLs.
@@ -132,42 +134,15 @@ func key(raw string) string {
 	return u.String()
 }
 
-// site is a host without "www.", so example.com and www.example.com are
-// the same site.
-func site(host string) string { return strings.TrimPrefix(strings.ToLower(host), "www.") }
-
 // SameSite reports whether u is on the same site as start: the same host
 // (ignoring case and a leading "www."), the same scheme and the same
 // port, where a missing port means the scheme's default (80 for http, 443
 // for https). Another port on the same host is often another service (an
 // admin panel, a database UI), so it counts as another site. One upgrade
 // is allowed: an http start on the default port may go to https on the
-// default port, because most sites redirect there.
-func SameSite(start, u *url.URL) bool {
-	if site(start.Hostname()) != site(u.Hostname()) {
-		return false
-	}
-	ss, us := strings.ToLower(start.Scheme), strings.ToLower(u.Scheme)
-	sp, up := port(ss, start.Port()), port(us, u.Port())
-	if ss == us {
-		return sp == up
-	}
-	return ss == "http" && us == "https" && sp == "80" && up == "443"
-}
-
-// port returns p, or the default port for scheme when p is empty.
-func port(scheme, p string) string {
-	if p != "" {
-		return p
-	}
-	switch scheme {
-	case "http":
-		return "80"
-	case "https":
-		return "443"
-	}
-	return ""
-}
+// default port, because most sites redirect there. It is httpx.SameSite,
+// kept here so the crawler's rule is documented where it is used.
+func SameSite(start, u *url.URL) bool { return httpx.SameSite(start, u) }
 
 // IsPage reports whether u looks like a page rather than a file.
 func IsPage(u *url.URL) bool { return !nonPage.MatchString(u.Path) }
