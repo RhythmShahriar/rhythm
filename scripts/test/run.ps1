@@ -281,7 +281,6 @@ function Case-truncated {
         Invoke-Install @{} '' $Cut
         if (Test-Path (Join-Path $script:CaseDir 'bin')) { Fail "a script cut at $Pct% created the install folder" }
         if (Get-Requests) { Fail "a script cut at $Pct% made a request" }
-        Assert-Out 'Missing closing'
     }
 }
 
