@@ -194,7 +194,25 @@ exit "${FAKE_GH_EXIT:-0}"
 # cases is found once, here.
 $ShellExe = (Get-Command $Shell -CommandType Application | Select-Object -First 1).Source
 $Sep = [IO.Path]::PathSeparator
-$SysPath = (@($env:PATH -split $Sep | Where-Object { $_ -and -not (Test-Path (Join-Path $_ 'cosign*')) }) -join $Sep)
+# A real gh is left out too: GitHub's runners have one, and the cases that
+# want gh put the stand-in first. Windows keeps each in a folder of its
+# own, so those folders go; elsewhere such a folder (often /usr/bin) is
+# replaced by links to everything else in it.
+function Test-SigTool([string]$Dir) {
+    (Test-Path (Join-Path $Dir 'cosign*')) -or (Test-Path -LiteralPath (Join-Path $Dir 'gh') -PathType Leaf) -or
+    (Test-Path -LiteralPath (Join-Path $Dir 'gh.exe') -PathType Leaf)
+}
+$SysDirs = foreach ($D in @($env:PATH -split $Sep | Where-Object { $_ })) {
+    if (-not (Test-SigTool $D)) { $D; continue }
+    if ($OnWindows) { continue }
+    $Shadow = Join-Path $Work ('sysbin-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
+    New-Item -ItemType Directory -Force -Path $Shadow | Out-Null
+    Get-ChildItem -LiteralPath $D -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -notlike 'cosign*' -and $_.Name -ne 'gh' } |
+        ForEach-Object { New-Item -ItemType SymbolicLink -Path (Join-Path $Shadow $_.Name) -Target $_.FullName | Out-Null }
+    $Shadow
+}
+$SysPath = @($SysDirs) -join $Sep
 $NoGh = Join-Path $Work 'gh-config' # an empty gh config: not logged in
 New-Item -ItemType Directory -Force -Path $NoGh | Out-Null
 
