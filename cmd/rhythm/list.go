@@ -135,7 +135,7 @@ func listEntries(ctx context.Context, offline bool) ([]listEntry, *netReport) {
 	}
 	<-probed
 	for _, t := range others {
-		e := listEntry{name: t.tool, binary: t.binary, version: t.current, signed: signed(t.real), path: t.path, thirdParty: true}
+		e := listEntry{name: t.tool, binary: t.binary, version: t.current, signed: "-", path: t.path, thirdParty: true}
 		if t.current == unknownVersion {
 			e.versionErr = "version unknown (" + t.probe + ")"
 		}

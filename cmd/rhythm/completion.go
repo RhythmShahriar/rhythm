@@ -118,11 +118,12 @@ var positionals = map[string]func() []string{
 	"install":    toolNames,
 	"uninstall":  toolNames,
 	"update":     updateNames,
+	"verify":     updateNames,
 	"completion": func() []string { return shellNames },
 }
 
 // severalNames are the commands that take any number of names.
-var severalNames = map[string]bool{"install": true, "uninstall": true, "update": true}
+var severalNames = map[string]bool{"install": true, "uninstall": true, "update": true, "verify": true}
 
 // updateNames is what rhythm update takes: rhythm itself, the tools and
 // the installed extensions.

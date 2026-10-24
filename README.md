@@ -94,6 +94,7 @@ More are on the way. Each lives in its own repository and releases on its own sc
 | `rhythm uninstall <tool>... [--purge] [--all]` | remove tools (with `--purge`, their data too) |
 | `rhythm doctor [--offline] [--json]` | check the install: PATH, versions, data, Chrome and the release API |
 | `rhythm lock` | write `rhythm.lock` from what is installed, to pin a project's versions |
+| `rhythm verify [tool...] [--json]` | check that each installed binary is byte for byte the one its signed release published |
 | `rhythm completion bash\|zsh\|fish\|powershell` | print a shell completion script |
 | `rhythm version` | print rhythm's version (also `-v`, `-V`, `--version`) |
 
@@ -102,9 +103,9 @@ Sample output from rhythm 0.7.0:
 ```console
 $ rhythm list
 TOOL        VERSION  LATEST  SIGNED  PATH
-rhythm      0.7.0    0.7.0   -       /home/me/.local/bin/rhythm
-soundcheck  0.2.0    0.2.0   -       /home/me/.local/bin/rhythm-soundcheck
-tuner       0.3.2    0.3.3   -       /home/me/.local/bin/rhythm-tuner
+rhythm      0.7.0    0.7.0   yes     /home/me/.local/bin/rhythm
+soundcheck  0.2.0    0.2.0   yes     /home/me/.local/bin/rhythm-soundcheck
+tuner       0.3.2    0.3.3   yes     /home/me/.local/bin/rhythm-tuner
 
 $ rhythm update --check            # exit 10: an update is available
 rhythm             0.7.0 (up to date)
@@ -116,6 +117,14 @@ rhythm-tuner 0.3.3 is 1 day old; staying on 0.3.2 (min age 3d)
 
 $ rhythm update tuner
 rhythm-tuner       0.3.2 → 0.3.3 ✔
+  Signature ok  RhythmShahriar/tuner @ refs/tags/v0.3.3 (release-go.yml)
+  Checksum ok   sha256:25b17b0f41fe39f660dcf860cdb7564065e02fb041b739bffeb24d14a980357b
+
+$ rhythm verify tuner
+rhythm-tuner 0.3.3 (/home/me/.local/bin/rhythm-tuner)
+  Signature ok  RhythmShahriar/tuner @ refs/tags/v0.3.3 (release-go.yml)
+  Checksum ok   sha256:25b17b0f41fe39f660dcf860cdb7564065e02fb041b739bffeb24d14a980357b
+  Binary ok     same bytes as in rhythm-tuner_linux_amd64.tar.gz
 
 $ rhythm update --rollback tuner
 Rolled back rhythm-tuner 0.3.3 → 0.3.2
@@ -138,7 +147,7 @@ rhythm: unknown tool "tunr"
   run 'rhythm help' to see the tools
 ```
 
-`rhythm update` checks each download against the release checksums and swaps binaries atomically, so a failed update never leaves a broken install. The binary it replaced stays next to the new one as `<binary>.prev`, which `--rollback` restores. Tools mention when a new release is out, at most once a day; set `RHYTHM_NO_UPDATE_CHECK=1` to silence that.
+`rhythm install` and `rhythm update` check each release's signature, then each download against the release checksums, and swap binaries atomically, so a failed update never leaves a broken install. A release whose signature is missing or doesn't verify is refused and nothing changes; `--skip-signature` installs it anyway with a warning, for a mirror you trust. `rhythm list` shows `yes` under SIGNED for a binary that passed the check and hasn't changed since. The binary it replaced stays next to the new one as `<binary>.prev`, which `--rollback` restores. Tools mention when a new release is out, at most once a day; set `RHYTHM_NO_UPDATE_CHECK=1` to silence that.
 
 ### Exit codes
 
@@ -181,6 +190,7 @@ Completion covers rhythm's commands, the tools and their flags plus each tool's 
 | `RHYTHM_CACHE_DIR` | where tools keep their caches, as `<dir>/<tool>` (default `~/.cache/rhythm/<tool>` or the OS equivalent); must be absolute |
 | `RHYTHM_MIN_RELEASE_AGE` | the default for `--min-age`: skip releases younger than this, e.g. `3d`, `1w` or `36h` |
 | `RHYTHM_NO_UPDATE_CHECK` | don't mention new releases (also off when `CI` is set) |
+| `RHYTHM_DEBUG` | any value: say when the Sigstore root built into rhythm is used because the online refresh failed |
 | `RHYTHM_INVOKED_AS` | set by rhythm for the tool it runs, e.g. `rhythm sc`, so the tool's help shows the command you typed |
 | `RHYTHM_TOOLS` | for the installers only: see [Installer options](#install) |
 
@@ -188,7 +198,7 @@ Completion covers rhythm's commands, the tools and their flags plus each tool's 
 
 `rhythm update`, `rhythm install` and both installers check every download against the release's `checksums.txt`. That catches a corrupted or cut-off download. It can't tell you who published the release: `checksums.txt` sits on the same release page as the archives, so anyone who can upload there can upload a matching pair.
 
-The signature closes that gap. The release workflow signs `checksums.txt` with keyless [cosign](https://docs.sigstore.dev/). The signing certificate records which repository and which tag the run was for. A `rhythm verify` command that checks it for what you have installed is coming; until then the installers check it when cosign or gh is there. To check a download by hand, get `checksums.txt` and `checksums.txt.sigstore.json` from the release next to your archive, then run (cosign 2.4 or later):
+The signature closes that gap. The release workflow signs `checksums.txt` with keyless [cosign](https://docs.sigstore.dev/). The signing certificate records which repository and which tag the run was for. rhythm checks it on every install, update and lock, and fails closed: a missing or invalid signature installs nothing. `rhythm verify` checks what you already have: the signature for the version installed, the archive against `checksums.txt` and the installed binary against the one in the archive, byte for byte. The installers run `rhythm verify rhythm` after installing rhythm, and check the signature themselves first when cosign or gh is there. To check a download by hand, get `checksums.txt` and `checksums.txt.sigstore.json` from the release next to your archive, then run (cosign 2.4 or later):
 
 ```sh
 cosign verify-blob --bundle checksums.txt.sigstore.json \

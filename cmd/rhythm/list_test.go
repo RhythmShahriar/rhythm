@@ -40,8 +40,8 @@ func TestList(t *testing.T) {
 		t.Fatalf("exit %d\n%s%s", code, out, errs)
 	}
 	want := "TOOL       VERSION  LATEST  SIGNED  PATH\n" +
-		"rhythm     0.1.0    0.1.0   -       " + filepath.Join(s.bin, "rhythm") + "\n" +
-		"tuner      0.1.0    0.2.0   -       " + filepath.Join(s.bin, "rhythm-tuner") + "\n" +
+		"rhythm     0.1.0    0.1.0   no      " + filepath.Join(s.bin, "rhythm") + "\n" +
+		"tuner      0.1.0    0.2.0   no      " + filepath.Join(s.bin, "rhythm-tuner") + "\n" +
 		"foo (3rd)  1.2.0    -       -       " + filepath.Join(s.bin, "rhythm-foo") + "\n"
 	if out != want {
 		t.Errorf("got\n%s\nwant\n%s", out, want)
@@ -90,7 +90,7 @@ func TestListOffline(t *testing.T) {
 		if code != 0 || errs != "" {
 			t.Fatalf("exit %d\n%s%s", code, out, errs)
 		}
-		if !strings.HasPrefix(out, "TOOL       VERSION  SIGNED  PATH\n") || !strings.Contains(out, "tuner      0.1.0    -       ") {
+		if !strings.HasPrefix(out, "TOOL       VERSION  SIGNED  PATH\n") || !strings.Contains(out, "tuner      0.1.0    no      ") {
 			t.Errorf("%v:\n%s", args, out)
 		}
 	}
@@ -107,7 +107,7 @@ func TestListLookupFailure(t *testing.T) {
 	if code != 0 {
 		t.Errorf("exit %d", code)
 	}
-	if !strings.Contains(out, "tuner      0.1.0    ?       -") {
+	if !strings.Contains(out, "tuner      0.1.0    ?       no") {
 		t.Errorf("stdout:\n%s", out)
 	}
 	want := "can't reach " + strings.TrimPrefix(api, "http://") + " for rhythm, rhythm-tuner; check network, proxy or RHYTHM_GITHUB_API\n"
@@ -166,7 +166,7 @@ func TestListUsage(t *testing.T) {
 }
 
 func TestRouterCommandsRegistered(t *testing.T) {
-	for _, name := range []string{"install", "update", "list", "uninstall", "doctor", "lock"} {
+	for _, name := range []string{"install", "update", "list", "uninstall", "doctor", "lock", "verify"} {
 		c, ok := commands[name]
 		if !ok || c.run == nil || c.summary == "" {
 			t.Errorf("%s isn't registered: %+v", name, c)
@@ -216,7 +216,7 @@ func TestListJSON(t *testing.T) {
 // TestCommandHelpFlagsAligned: each command's --help exits 0 and lists
 // its flags in one column, with room after the longest flag name.
 func TestCommandHelpFlagsAligned(t *testing.T) {
-	for _, name := range []string{"install", "update", "list", "uninstall", "doctor", "lock"} {
+	for _, name := range []string{"install", "update", "list", "uninstall", "doctor", "lock", "verify"} {
 		code, out, errs := runCmd(name, "--help")
 		if code != 0 || errs != "" {
 			t.Errorf("%s --help: exit %d, stderr %q", name, code, errs)

@@ -527,7 +527,7 @@ func TestSkipSignature(t *testing.T) {
 	useVerifier(t, v)
 
 	code, out, errs := runCmd("install", "tuner", "--dir", s.bin, "--skip-signature")
-	if code != 0 || !strings.Contains(out, "Installed rhythm-tuner 0.2.0") || errs != "warning: signature check skipped\n" {
+	if code != 0 || !strings.Contains(out, "Installed rhythm-tuner 0.2.0") || errs != skipWarning+"\n" {
 		t.Errorf("exit %d\n%s%s", code, out, errs)
 	}
 	if v.calls != 0 {
@@ -541,7 +541,7 @@ func TestSkipSignature(t *testing.T) {
 		t.Errorf("exit %d: %s", code, errs)
 	}
 	code, out, errs = runCmd("update", "tuner", "--no-data", "--skip-signature")
-	if code != 0 || !strings.HasPrefix(errs, "warning: signature check skipped\n") || !strings.Contains(out, "0.1.0 → 0.2.0") {
+	if code != 0 || !strings.HasPrefix(errs, skipWarning+"\n") || !strings.Contains(out, "0.1.0 → 0.2.0") {
 		t.Errorf("exit %d\n%s%s", code, out, errs)
 	}
 }

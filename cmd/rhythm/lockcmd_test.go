@@ -12,6 +12,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -21,6 +22,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/RhythmShahriar/rhythm/kit/sigverify/sigverifytest"
 )
 
 // fakeRel is one release a releaseAPI serves.
@@ -50,6 +53,15 @@ type releaseAPI struct {
 	// onRequest, when set, runs with mu held once each request has been
 	// answered, so it can change what the next one gets.
 	onRequest func(path string)
+	// signer, when set, signs each release's checksums.txt (see
+	// useCA); signAs then names who signs repo's releases, the shared
+	// workflow when nil. Releases in unsigned have no bundle and those in
+	// editedSums serve a checksums.txt changed after it was signed, both
+	// keyed repo@version.
+	signer     *sigverifytest.CA
+	signAs     func(repo, version string) sigverifytest.Identity
+	unsigned   map[string]bool
+	editedSums map[string]bool
 }
 
 // count is how many times path was asked for.
@@ -66,7 +78,8 @@ func (f *releaseAPI) count(path string) int {
 // newReleaseAPI serves repos and points rhythm at it.
 func newReleaseAPI(t *testing.T, s *sandbox, repos map[string][]fakeRel) *releaseAPI {
 	t.Helper()
-	f := &releaseAPI{s: s, repos: repos, tampered: map[string]bool{}, data: map[string]string{}, kit: map[string]bool{}}
+	f := &releaseAPI{s: s, repos: repos, tampered: map[string]bool{}, data: map[string]string{}, kit: map[string]bool{},
+		unsigned: map[string]bool{}, editedSums: map[string]bool{}}
 	f.Server = httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.Close)
 	t.Setenv("RHYTHM_GITHUB_API", f.URL)
@@ -147,6 +160,13 @@ func (f *releaseAPI) releaseJSON(repo string, r fakeRel) map[string]any {
 			{"name": "checksums.txt", "browser_download_url": fmt.Sprintf("%s/sums/%s/%s", f.URL, repo, r.version)},
 		},
 	}
+	f.mu.Lock()
+	signed := f.signer != nil && !f.unsigned[repo+"@"+r.version]
+	f.mu.Unlock()
+	if signed {
+		rel["assets"] = append(rel["assets"].([]map[string]string), map[string]string{
+			"name": signatureAsset, "browser_download_url": fmt.Sprintf("%s/sig/%s/%s", f.URL, repo, r.version)})
+	}
 	if r.undated {
 		delete(rel, "published_at")
 	}
@@ -176,35 +196,29 @@ func (f *releaseAPI) serve(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(f.archive(repo, v))
 	case strings.HasPrefix(p, "/sums/"):
 		repo, v := repoVersion("/sums/")
-		bin := binaryFor(repo)
+		sums := f.sums(repo, v)
 		f.mu.Lock()
-		keepSums := f.tampered[repo+"@"+v+"/keep-sums"]
+		edited := f.editedSums[repo+"@"+v]
 		f.mu.Unlock()
-		sha := f.sha(repo, v)
-		if keepSums {
-			sum := sha256.Sum256(f.build(repo, v, false)) // the sum of the untampered archive
-			sha = hex.EncodeToString(sum[:])
+		if edited {
+			sums = append(sums, "0000000000000000000000000000000000000000000000000000000000000000  extra.tar.gz\n"...)
 		}
-		lines := map[string]string{fmt.Sprintf("%s_%s.tar.gz", bin, thisPlatform()): sha}
-		for _, pl := range otherPlatforms {
-			ext := ".tar.gz"
-			if strings.HasPrefix(pl, "windows") {
-				ext = ".zip"
-			}
-			name := bin + "_" + pl + ext
-			if _, ok := lines[name]; !ok {
-				lines[name] = otherSHA(name + v)
-			}
+		_, _ = w.Write(sums)
+	case strings.HasPrefix(p, "/sig/"):
+		repo, v := repoVersion("/sig/")
+		f.mu.Lock()
+		ca, as := f.signer, f.signAs
+		f.mu.Unlock()
+		id := sigverifytest.Shared(repo, v)
+		if as != nil {
+			id = as(repo, v)
 		}
-		for _, name := range slices.Sorted(func(yield func(string) bool) {
-			for k := range lines {
-				if !yield(k) {
-					return
-				}
-			}
-		}) {
-			fmt.Fprintf(w, "%s  %s\n", lines[name], name)
+		b, err := ca.Sign(id, f.sums(repo, v))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
+		_, _ = w.Write(b)
 	case strings.HasPrefix(p, "/repos/"):
 		rest := strings.TrimPrefix(p, "/repos/")
 		parts := strings.SplitN(rest, "/", 4) // owner, name, "releases", [latest | tags/vX]
@@ -253,6 +267,36 @@ func (f *releaseAPI) serve(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// sums is the checksums.txt of repo's version: this platform's archive
+// and three others.
+func (f *releaseAPI) sums(repo, v string) []byte {
+	bin := binaryFor(repo)
+	f.mu.Lock()
+	keepSums := f.tampered[repo+"@"+v+"/keep-sums"]
+	f.mu.Unlock()
+	sha := f.sha(repo, v)
+	if keepSums {
+		sum := sha256.Sum256(f.build(repo, v, false)) // the sum of the untampered archive
+		sha = hex.EncodeToString(sum[:])
+	}
+	lines := map[string]string{fmt.Sprintf("%s_%s.tar.gz", bin, thisPlatform()): sha}
+	for _, pl := range otherPlatforms {
+		ext := ".tar.gz"
+		if strings.HasPrefix(pl, "windows") {
+			ext = ".zip"
+		}
+		name := bin + "_" + pl + ext
+		if _, ok := lines[name]; !ok {
+			lines[name] = otherSHA(name + v)
+		}
+	}
+	var out []byte
+	for _, name := range slices.Sorted(maps.Keys(lines)) {
+		out = fmt.Appendf(out, "%s  %s\n", lines[name], name)
+	}
+	return out
 }
 
 // tunerReleases are Tuner's releases in most tests: 0.3.1 is the newest

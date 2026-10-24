@@ -7,7 +7,7 @@
       "latest": "0.1.0",
       "path": "$SANDBOX/bin/rhythm",
       "outdated": false,
-      "signed": "",
+      "signed": "no",
       "managed_by": "",
       "error": "",
       "skipped_newer": null
@@ -18,7 +18,7 @@
       "latest": "0.1.0",
       "path": "$SANDBOX/bin/rhythm-echo",
       "outdated": false,
-      "signed": "",
+      "signed": "no",
       "managed_by": "",
       "error": "",
       "skipped_newer": null
@@ -29,7 +29,7 @@
       "latest": "",
       "path": "$SANDBOX/bin/rhythm-soundcheck",
       "outdated": false,
-      "signed": "",
+      "signed": "no",
       "managed_by": "",
       "error": "mirror $API has no release for RhythmShahriar/soundcheck; check RHYTHM_GITHUB_API",
       "skipped_newer": null
@@ -40,7 +40,7 @@
       "latest": "0.2.0",
       "path": "$SANDBOX/bin/rhythm-tuner",
       "outdated": true,
-      "signed": "",
+      "signed": "no",
       "managed_by": "",
       "error": "",
       "skipped_newer": null
