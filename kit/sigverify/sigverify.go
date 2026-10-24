@@ -92,7 +92,9 @@ type Options struct {
 	// is otherwise silent: someone who blocks the TUF CDN keeps a
 	// client on the embedded root, which can't learn of key rotation or
 	// revocation, so callers can use it to say "using the built-in
-	// Sigstore root". It is not called when Offline is set.
+	// Sigstore root". It is not called when Offline is set. It runs
+	// while the Verifier loads its trusted root, so it must not call
+	// the Verifier: that call would wait on the load and deadlock.
 	OnFallback func(err error)
 }
 

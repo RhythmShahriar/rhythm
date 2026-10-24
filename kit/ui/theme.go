@@ -90,7 +90,7 @@ func Panel(content string, color lipgloss.TerminalColor) string {
 }
 
 // Truncate shortens s to at most n terminal cells, ending in "…". Width
-// is counted in cells, so CJK characters and most emoji count as two, and
+// is counted in cells: CJK characters and most emoji count as two while
 // ANSI styling counts as none and is kept intact.
 func Truncate(s string, n int) string {
 	if n <= 0 {
