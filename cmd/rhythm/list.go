@@ -20,9 +20,9 @@ func init() {
 	register(command{name: "list", args: "[--offline] [--json]", summary: "show the installed tools, their versions and paths", run: cmdList})
 }
 
-// signedStatus reports whether the binary at path carries a valid
-// release signature ("yes" or "no"). It stays nil until signature
-// checks land; until then rhythm shows "-".
+// signedStatus reports whether the binary at path was checked against a
+// signed release: "yes", "no" when its bytes changed since, or "-" when
+// rhythm never checked it.
 var signedStatus func(path string) string
 
 // signed returns the SIGNED column for path.
@@ -39,6 +39,10 @@ Shows rhythm, every installed tool and any other rhythm-* program on
 your PATH, with the version each reports, the latest release and where
 it is. "(3rd)" marks a program that isn't one of rhythm's tools.
 
+SIGNED is "yes" for a binary that passed a signature check when rhythm
+installed, updated or verified it, "no" when its bytes changed since and
+"-" when rhythm hasn't checked it; rhythm verify checks it.
+
 Exit status: 0 when the list was shown, 1 when rhythm's config folder
 can't be read, 2 for a usage error and 130 when interrupted. A release
 that couldn't be looked up shows "?".`
@@ -52,6 +56,7 @@ type listEntry struct {
 	signed     string
 	path       string // where it was found on PATH
 	thirdParty bool
+	tracked    bool   // rhythm, a tool or an extension: rhythm verify can check it
 	managedBy  string // package manager name, or ""
 	versionErr string // why the version is unknown
 	latestErr  string // why the latest release is unknown
@@ -123,7 +128,7 @@ func listEntries(ctx context.Context, offline bool, exts []extension) ([]listEnt
 	nets := &netReport{}
 	var entries []listEntry
 	for _, t := range targets {
-		e := listEntry{name: t.tool, binary: t.binary, version: t.current, signed: signed(t.real), path: t.path}
+		e := listEntry{name: t.tool, binary: t.binary, version: t.current, signed: signed(t.real), path: t.path, tracked: true}
 		if t.managed != nil {
 			e.managedBy = t.managed.name
 		}
@@ -152,7 +157,7 @@ func listEntries(ctx context.Context, offline bool, exts []extension) ([]listEnt
 	for _, t := range others {
 		e := listEntry{name: t.tool, binary: t.binary, version: t.current, signed: "-", path: t.path, thirdParty: true}
 		if installed[t.tool] {
-			e.signed = signed(t.real)
+			e.signed, e.tracked = signed(t.real), true
 		}
 		if t.current == unknownVersion {
 			e.versionErr = "version unknown (" + t.probe + ")"
@@ -209,8 +214,14 @@ func listJSON(entries []listEntry, nets *netReport) listReport {
 // printList writes the table, e.g.
 //
 //	TOOL       VERSION  LATEST  SIGNED  PATH
-//	rhythm     0.6.0    0.6.0   -       /home/me/.local/bin/rhythm
+//	rhythm     0.7.1    0.7.1   yes     /home/me/.local/bin/rhythm
+//	tuner      0.4.0    0.4.0   -       /home/me/.local/bin/rhythm-tuner
 //	foo (3rd)  1.2.0    -       -       /usr/local/bin/rhythm-foo
+//
+//	SIGNED - means rhythm hasn't checked that binary yet; rhythm verify checks it.
+//
+// The last line is there only when rhythm, a tool or an extension is
+// unchecked: a third-party program is never checked.
 func printList(w io.Writer, entries []listEntry, withLatest bool) {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	if withLatest {
@@ -240,7 +251,17 @@ func printList(w io.Writer, entries []listEntry, withLatest bool) {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", name, e.version, latest, e.signed, path)
 	}
 	_ = tw.Flush()
+	for _, e := range entries {
+		if e.tracked && e.signed == "-" && signedStatus != nil {
+			fmt.Fprintln(w, "\n"+uncheckedHint)
+			break
+		}
+	}
 }
+
+// uncheckedHint ends rhythm list's table when a binary rhythm can check
+// shows "-" under SIGNED.
+const uncheckedHint = "SIGNED - means rhythm hasn't checked that binary yet; rhythm verify checks it."
 
 // thirdParty is a rhythm-* program on PATH that isn't a registry tool.
 type thirdParty struct {

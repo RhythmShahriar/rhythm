@@ -355,7 +355,7 @@ func extList(args []string, stdout, stderr io.Writer) int {
 		Signer  string `json:"signer"`
 		Version string `json:"version"` // "" when it isn't on PATH or didn't say
 		Path    string `json:"path"`    // "" when it isn't on PATH
-		Signed  string `json:"signed"`  // "yes" or "no"
+		Signed  string `json:"signed"`  // "yes", "no" or "" when not checked
 	}
 	rows := []row{}
 	for _, x := range all {
@@ -372,6 +372,11 @@ func extList(args []string, stdout, stderr io.Writer) int {
 		rows = append(rows, r)
 	}
 	if *asJSON {
+		for i := range rows {
+			if rows[i].Signed == "-" {
+				rows[i].Signed = ""
+			}
+		}
 		if err := writeJSON(stdout, struct {
 			Schema     string `json:"schema"`
 			Extensions []row  `json:"extensions"`

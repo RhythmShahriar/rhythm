@@ -236,7 +236,8 @@ func TestMissingBundleFailsClosed(t *testing.T) {
 		t.Errorf("--skip-signature: exit %d\n%s%s", code, out, errs)
 	}
 	_, out, _ = runCmd("list", "--offline")
-	if !strings.Contains(out, "tuner   0.4.0    no      ") {
+	// Nothing checked it, so it is unchecked rather than unsigned.
+	if !strings.Contains(out, "tuner   0.4.0    -       ") || !strings.Contains(out, uncheckedHint) {
 		t.Errorf("list:\n%s", out)
 	}
 }
@@ -416,5 +417,71 @@ func TestVerifyHelp(t *testing.T) {
 	code, out, errs := runCmd("verify", "--help")
 	if code != 0 || errs != "" || !strings.Contains(out, "Usage: rhythm verify [tool...] [flags]") || !strings.Contains(out, "--json") {
 		t.Errorf("exit %d\n%s%s", code, out, errs)
+	}
+}
+
+// TestRecordedStatus: a binary rhythm never checked is "-", one it
+// verified is "yes" and one whose bytes changed since is "no".
+func TestRecordedStatus(t *testing.T) {
+	t.Setenv("RHYTHM_CONFIG_DIR", t.TempDir())
+	bin := filepath.Join(t.TempDir(), "rhythm-tuner")
+	if err := os.WriteFile(bin, []byte("v1"), 0o755); err != nil { //nolint:gosec // a test binary
+		t.Fatal(err)
+	}
+	if got := recordedStatus(bin); got != "-" {
+		t.Errorf("unchecked binary: %q, want -", got)
+	}
+	if err := recordVerified(bin, "RhythmShahriar/tuner", "0.4.0", "release-go.yml"); err != nil {
+		t.Fatal(err)
+	}
+	if got := recordedStatus(bin); got != "yes" {
+		t.Errorf("verified binary: %q, want yes", got)
+	}
+	if err := os.WriteFile(bin, []byte("v2"), 0o755); err != nil { //nolint:gosec // a test binary
+		t.Fatal(err)
+	}
+	if got := recordedStatus(bin); got != "no" {
+		t.Errorf("changed binary: %q, want no", got)
+	}
+}
+
+// TestUpdateAndVerifyRecordTheSignature: a binary rhythm didn't check
+// shows "-" until rhythm update or rhythm verify checks it; then it is
+// "yes" and the hint goes once nothing is left unchecked.
+func TestUpdateAndVerifyRecordTheSignature(t *testing.T) {
+	s, _ := signedSandbox(t)
+	if code, out, errs := runCmd("install", "tuner@0.3.1", "--dir", s.bin, "--skip-signature", "--quiet"); code != 0 {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	list := func() string {
+		t.Helper()
+		code, out, errs := runCmd("list", "--offline")
+		if code != 0 {
+			t.Fatalf("list: exit %d\n%s%s", code, out, errs)
+		}
+		return out
+	}
+	if out := list(); !strings.Contains(out, "tuner   0.3.1    -       ") || !strings.Contains(out, uncheckedHint) {
+		t.Errorf("before:\n%s", out)
+	}
+
+	if code, out, errs := runCmd("update", "tuner", "--no-data"); code != 0 {
+		t.Fatalf("update: exit %d\n%s%s", code, out, errs)
+	}
+	out := list()
+	if !strings.Contains(out, "tuner   0.4.0    yes     ") {
+		t.Errorf("after update:\n%s", out)
+	}
+	// rhythm itself is still unchecked.
+	if !strings.Contains(out, "rhythm  0.7.0    -       ") || !strings.Contains(out, uncheckedHint) {
+		t.Errorf("rhythm after update:\n%s", out)
+	}
+
+	if code, out, errs := runCmd("verify"); code != 0 {
+		t.Fatalf("verify: exit %d\n%s%s", code, out, errs)
+	}
+	out = list()
+	if !strings.Contains(out, "rhythm  0.7.0    yes     ") || !strings.Contains(out, "tuner   0.4.0    yes     ") || strings.Contains(out, uncheckedHint) {
+		t.Errorf("after verify:\n%s", out)
 	}
 }

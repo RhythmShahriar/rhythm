@@ -4,6 +4,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -40,10 +41,12 @@ func TestList(t *testing.T) {
 	if code != 0 || errs != "" {
 		t.Fatalf("exit %d\n%s%s", code, out, errs)
 	}
+	// Nothing here was installed by a rhythm that checks signatures.
 	want := "TOOL       VERSION  LATEST  SIGNED  PATH\n" +
-		"rhythm     0.1.0    0.1.0   no      " + filepath.Join(s.bin, "rhythm") + "\n" +
-		"tuner      0.1.0    0.2.0   no      " + filepath.Join(s.bin, "rhythm-tuner") + "\n" +
-		"foo (3rd)  1.2.0    -       -       " + filepath.Join(s.bin, "rhythm-foo") + "\n"
+		"rhythm     0.1.0    0.1.0   -       " + filepath.Join(s.bin, "rhythm") + "\n" +
+		"tuner      0.1.0    0.2.0   -       " + filepath.Join(s.bin, "rhythm-tuner") + "\n" +
+		"foo (3rd)  1.2.0    -       -       " + filepath.Join(s.bin, "rhythm-foo") + "\n" +
+		"\n" + uncheckedHint + "\n"
 	if out != want {
 		t.Errorf("got\n%s\nwant\n%s", out, want)
 	}
@@ -91,7 +94,8 @@ func TestListOffline(t *testing.T) {
 		if code != 0 || errs != "" {
 			t.Fatalf("exit %d\n%s%s", code, out, errs)
 		}
-		if !strings.HasPrefix(out, "TOOL       VERSION  SIGNED  PATH\n") || !strings.Contains(out, "tuner      0.1.0    no      ") {
+		if !strings.HasPrefix(out, "TOOL       VERSION  SIGNED  PATH\n") || !strings.Contains(out, "tuner      0.1.0    -       ") ||
+			!strings.HasSuffix(out, "\n\n"+uncheckedHint+"\n") {
 			t.Errorf("%v:\n%s", args, out)
 		}
 	}
@@ -101,7 +105,7 @@ func TestListOffline(t *testing.T) {
 }
 
 // A relative RHYTHM_CONFIG_DIR fails list the way it fails ext list and
-// update, before any lookup, instead of showing every signature as "no".
+// update, before any lookup, instead of showing every signature as "-".
 func TestListBadConfigDir(t *testing.T) {
 	s := listSandbox(t)
 	t.Setenv("RHYTHM_CONFIG_DIR", "rel")
@@ -130,7 +134,7 @@ func TestListLookupFailure(t *testing.T) {
 	if code != 0 {
 		t.Errorf("exit %d", code)
 	}
-	if !strings.Contains(out, "tuner      0.1.0    ?       no") {
+	if !strings.Contains(out, "tuner      0.1.0    ?       -") {
 		t.Errorf("stdout:\n%s", out)
 	}
 	want := "can't reach " + strings.TrimPrefix(api, "http://") + " for rhythm, rhythm-tuner; check network, proxy or RHYTHM_GITHUB_API\n"
@@ -157,6 +161,9 @@ func TestListManagedSignedAndUnknown(t *testing.T) {
 		if strings.HasSuffix(path, "rhythm-echo") {
 			return "yes"
 		}
+		if strings.HasSuffix(path, "rhythm-soundcheck") {
+			return "-"
+		}
 		return "no"
 	}
 	t.Cleanup(func() { signedStatus = old })
@@ -168,7 +175,8 @@ func TestListManagedSignedAndUnknown(t *testing.T) {
 	for _, want := range []string{
 		"echo        0.1.0    0.1.0   yes     " + filepath.Join(s.bin, "rhythm-echo") + "\n",
 		"tuner       0.1.0    0.2.0   no      " + filepath.Join(s.bin, "rhythm-tuner") + " (Homebrew)\n",
-		"soundcheck  unknown  ?       no      ",
+		"soundcheck  unknown  ?       -       ",
+		"SIGNED - means rhythm hasn't checked that binary yet; rhythm verify checks it.",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("no %q in\n%s", want, out)
@@ -228,6 +236,9 @@ func TestListJSON(t *testing.T) {
 		t.Fatalf("exit %d\n%s%s", code, out, errs)
 	}
 	golden(t, "list.golden.json", out, s.dir, "$SANDBOX")
+	if strings.Contains(out, "SIGNED -") {
+		t.Errorf("the hint is in the JSON:\n%s", out)
+	}
 	var rep listReport
 	objs := decodeStrict(t, out, &rep, "tools")
 	if rep.Schema != "rhythm-list/v1" || len(rep.Tools) != 3 || !rep.Tools[2].ThirdParty {
@@ -285,5 +296,64 @@ func TestListAsksThirdPartyOnlyForVersion(t *testing.T) {
 	}
 	if calls := s.calls("rhythm-tuner"); len(calls) == 0 || calls[0] != "version --json" {
 		t.Errorf("rhythm-tuner ran as %q", calls)
+	}
+}
+
+// TestListUncheckedHint: the hint follows the table only when rhythm or
+// one of its tools is unchecked. A third-party program is never checked,
+// so its "-" doesn't count. --json never carries the hint.
+func TestListUncheckedHint(t *testing.T) {
+	listSandbox(t)
+	old := signedStatus
+	t.Cleanup(func() { signedStatus = old })
+	cases := []struct {
+		name     string
+		status   func(string) string
+		withHint bool
+	}{
+		{"all signed", func(string) string { return "yes" }, false},
+		{"one changed", func(p string) string {
+			if strings.HasSuffix(p, "rhythm-tuner") {
+				return "no"
+			}
+			return "yes"
+		}, false},
+		{"one unchecked", func(p string) string {
+			if strings.HasSuffix(p, "rhythm-tuner") {
+				return "-"
+			}
+			return "yes"
+		}, true},
+	}
+	for _, c := range cases {
+		signedStatus = c.status
+		for _, args := range [][]string{{"list"}, {"list", "--offline"}} {
+			code, out, errs := runCmd(args...)
+			if code != 0 || errs != "" {
+				t.Fatalf("%s %v: exit %d\n%s%s", c.name, args, code, out, errs)
+			}
+			if !strings.Contains(out, "foo (3rd)  1.2.0    ") {
+				t.Errorf("%s %v: no third-party row in\n%s", c.name, args, out)
+			}
+			if got := strings.Count(out, uncheckedHint); got != map[bool]int{true: 1}[c.withHint] {
+				t.Errorf("%s %v: the hint is there %d times in\n%s", c.name, args, got, out)
+			}
+			if c.withHint && !strings.HasSuffix(out, "\n\n"+uncheckedHint+"\n") {
+				t.Errorf("%s %v: the hint doesn't end the output\n%s", c.name, args, out)
+			}
+		}
+		code, out, _ := runCmd("list", "--json")
+		if code != 0 || strings.Contains(out, "SIGNED -") {
+			t.Errorf("%s --json: exit %d\n%s", c.name, code, out)
+		}
+		var rep listReport
+		if err := json.Unmarshal([]byte(out), &rep); err != nil {
+			t.Fatal(err)
+		}
+		for _, tl := range rep.Tools {
+			if tl.Signed == "-" {
+				t.Errorf("%s --json: %s signed \"-\"", c.name, tl.Name)
+			}
+		}
 	}
 }

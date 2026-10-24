@@ -337,13 +337,13 @@ func newSkippedJSON(s *skippedRelease) *skippedJSON {
 	return j
 }
 
-// signedJSON is the signed field of the JSON reports: "" until signature
-// checks land.
+// signedJSON is the signed field of the JSON reports: "yes", "no" or ""
+// when rhythm hasn't checked the binary.
 func signedJSON(path string) string {
-	if signedStatus == nil {
-		return ""
+	if s := signed(path); s != "-" {
+		return s
 	}
-	return signedStatus(path)
+	return ""
 }
 
 // writeJSON writes v as indented JSON with a trailing newline.

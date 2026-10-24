@@ -258,7 +258,7 @@ func recordVerified(dest, repo, version, signer string) error {
 func recordedStatus(p string) string {
 	e, ok := readVerified().Binaries[resolve(p)]
 	if !ok {
-		return "no"
+		return "-" // never checked, as with binaries an older rhythm installed
 	}
 	if sum, err := fileSHA256(p); err != nil || sum != e.SHA256 {
 		return "no"
