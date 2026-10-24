@@ -277,15 +277,13 @@ Echo's binary is all you need on the machine that runs it. The sites it watches 
 ```console
 $ rhythm list
 TOOL        VERSION  LATEST  SIGNED  PATH
-rhythm      dev      0.6.0   no      /home/me/.local/bin/rhythm
+rhythm      0.7.1    0.7.1   yes     /home/me/.local/bin/rhythm
 echo        1.0.0    1.0.0   yes     /home/me/.local/bin/rhythm-echo
 soundcheck  1.1.0    1.1.0   yes     /home/me/.local/bin/rhythm-soundcheck
 tuner       0.3.2    0.3.2   yes     /home/me/.local/bin/rhythm-tuner
 ```
 
-(This `rhythm` was built from source, so it says `dev` and has no signed release to match; a released rhythm shows its version and `yes`.)
-
-`rhythm list` shows every tool with its version, the latest release and `yes` under SIGNED for each binary that passed its signature check. `rhythm doctor` checks the rest: which copies run first on your `PATH`, whether the folder is writable, Chrome for Soundcheck and whether the release API answers. If you see `rhythm: tuner isn't installed`, run `rhythm install tuner`. If your shell can't find `rhythm` at all, the install folder isn't on your `PATH` yet; see [PATH](#path).
+`rhythm list` shows every tool with its version, the latest release and `yes` under SIGNED for each binary that passed its signature check. A binary rhythm hasn't checked shows `-`, such as one an older rhythm installed or one installed with `RHYTHM_SKIP_SIGNATURE=1`. The table then ends with `SIGNED - means rhythm hasn't checked that binary yet; rhythm verify checks it.` See [The SIGNED column](Verifying-Releases#the-signed-column). `rhythm doctor` checks the rest: which copies run first on your `PATH`, whether the folder is writable, Chrome for Soundcheck and whether the release API answers. If you see `rhythm: tuner isn't installed`, run `rhythm install tuner`. If your shell can't find `rhythm` at all, the install folder isn't on your `PATH` yet; see [PATH](#path).
 
 ---
 <sub>[Home](Home) · [Updating](Updating) →</sub>
