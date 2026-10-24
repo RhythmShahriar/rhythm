@@ -1,11 +1,11 @@
-How Soundcheck tests that forms still send (level 3, `submit`), the form plugins it knows, the test data it types, the YAML flow format for scripted journeys (level 4, `flows`), and logging in with a test account.
+How Soundcheck tests that forms still send (level 3, `submit`), the form plugins it knows, the test data it types, the YAML flow format for scripted journeys (level 4, `flows`) and logging in with a test account.
 
 > [!WARNING]
-> Submitting is real. With the `submit` level or a flow that sends a form, messages arrive, sign-ups are created, orders may be placed. Use it on staging, with [Echo](Echo) sealing it so the messages stop there, and list your live site under `production` so Soundcheck refuses to submit there. See [Interactions](Soundcheck-Interactions#the-production-guard).
+> Submitting is real. With the `submit` level or a flow that sends a form, messages arrive, sign-ups are created, orders may be placed. Use it on staging, with [Echo](Echo) sealing it so the messages stop there. List your live site under `production` so Soundcheck refuses to submit there. See [Interactions](Soundcheck-Interactions#the-production-guard).
 
 ## Submitting forms
 
-Turn it on for a run, and pass the same levels to `compare`:
+Turn it on for a run and pass the same levels to `compare`:
 
 ```sh
 rhythm soundcheck snapshot staging.yoursite.com --level inspect,click,submit
@@ -15,7 +15,7 @@ rhythm soundcheck compare --level inspect,click,submit
 On each page, up to five forms are submitted, each in two steps, reloading the page in between:
 
 1. **Empty, expecting validation.** Text fields are cleared and the form is submitted. If the browser's own validation blocks it (`required` attributes), that's a pass. Otherwise Soundcheck waits up to 10 s for the plugin's error messages. This step runs for forms with required fields and for known form plugins.
-2. **Valid, expecting success.** Fields are filled with [test data](#test-data), required and consent checkboxes ticked, a radio picked in each group and the first real option of each select chosen. The form is submitted through its own submit button, so the plugin's JavaScript runs, and Soundcheck waits up to 10 s for a confirmation.
+2. **Valid, expecting success.** Fields are filled with [test data](#test-data), required and consent checkboxes ticked, a radio picked in each group and the first real option of each select chosen. The form is submitted through its own submit button, so the plugin's JavaScript runs. Soundcheck waits up to 10 s for a confirmation.
 
 | Check | Level | Title | When |
 |---|---|---|---|
@@ -38,7 +38,7 @@ The detail is the message the plugin showed. A successful submit isn't reported 
 {"kind": "submit", "selector": "form.wpcf7-form", "label": "Contact Form 7 #12", "outcome": "success", "detail": "Thank you for your message. It has been sent."}
 ```
 
-A form can show "sent" and still email nobody. With [Echo](Echo) running, `--echo` records what each successful submit sent, adds it to the detail (`… · sent 2 emails, 1 chat message`), reports *Form says sent, but no message went out*, and compares each form's messages with the snapshot's. See [With Soundcheck](Echo-With-Soundcheck).
+A form can show "sent" and still email nobody. With [Echo](Echo) running, `--echo` records what each successful submit sent, adds it to the detail (`… · sent 2 emails, 1 chat message`), reports *Form says sent, but no message went out* and compares each form's messages with the snapshot's. See [With Soundcheck](Echo-With-Soundcheck).
 
 ### Forms that are never submitted
 
@@ -95,7 +95,7 @@ Values are padded or cut to the field's `minlength` and `maxlength`. Password an
 
 ## Flows
 
-A flow is a scripted journey in YAML: open a page, fill fields, click, wait, and check what the visitor should see. Use flows for what level 3 can't guess: a multi-step checkout, a booking widget, a search that should find something, a members area.
+A flow is a scripted journey in YAML: open a page, fill fields, click, wait and check what the visitor should see. Use flows for what level 3 can't guess: a multi-step checkout, a booking widget, a search that should find something, a members area.
 
 Write an example to start from:
 
@@ -192,7 +192,7 @@ Values from `${env:…}` are never stored or printed: every error message is mas
 
 ### Mistakes in a flow file
 
-Flow files are checked strictly: unknown keys, unknown steps and unknown `${fake:…}` kinds are errors. A file that can't be read is an **error**-level issue (`interact/flow-file`), so it fails `--fail-on error` in CI, and the other flows still run:
+Flow files are checked strictly: unknown keys, unknown steps and unknown `${fake:…}` kinds are errors. A file that can't be read is an **error**-level issue (`interact/flow-file`), so it fails `--fail-on error` in CI. The other flows still run:
 
 ```text
 [ERROR] Flow file "bad.yaml" can't be read - site-wide
@@ -247,7 +247,7 @@ The login is used by:
 
 The pages themselves are always checked as an anonymous visitor. `--no-login` ignores the variables for one run.
 
-Soundcheck tries the login once, at the start. If it fails, one note says why, the checks that need it are skipped, and the run's `options.logged_in` stays false:
+Soundcheck tries the login once, at the start. If it fails, one note says why. The checks that need it are skipped and the run's `options.logged_in` stays false:
 
 ```text
 note: login failed, so the checks that need it were skipped: WordPress refused the login: Error: The password you entered for the username is incorrect.
@@ -259,7 +259,7 @@ On WordPress, Soundcheck logs in through `/wp-login.php` (`#user_login`, `#user_
 |---|---|
 | `WordPress refused the login: <message>` | wrong user or password; WordPress's own message |
 | `… has no WordPress login form (#user_login); set login.url, or login.flow for other sites` | the login page isn't WordPress's |
-| `logged in, but the site doesn't show the admin bar or the logged-in body class (a cache may be serving anonymous pages to logged-in users)` | the cookie was set, but the site doesn't look logged in |
+| `logged in, but the site doesn't show the admin bar or the logged-in body class (a cache may be serving anonymous pages to logged-in users)` | the cookie was set; the site doesn't look logged in |
 
 For sites that aren't WordPress, write a flow that logs in and point `login.flow` at it:
 

@@ -1,4 +1,4 @@
-The cache module checks that a site's page cache works and is safe: which layer serves pages and how often, that private pages are never cached, that logged-in content never reaches visitors, that cached pages don't carry expired WordPress nonces, and that cached copies aren't out of date.
+The cache module checks that a site's page cache works and is safe: which layer serves pages and how often, that private pages are never cached, that logged-in content never reaches visitors, that cached pages don't carry expired WordPress nonces and that cached copies aren't out of date.
 
 Everything except the leak test is done with plain HTTP requests, without cookies, at the run's polite pace, after all pages have been visited.
 
@@ -16,18 +16,18 @@ Plugin comments carry the time the HTML was generated; a stamp older than a few 
 
 ## Hit or miss
 
-The browser's visit warms each page. Then Soundcheck fetches up to 40 public pages (one per URL pattern first) twice more, and reads the second answer: `hit`, `miss`, `bypass`, `expired`, `stale`, `dynamic` or `unknown`, with the layer that decided it and the evidence. The facts are kept per page in the run's JSON under `cache`:
+The browser's visit warms each page. Then Soundcheck fetches up to 40 public pages (one per URL pattern first) twice more. It reads the second answer: `hit`, `miss`, `bypass`, `expired`, `stale`, `dynamic` or `unknown`. It notes the layer that decided it and the evidence. The facts are kept per page in the run's JSON under `cache`:
 
 ```json
 {"age": "10", "cache_control": "max-age=86400", "first": "hit", "header": "x-cache-status: HIT", "layer": "nginx", "layers": "nginx", "status": "hit", "ttfb_cached_ms": "0", "ttfb_ms": "0", "ttfb_uncached_ms": "0"}
 ```
 
-The run's summary, `cache` in the run JSON, has the pages fetched, hits, `hit_rate` (percent), layers, and the median time to first byte of cached and uncached pages.
+The run's summary, `cache` in the run JSON, has the pages fetched, hits, `hit_rate` (percent), layers and the median time to first byte of cached and uncached pages.
 
 | Check | Level | Title | When |
 |---|---|---|---|
 | `cache/none` | notice | `No page cache detected` | no page carried a cache header or a cache plugin comment |
-| `cache/never-cached` | warning (notice for a CDN) | `Pages are never served from the page cache` | a cache layer is there, but 0 pages came from it on a second fetch |
+| `cache/never-cached` | warning (notice for a CDN) | `Pages are never served from the page cache` | a cache layer is there; 0 pages came from it on a second fetch |
 
 A CDN that passes HTML through is common and only a notice. A server or plugin cache that never answers is a warning: it's installed but not working, often because a cookie, a query string or a `Cache-Control: no-cache` header from a plugin bypasses it.
 
@@ -39,7 +39,7 @@ In a comparison, a cache that served pages in the snapshot and serves none now i
 
 ## Private pages
 
-Pages that hold one visitor's cart, order or account must never come from a shared cache: the next visitor would see them, or checkout would break. A page is private when its path is `/cart`, `/basket`, `/checkout`, `/my-account` or `/wp-login.php`, or its body has WooCommerce's `woocommerce-cart`, `woocommerce-checkout` or `woocommerce-account` class. Soundcheck also probes the cart, checkout and account URLs from WooCommerce's script settings, and `wp-login.php` on WordPress, even when discovery didn't visit them.
+Pages that hold one visitor's cart, order or account must never come from a shared cache: the next visitor would see them, or checkout would break. A page is private when its path is `/cart`, `/basket`, `/checkout`, `/my-account` or `/wp-login.php`, or its body has WooCommerce's `woocommerce-cart`, `woocommerce-checkout` or `woocommerce-account` class. Soundcheck also probes the cart, checkout and account URLs from WooCommerce's script settings and `wp-login.php` on WordPress, even when discovery didn't visit them.
 
 | Check | Level | Title |
 |---|---|---|
@@ -69,7 +69,7 @@ How it works:
 1. Log the test account in, in a separate private browser session (see [Logging in](Soundcheck-Forms-And-Flows#logging-in)).
 2. Read who it is: display name, email and username, from the REST API (`/wp/v2/users/me`) or the profile page. This only reads.
 3. Visit up to ten pages as the test user, so a misconfigured cache stores them.
-4. Fetch each page again anonymously, and once more with a cache-busting query for a fresh anonymous render.
+4. Fetch each page again anonymously, then once more with a cache-busting query for a fresh anonymous render.
 5. Report the page when the anonymous copy contains something the fresh render doesn't: the user's email, username or display name, the user's nonces, the admin bar (`#wpadminbar`), the `logged-in` body class or a "Howdy," greeting.
 
 | Check | Level | Title |
@@ -102,7 +102,7 @@ The test is skipped, with a note, when:
 
 ## Expired nonces
 
-WordPress nonces (the security tokens in forms, AJAX and REST calls) are valid for 12 to 24 hours. A page cached for longer serves tokens WordPress no longer accepts: contact forms, add to cart and AJAX fail on the cached copy, but work for you when you're logged in or the cache is cold.
+WordPress nonces (the security tokens in forms, AJAX and REST calls) are valid for 12 to 24 hours. A page cached for longer serves tokens WordPress no longer accepts: contact forms, add to cart and AJAX fail on the cached copy. They still work for you when you're logged in or the cache is cold.
 
 When a cached page carries a nonce (`_wpnonce`, `wpApiSettings`, Contact Form 7, WooCommerce and other `*nonce` fields) and the copy is at least 12 hours old, Soundcheck reports it, as a warning, or an error past 24 hours:
 
@@ -138,7 +138,7 @@ When the cache ignores query strings and serves the same copy for the busted URL
 
 ## Requests the module makes
 
-All `GET`, without cookies, at the run's pace: two fetches per page (up to 40 public pages plus every private page), a cache-busting fetch or two for each hit, the WordPress REST index once for the time zone, and, for the leak test, the test user's own page views, a REST call for its details, and two anonymous fetches per page. Skip the module with `--skip cache`.
+All `GET`, without cookies, at the run's pace: two fetches per page (up to 40 public pages plus every private page), a cache-busting fetch or two for each hit, the WordPress REST index once for the time zone. The leak test adds the test user's own page views, a REST call for its details and two anonymous fetches per page. Skip the module with `--skip cache`.
 
 ---
 <sub>← [Forms and flows](Soundcheck-Forms-And-Flows) · [Home](Home) · [Speed](Soundcheck-Speed) →</sub>

@@ -1,4 +1,4 @@
-How well does Soundcheck catch what breaks real WordPress and PHP sites, and how does it compare with other tools? This page describes the benchmark: a testbed of 20 deliberately broken sites, how each scenario is run and judged, and the tools it's compared with. The results are published with each release.
+How well does Soundcheck catch what breaks real WordPress and PHP sites? How does it compare with other tools? This page describes the benchmark: a testbed of 20 deliberately broken sites, how each scenario is run and judged and the tools it's compared with. The results are published with each release.
 
 ## The testbed
 
@@ -6,14 +6,14 @@ The testbed lives in the Soundcheck repository, in `testbed/`. It runs two sites
 
 | Site | Address | Stack |
 |---|---|---|
-| WordPress | `http://localhost:18800` | WordPress 6.8.3 on PHP 8.3 and Apache with MariaDB 11.4: a coffee roaster's site with pages, posts, a menu, a contact form, a shop and a cart, built from a test theme and five small test plugins. Each scenario has its own page, and `/scenarios/` lists them. |
+| WordPress | `http://localhost:18800` | WordPress 6.8.3 on PHP 8.3 and Apache with MariaDB 11.4: a coffee roaster's site with pages, posts, a menu, a contact form, a shop and a cart, built from a test theme and five small test plugins. Each scenario has its own page; `/scenarios/` lists them. |
 | Plain PHP | `http://localhost:18810` | "Ledger", three pages of plain PHP 8.3 on Apache, no framework |
 
 The WordPress site hosts each scenario on its own pages, so scenarios don't affect each other. Every scenario has a **good** state and a **broken** state. `testbed/toggle.sh` switches them by creating or removing a file in `testbed/state/`, which the sites check on every request: no rebuild, no restart. The test page cache keys on the set of broken scenarios, so it never serves a page rendered in the other state. `make down` throws everything away and `make up` starts again from the same seeded site.
 
 ## The 20 scenarios
 
-Each scenario breaks one thing the way a real update or deploy does. The manifest, `testbed/scenarios.yaml`, says what each breaks, where it's implemented, which Soundcheck module should catch it, and what counts as caught.
+Each scenario breaks one thing the way a real update or deploy does. The manifest, `testbed/scenarios.yaml`, says what each breaks, where it's implemented, which Soundcheck module should catch it and what counts as caught.
 
 | # | Scenario | Site | Module | Caught when the comparison has |
 |---|---|---|---|---|
@@ -57,7 +57,7 @@ Each result is one of:
 | Result | Means |
 |---|---|
 | **caught** | the expected change was reported |
-| found, as X | the problem was reported, but in another class than expected |
+| found, as X | the problem was reported in another class than expected |
 | missed | nothing matching was reported |
 | error | the tool failed to run; the details say why |
 | not run | the tool wasn't available |
@@ -105,18 +105,18 @@ Run on 23 October 2026 (UTC) with rhythm-soundcheck 1.0.0 on Linux (amd64), defa
 How to read it:
 
 - **Soundcheck** caught each scenario as the change it is (BROKE, NEW, CHANGED or SLOWER), from the right module: s11–s13 come from interactions, s18–s19 from the cache module, s20 from speed.
-- **BackstopJS** is a visual tool: it catches what changes the pixels, including a PHP warning printed on the page. It can't see a JS error that changes nothing visible, a page cache serving the cart, or a broken form, and it doesn't say what changed.
+- **BackstopJS** is a visual tool: it catches what changes the pixels, including a PHP warning printed on the page. It can't see a JS error that changes nothing visible, a page cache serving the cart or a broken form. It doesn't say what changed either.
 - **lychee** only checks links, so it caught the 404s and the 500, plus s19 by accident: the leaked admin bar added a logout link that fails.
 - **Unlighthouse** catches what moves a Lighthouse score: console errors, SEO and performance. It didn't catch the visual, interaction or cache scenarios.
 
-The per-scenario details (what each tool reported, and anything else Soundcheck noticed) are in [`docs/benchmark.md`](https://github.com/RhythmShahriar/soundcheck/blob/master/docs/benchmark.md) in the Soundcheck repository.
+The per-scenario details (what each tool reported and anything else Soundcheck noticed) are in [`docs/benchmark.md`](https://github.com/RhythmShahriar/soundcheck/blob/master/docs/benchmark.md) in the Soundcheck repository.
 
 > [!NOTE]
-> We wrote both the tool and the testbed, so read this as evidence that Soundcheck catches these kinds of breakage, not as a neutral contest. The scenarios, the expectations and the harness are open; rerun it, and add scenarios where you think it falls short.
+> We wrote both the tool and the testbed, so read this as evidence that Soundcheck catches these kinds of breakage, not as a neutral contest. The scenarios, the expectations and the harness are open. Rerun it and add scenarios where you think it falls short.
 
 ## Run it yourself
 
-You need Docker with Compose v2, Go, and a clone of the Soundcheck repository:
+You need Docker with Compose v2, Go and a clone of the Soundcheck repository:
 
 ```sh
 make testbed               # WordPress on 127.0.0.1:18800, plain PHP on :18810 (about 30 s)
@@ -141,7 +141,7 @@ go run -tags testbed ./testbed/bench -only s05,s09        # some scenarios
 | `-wp`, `-php` | from `scenarios.yaml` | site URLs, if you moved the ports with `TESTBED_WP_PORT` / `TESTBED_PHP_PORT` |
 | `-timeout` | `5m` | per command |
 
-The benchmark writes the scoreboard to `docs/benchmark.md`, and keeps each scenario's runs (snapshot, `compare.json`, the tools' output) in `testbed/bench/work/<id>/`, with every result in `work/results.json`. Switch a scenario by hand to look at it in a browser:
+The benchmark writes the scoreboard to `docs/benchmark.md`. It keeps each scenario's runs (snapshot, `compare.json`, the tools' output) in `testbed/bench/work/<id>/`, with every result in `work/results.json`. Switch a scenario by hand to look at it in a browser:
 
 ```sh
 testbed/toggle.sh s05 broken     # or: make -C testbed broken ID=s05
@@ -149,7 +149,7 @@ testbed/toggle.sh status
 testbed/toggle.sh all good
 ```
 
-The testbed's [README](https://github.com/RhythmShahriar/soundcheck/blob/master/testbed/README.md) has its accounts, every Make target, and how to add a scenario.
+The testbed's [README](https://github.com/RhythmShahriar/soundcheck/blob/master/testbed/README.md) has its accounts, every Make target and how to add a scenario.
 
 The testbed only listens on `127.0.0.1`. It's also the end-to-end test suite for Soundcheck itself; see [Contributing](Contributing#soundcheck-and-the-testbed).
 

@@ -1,6 +1,6 @@
-The visual module screenshots every page at desktop and phone size and, in a comparison, shows what looks different. This page covers how screenshots are taken, the threshold, hiding elements, regions that change on their own, inserted and removed blocks, and how shared changes are grouped.
+The visual module screenshots every page at desktop and phone size. In a comparison it shows what looks different. This page covers how screenshots are taken, the threshold, hiding elements, regions that change on their own, inserted and removed blocks and how shared changes are grouped.
 
-Visual differences are always **CHANGED**: Soundcheck can't know whether a new look was intended, so it shows you, ranked by how much changed. Check each one, and take a new snapshot once they're all expected.
+Visual differences are always **CHANGED**: Soundcheck can't know whether a new look was intended, so it shows you, ranked by how much changed. Check each one and take a new snapshot once they're all expected.
 
 ## Screenshots
 
@@ -17,7 +17,7 @@ Choose viewports with `--viewport desktop` or `viewports: [desktop]` in the conf
 
 ## How screenshots are compared
 
-The diff works like [pixelmatch](https://github.com/mapbox/pixelmatch): two pixels differ when their perceptual (YIQ) color distance is over a small threshold, which ignores compression and gamma noise, and anti-aliased edges that render a subpixel differently don't count. Changed pixels close to each other are joined into areas.
+The diff works like [pixelmatch](https://github.com/mapbox/pixelmatch): two pixels differ when their perceptual (YIQ) color distance is over a small threshold, which ignores compression and gamma noise. Anti-aliased edges that render a subpixel differently don't count. Changed pixels close to each other are joined into areas.
 
 Before comparing, Soundcheck lines up the rows of the two screenshots, so a block inserted or removed somewhere on the page doesn't make everything below it look changed (see [Inserted and removed blocks](#inserted-and-removed-blocks)).
 
@@ -28,7 +28,7 @@ visual:
   threshold: 0.5   # % of a page's pixels that must change to report it, 0 to 100
 ```
 
-Raise it if small, harmless differences (a date, a counter) keep showing up; lower it to catch a one-word change in a long page. A `Page looks different` change gives the share that changed, how many areas, the largest, and a height change nothing else explains:
+Raise it if small, harmless differences (a date, a counter) keep showing up; lower it to catch a one-word change in a long page. A `Page looks different` change gives the share that changed, how many areas, the largest and a height change nothing else explains:
 
 ```text
 [CHANGED] Page looks different (desktop) - /
@@ -40,7 +40,7 @@ Pages that failed in either run (an error, a 4xx or 5xx) aren't compared visuall
 
 ## Hiding elements
 
-Some elements are never the same twice: a live chat bubble, an ad slot, a cookie banner, a "visitors online" counter. List their CSS selectors and they're hidden (`visibility: hidden`, so the layout doesn't move) before every screenshot, and their area is left out of the comparison:
+Some elements are never the same twice: a live chat bubble, an ad slot, a cookie banner, a "visitors online" counter. List their CSS selectors and they're hidden (`visibility: hidden`, so the layout doesn't move) before every screenshot. Their area is left out of the comparison:
 
 ```yaml
 visual:
@@ -51,7 +51,7 @@ Selectors that match nothing are fine.
 
 ## Regions that change on their own
 
-A snapshot takes each screenshot **twice**, a little over a second apart, at both viewports. Whatever differs between the two (a slider moving to the next slide, a clock, a rotating testimonial) is recorded as a *dynamic region* for that viewport, and later comparisons ignore changes inside it. Nothing to configure.
+A snapshot takes each screenshot **twice**, a little over a second apart, at both viewports. Whatever differs between the two (a slider moving to the next slide, a clock, a rotating testimonial) is recorded as a *dynamic region* for that viewport. Later comparisons ignore changes inside it. Nothing to configure.
 
 When a large part of a page changes on its own, a note says so, because changes there can't be seen:
 
@@ -67,7 +67,7 @@ The note appears when more than 30% of the page moves. If the moving element isn
 
 ## Inserted and removed blocks
 
-When a new block (a notice, a banner, a PHP warning, a new section) appears on a page, everything below it moves down. Soundcheck finds the rows that were inserted or removed by lining up the rows of the two screenshots, and checks that the content around them is unchanged. A block found in the same place on several pages is one change:
+When a new block (a notice, a banner, a PHP warning, a new section) appears on a page, everything below it moves down. Soundcheck finds the rows that were inserted or removed by lining up the rows of the two screenshots. Then it checks that the content around them is unchanged. A block found in the same place on several pages is one change:
 
 ```text
 [CHANGED] New block at the top of 15 pages (desktop) - /, /blog/, /blog/backup-strategy/ +12 more

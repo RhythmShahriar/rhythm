@@ -1,4 +1,4 @@
-How Soundcheck finds the pages it checks: sitemaps and the links in each rendered page, grouping pages by URL pattern, the page limit, include and exclude patterns, `robots.txt`, and the URLs it never visits.
+How Soundcheck finds the pages it checks: sitemaps and the links in each rendered page, grouping pages by URL pattern, the page limit, include and exclude patterns, `robots.txt` and the URLs it never visits.
 
 Discovery only happens in `snapshot`, `run` and the `--against` site of a two-site compare. `compare` re-checks exactly the snapshot's pages, so the two runs line up.
 
@@ -6,13 +6,13 @@ Discovery only happens in `snapshot`, `run` and the `--against` site of a two-si
 
 1. **The start page.** The URL you give, after redirects: `staging.yoursite.com` may become `https://www.staging.yoursite.com/`. The path is kept, so `rhythm soundcheck run yoursite.com/shop/` starts at `/shop/`. The start page is always checked, whatever `--include` says, because links are found from it.
 2. **`robots.txt`.** Read once, for its rules and its `Sitemap:` lines.
-3. **Sitemaps.** The ones `robots.txt` names, or else `/sitemap.xml`, `/wp-sitemap.xml` (WordPress core) and `/sitemap_index.xml` (Yoast, Rank Math and others). Sitemap indexes are followed three levels deep, gzipped sitemaps are read, and at most 50,000 URLs are taken from them.
-4. **Links in each rendered page.** As the browser visits a page, the same-site links in it (`<a href>`, including those its scripts added, such as menus and "load more") join the queue, and those pages are visited in turn. Soundcheck doesn't fetch pages a second time just to read their links: what the browser sees is what's followed.
+3. **Sitemaps.** The ones `robots.txt` names, or else `/sitemap.xml`, `/wp-sitemap.xml` (WordPress core) and `/sitemap_index.xml` (Yoast, Rank Math and others). Sitemap indexes are followed three levels deep, gzipped sitemaps are read and at most 50,000 URLs are taken from them.
+4. **Links in each rendered page.** As the browser visits a page, the same-site links in it (`<a href>`, including those its scripts added, such as menus and "load more") join the queue. Those pages are visited in turn. Soundcheck doesn't fetch pages a second time just to read their links: what the browser sees is what's followed.
 5. **Extra pages** you list with `--page` or `pages.extra`, for pages nothing links to.
 
-The crawl stays on the site: `yoursite.com` and `www.yoursite.com` count as the same site, other hosts don't. URLs are normalized before they're counted: fragments and tracking parameters (`utm_*`, `fbclid`, `gclid` and similar) are dropped, query parameters sorted, and `/about` and `/about/` are one page. Files that aren't pages (images, PDFs, archives, CSS, JS, fonts, feeds) are skipped; the browser checks assets as each page loads them.
+The crawl stays on the site: `yoursite.com` and `www.yoursite.com` count as the same site, other hosts don't. URLs are normalized before they're counted: fragments and tracking parameters (`utm_*`, `fbclid`, `gclid` and similar) are dropped, query parameters sorted. `/about` and `/about/` are one page. Files that aren't pages (images, PDFs, archives, CSS, JS, fonts, feeds) are skipped; the browser checks assets as each page loads them.
 
-The discovery line tells you what the start page and the sitemaps gave, and why the rest was left out:
+The discovery line tells you what the start page and the sitemaps gave and why the rest was left out:
 
 ```text
   ▸ Pages         36 pages · 13 left out (grouped 13)
@@ -41,14 +41,14 @@ A shop with 3,000 products doesn't need 3,000 product pages checked: they share 
 - **Plain permalinks** group the same way by their query parameter: `/?page_id=2`, `/?page_id=9` and `/?p=7` stay separate until a parameter (`page_id`, `p`, `cat`, `tag`, `author`, `post_type`, `product`, `product_cat`…) has more than 10 values; then they share `/?page_id={slug}`.
 - **Pagination** (`?page=`, `?paged=`) groups as `?{page}`. Other query strings are left out of the pattern.
 
-So the first ten pages of a folder are checked on their own, and three more stand for the rest: a shop with 3,000 products is checked through about 13 product pages. In the test site above, the first ten blog posts were checked, then three samples stood for the other fourteen, and the same for the products: `grouped 13`.
+So the first ten pages of a folder are checked on their own. Three more stand for the rest: a shop with 3,000 products is checked through about 13 product pages. In the test site above, the first ten blog posts were checked, then three samples stood for the other fourteen. The same went for the products: `grouped 13`.
 
 ```yaml
 pages:
   per_group: 3    # pages checked per URL pattern; -1 checks every page
 ```
 
-Set `per_group: -1` to check every page, for example on a small site or before a big release. The group of each page is in the JSON (`group`), and the speed module uses it to report slowdowns per template.
+Set `per_group: -1` to check every page, for example on a small site or before a big release. The group of each page is in the JSON (`group`). The speed module uses it to report slowdowns per template.
 
 ## The page limit
 
@@ -73,14 +73,14 @@ Patterns are globs matched against the path **and query** of each URL, such as `
 | `*?*replytocom=*` | `/hello-world/?replytocom=12` | `/hello-world/` |
 | `/about/` | `/about/` | `/about/team/` |
 
-`--include` keeps only matching pages (and the start page); `--exclude` skips matching pages, on top of the defaults. Both take a comma-separated list and can be repeated, and they add to `pages.include` and `pages.exclude` from the config file.
+`--include` keeps only matching pages (and the start page); `--exclude` skips matching pages, on top of the defaults. Both take a comma-separated list and can be repeated. They add to `pages.include` and `pages.exclude` from the config file.
 
 ```sh
 rhythm soundcheck snapshot staging.yoursite.com --exclude '/tag/*,/author/*'
 rhythm soundcheck run staging.yoursite.com --include '/shop/*'
 ```
 
-Quote patterns so your shell doesn't expand the `*`. On a site without a sitemap, the second command checked the home page, found `/shop/` among its links, and went on from there:
+Quote patterns so your shell doesn't expand the `*`. On a site without a sitemap, the second command checked the home page, found `/shop/` among its links and went on from there:
 
 ```text
 Pages: 1 page
@@ -114,7 +114,7 @@ Pages: 37 pages · 13 left out (grouped 13)
 [37/38] /private/ 200 1.03s (ok)
 ```
 
-Here `/private/` is disallowed in `robots.txt` and linked from nowhere, and was checked anyway.
+Here `/private/` is disallowed in `robots.txt` and linked from nowhere. It was checked anyway.
 
 ## URLs Soundcheck never visits
 

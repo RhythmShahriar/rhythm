@@ -1,4 +1,4 @@
-Soundcheck answers one question: **did my change break anything?** You snapshot a whole site, update a plugin, switch PHP or deploy, then compare. Soundcheck shows only what's different, most serious first. This page explains what it checks, when to use it, and how a run works.
+Soundcheck answers one question: **did my change break anything?** You snapshot a whole site, update a plugin, switch PHP or deploy, then compare. Soundcheck shows only what's different, most serious first. This page explains what it checks, when to use it and how a run works.
 
 ```sh
 rhythm soundcheck snapshot staging.yoursite.com   # before
@@ -6,14 +6,14 @@ rhythm soundcheck snapshot staging.yoursite.com   # before
 rhythm soundcheck compare                         # after
 ```
 
-Soundcheck ships as its own binary, `rhythm-soundcheck`, and you normally run it through `rhythm soundcheck` (or the short alias `rhythm sc`). The installer sets it up along with Tuner; if you see `rhythm: soundcheck isn't installed`, run `rhythm install soundcheck`. See [Install](Install).
+Soundcheck ships as its own binary, `rhythm-soundcheck`. You normally run it through `rhythm soundcheck` (or the short alias `rhythm sc`). The installer sets it up along with Tuner; if you see `rhythm: soundcheck isn't installed`, run `rhythm install soundcheck`. See [Install](Install).
 
 > [!IMPORTANT]
-> Check only sites you own or have permission to test. Soundcheck browses like a visitor at a polite pace. It only submits forms when you turn on the `submit` level, and refuses to on sites you list as production. See [Responsible use](Responsible-Use).
+> Check only sites you own or have permission to test. Soundcheck browses like a visitor at a polite pace. It only submits forms when you turn on the `submit` level. It refuses to on sites you list as production. See [Responsible use](Responsible-Use).
 
 ## What it checks
 
-Soundcheck opens every page in headless Chrome, at desktop and phone size, and runs five modules on it.
+Soundcheck opens every page in headless Chrome, at desktop and phone size. It runs five modules on each page.
 
 | Module | What it looks for | Page |
 |---|---|---|
@@ -45,18 +45,18 @@ flowchart LR
   E --> F["Report<br/>terminal, HTML,<br/>Markdown, JSON, JUnit"]
 ```
 
-1. **Discover.** Soundcheck fetches the start page (following redirects, so http becomes https and apex becomes www when the site says so), reads `robots.txt` and the sitemaps, and follows the links it finds in each page the browser renders. Pages that share a URL pattern, such as `/product/{slug}/`, are grouped, and a few samples stand for the rest. Admin, login, feeds and URLs with side effects (log out, add to cart) are never visited. See [Discovery](Soundcheck-Discovery).
+1. **Discover.** Soundcheck fetches the start page (following redirects, so http becomes https and apex becomes www when the site says so), reads `robots.txt` and the sitemaps and follows the links it finds in each page the browser renders. Pages that share a URL pattern, such as `/product/{slug}/`, are grouped. A few samples stand for the rest. Admin, login, feeds and URLs with side effects (log out, add to cart) are never visited. See [Discovery](Soundcheck-Discovery).
 2. **Visit.** Each page opens in its own background window of a private browser session (like a private window, never logged in), eight at a time and at most 5 page loads a second, with the browser's cache off so every page loads cold. Soundcheck records the response, redirects, console errors, failed requests, every resource, lab timings and the visible text, then takes a full-page screenshot. The page then reloads at phone size (390 px wide) for a second screenshot.
 3. **Check.** While the page is open, the interact module reads its forms and clicks its controls; links in the rendered page join the queue. Then every module checks the recorded page. After the last page, site-wide checks run: links to pages that weren't visited, the cache double fetch and leak test, speed suggestions and your flows.
 4. **Snapshot.** `snapshot` saves the run (`run.json` and the screenshots) in `.soundcheck/snapshots/<name>/`. A snapshot takes each screenshot twice, a moment apart, to learn the regions that change on their own.
-5. **Compare.** `compare` checks the snapshot's pages again, with no new discovery, and diffs the two runs. New errors become **BROKE**, other new problems **NEW**, visual and content differences **CHANGED**, slowdowns **SLOWER**, and problems that went away **FIXED**.
-6. **Report.** The terminal shows the result live. Every run also writes a standalone `report.html` with before/after sliders, and you can save Markdown, JSON or JUnit. See [Reading results](Soundcheck-Reading-Results).
+5. **Compare.** `compare` checks the snapshot's pages again, with no new discovery, then diffs the two runs. New errors become **BROKE**, other new problems **NEW**, visual and content differences **CHANGED**, slowdowns **SLOWER** and problems that went away **FIXED**.
+6. **Report.** The terminal shows the result live. Every run also writes a standalone `report.html` with before/after sliders. You can also save Markdown, JSON or JUnit. See [Reading results](Soundcheck-Reading-Results).
 
 With every module on, a 37-page local test site took 54 s for the snapshot and 47 s for the compare; a 101-page static site on a 16-core machine took 92 s and 61 s. Large sites stay manageable because grouping caps how many pages of each pattern are checked; see [FAQ](Soundcheck-FAQ#slow-or-huge-sites).
 
 ## The browser
 
-Soundcheck drives Chrome or Chromium through the DevTools protocol. It uses an installed Chrome when it finds one, and otherwise downloads a pinned Chromium once, on first use, into your cache folder. `rhythm soundcheck update` installs or refreshes it, and `--browser` points at a specific binary. See [FAQ](Soundcheck-FAQ#chromium-download-and-update).
+Soundcheck drives Chrome or Chromium through the DevTools protocol. It uses an installed Chrome when it finds one. Otherwise it downloads a pinned Chromium once, on first use, into your cache folder. `rhythm soundcheck update` installs or refreshes it; `--browser` points at a specific binary. See [FAQ](Soundcheck-FAQ#chromium-download-and-update).
 
 ## Files
 

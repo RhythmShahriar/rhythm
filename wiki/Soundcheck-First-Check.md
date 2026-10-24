@@ -1,4 +1,4 @@
-This tutorial takes you through a full before-and-after check: take a snapshot, make a change, compare, and read the HTML report. It takes about ten minutes, most of it making your change.
+This tutorial takes you through a full before-and-after check: take a snapshot, make a change, compare and read the HTML report. It takes about ten minutes, most of it making your change.
 
 You need a site you own or have permission to test, ideally a staging copy. The examples use `staging.yoursite.com`; replace it with your own. The output on this page comes from a small WordPress-like test site, where the "change" is a plugin update that went wrong.
 
@@ -14,7 +14,7 @@ rhythm-soundcheck 1.0.0
 
 If it says `rhythm: soundcheck isn't installed`, run `rhythm install soundcheck`. If `rhythm` isn't found at all, follow [Install](Install).
 
-Soundcheck needs Chrome or Chromium. If neither is installed, it downloads Chromium once, the first time it needs a browser, and tells you where it put it. See [FAQ](Soundcheck-FAQ#chromium-download-and-update).
+Soundcheck needs Chrome or Chromium. If neither is installed, it downloads Chromium once, the first time it needs a browser. It tells you where it put it. See [FAQ](Soundcheck-FAQ#chromium-download-and-update).
 
 ## 2. Pick a folder
 
@@ -77,7 +77,7 @@ While it runs, a progress bar counts pages. When it's done:
 - **The issues** are problems the site has *now*, before your change. A snapshot reports them so you know the starting point; the comparison later shows only what changed.
 - **The `!` notes** say what limits the result. `/team/` has a slider, so Soundcheck learned that part of the page changes on its own and will ignore it (see [Visual changes](Soundcheck-Visual#regions-that-change-on-their-own)). The cache leak test needs a test account; it's covered in [Cache](Soundcheck-Cache#the-leak-test), skip it for now.
 
-The snapshot is in `.soundcheck/snapshots/before-update/`, and it became the *latest* snapshot, the one `compare` uses by default.
+The snapshot is in `.soundcheck/snapshots/before-update/`. It became the *latest* snapshot, the one `compare` uses by default.
 
 ## 4. Make your change
 
@@ -154,13 +154,13 @@ rhythm soundcheck compare
 
 Reading from the top:
 
-- **BROKE** is what worked in the snapshot and fails now: six identical wishlist buttons that throw when clicked (one line; the selectors are in the detail), a page that answered 200 and now answers 404, and a cart the cache now serves to everyone.
-- **NEW** is a problem that wasn't there before. The PHP warning is on 36 pages, but it's **one** line, with the file and line it comes from.
+- **BROKE** is what worked in the snapshot and fails now: six identical wishlist buttons that throw when clicked (one line; the selectors are in the detail), a page that answered 200 and now answers 404 and a cart the cache now serves to everyone.
+- **NEW** is a problem that wasn't there before. The PHP warning is on 36 pages. Still, it's **one** line, with the file and line it comes from.
 - **CHANGED** is what looks or reads differently. The PHP warning made a block appear near the bottom of 35 pages: one line per viewport, not 35. Check each change was intended.
 - **SLOWER** is a measurable slowdown, past a noise floor. The plugin cost line names the plugin that made the home page heavier.
 - **The panel** gives the verdict and the count per class.
 
-[Reading results](Soundcheck-Reading-Results) explains every class, how changes are grouped, and the report formats.
+[Reading results](Soundcheck-Reading-Results) explains every class, how changes are grouped and the report formats.
 
 > [!TIP]
 > Fix from the top: BROKE, then NEW. When a NEW problem is on every page, it usually has one cause, often the plugin or theme you just updated. The `source` (here `themes/acme/footer.php:42`) tells you where to look.
@@ -179,7 +179,7 @@ Or open the file the last line points at, or show the last result again at any t
 rhythm soundcheck report --open
 ```
 
-The report has the same changes as the terminal, with filters for each class, a search box, and for visual changes a **before/after slider** you drag across the screenshots, plus Before, After and Diff views. It's one file with the screenshots inside, so you can attach it to a ticket or send it to a client. See [Reading results](Soundcheck-Reading-Results#the-html-report).
+The report has the same changes as the terminal, with filters for each class and a search box. Visual changes get a **before/after slider** you drag across the screenshots, plus Before, After and Diff views. It's one file with the screenshots inside, so you can attach it to a ticket or send it to a client. See [Reading results](Soundcheck-Reading-Results#the-html-report).
 
 ## 7. Decide what's next
 
@@ -199,7 +199,7 @@ NAME                     PAGES  TAKEN        SITE
 before-update            37     6m ago       https://staging.yoursite.com/  (latest)
 ```
 
-`rhythm soundcheck compare --snapshot <name>` compares with an older one, and `rhythm soundcheck snapshots delete <name>` removes one.
+`rhythm soundcheck compare --snapshot <name>` compares with an older one. `rhythm soundcheck snapshots delete <name>` removes one.
 
 ## Going further
 

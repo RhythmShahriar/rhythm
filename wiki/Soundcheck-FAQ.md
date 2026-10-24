@@ -4,9 +4,9 @@ Answers to common questions and fixes for common problems with Soundcheck. If yo
 
 ### Chromium download and update
 
-Soundcheck needs Chrome or Chromium. It looks for an installed Chrome or Chromium in the usual places first. When there's none, it downloads a pinned Chromium build once, the first time it needs a browser, into your cache folder (`~/.cache/rhythm/soundcheck/browser` on Linux; see [CLI reference](Soundcheck-CLI-Reference#files-and-locations)), and says so on stderr with `Downloading Chromium once, into <folder> …`. Download progress also goes to stderr, never stdout, so `--json` on stdout stays valid.
+Soundcheck needs Chrome or Chromium. It looks for an installed Chrome or Chromium in the usual places first. When there's none, it downloads a pinned Chromium build once, the first time it needs a browser, into your cache folder (`~/.cache/rhythm/soundcheck/browser` on Linux; see [CLI reference](Soundcheck-CLI-Reference#files-and-locations)). It says so on stderr with `Downloading Chromium once, into <folder> …`. Download progress also goes to stderr, never stdout, so `--json` on stdout stays valid.
 
-The download is reused by every later run. `rhythm soundcheck update` does the same ahead of time (useful in a Docker image build), and removes downloaded Chromium revisions this version no longer uses. When an installed Chrome is used, it removes any downloaded Chromium too:
+The download is reused by every later run. `rhythm soundcheck update` does the same ahead of time (useful in a Docker image build). It also removes downloaded Chromium revisions this version no longer uses. When an installed Chrome is used, it removes any downloaded Chromium too:
 
 ```text
 Removed unused Chromium /home/you/.cache/rhythm/soundcheck/browser/chromium-1321438
@@ -46,7 +46,7 @@ GitHub's `ubuntu-latest` runners have Chrome. Elsewhere, either use an image wit
 rhythm soundcheck: can't reach staging.yoursite.com: Get "http://staging.yoursite.com": dial tcp: lookup staging.yoursite.com: no such host
 ```
 
-Soundcheck couldn't load the start page. Check the address, and that the site answers from the machine running Soundcheck (`curl -I https://staging.yoursite.com`). Sites behind a VPN, an IP allowlist or a firewall need that machine allowed. For a bare hostname, Soundcheck tries `https://` and then `http://`; the error shows the last attempt.
+Soundcheck couldn't load the start page. Check the address and that the site answers from the machine running Soundcheck (`curl -I https://staging.yoursite.com`). Sites behind a VPN, an IP allowlist or a firewall need that machine allowed. For a bare hostname, Soundcheck tries `https://` and then `http://`; the error shows the last attempt.
 
 A self-signed or otherwise invalid certificate gives `can't reach staging.yoursite.com: invalid TLS certificate (rerun with --insecure to check it anyway)`. Add `-k` on local and staging sites.
 
@@ -63,7 +63,7 @@ For a staging cookie, use `--cookie "staging_auth=…"`. Pass the same header to
 
 ### Logging in
 
-Set a test account in `SOUNDCHECK_USER` and `SOUNDCHECK_PASSWORD`. Soundcheck uses it for the cache leak test and for flows with `login: true`; pages are always checked as an anonymous visitor. Soundcheck tries the login once, at the start. When it fails, one note says why, and the leak test and login flows are skipped:
+Set a test account in `SOUNDCHECK_USER` and `SOUNDCHECK_PASSWORD`. Soundcheck uses it for the cache leak test and for flows with `login: true`; pages are always checked as an anonymous visitor. Soundcheck tries the login once, at the start. When it fails, one note says why. The leak test and login flows are then skipped:
 
 ```text
 note: login failed, so the checks that need it were skipped: WordPress refused the login: Error: The password you entered for the username is incorrect.
@@ -74,11 +74,11 @@ Common causes:
 - **A security plugin or a captcha on the login form.** Allow the test account, or log in with a [login flow](Soundcheck-Forms-And-Flows#logging-in) that handles the extra step.
 - **A custom login URL** (WPS Hide Login and similar). Set `login.url: /your-login/`.
 - **Two-factor authentication.** Turn it off for the test account on staging.
-- **"logged in, but the site doesn't show the admin bar…"** The login worked, but the front end serves anonymous pages to logged-in users, usually a page cache. That's worth fixing too.
+- **"logged in, but the site doesn't show the admin bar…"** The login worked. The front end still serves anonymous pages to logged-in users, usually a page cache. That's worth fixing too.
 
 ### Slow or huge sites
 
-The time a run takes grows with pages × viewports × what each module does; clicking and the cache double fetch add the most. With every module on, a 37-page local test site took 54 s for the snapshot and 47 s for the compare, and a 101-page static site on a 16-core machine took 92 s and 61 s. Clicking is capped at 45 s per page. The pace on the server is set by `--rate` (5 page loads a second), whatever the number of tabs.
+The time a run takes grows with pages × viewports × what each module does; clicking and the cache double fetch add the most. With every module on, a 37-page local test site took 54 s for the snapshot and 47 s for the compare. A 101-page static site on a 16-core machine took 92 s and 61 s. Clicking is capped at 45 s per page. The pace on the server is set by `--rate` (5 page loads a second), whatever the number of tabs.
 
 | To… | Use |
 |---|---|
@@ -93,11 +93,11 @@ Grouping keeps large sites manageable without a limit: a shop with 3,000 product
 
 ### "found no pages to check"
 
-The start page loaded, but it was filtered out too, so there was nothing to check. The start page is always checked unless it matches an exclude (yours or the [built-in ones](Soundcheck-Discovery#urls-soundcheck-never-visits)) or `robots.txt` disallows it. On your own staging site, a `robots.txt` that disallows everything is common: add `--ignore-robots`.
+The start page loaded. It was filtered out too, so there was nothing to check. The start page is always checked unless it matches an exclude (yours or the [built-in ones](Soundcheck-Discovery#urls-soundcheck-never-visits)) or `robots.txt` disallows it. On your own staging site, a `robots.txt` that disallows everything is common: add `--ignore-robots`.
 
 ### Why wasn't a page checked?
 
-The discovery line says why pages were left out (`excluded`, `grouped`, `robots.txt`, `page limit`…). A page nothing links to, and that isn't in a sitemap, can't be found: add it with `--page` or `pages.extra`. `compare` never discovers new pages; take a new snapshot to include pages added since.
+The discovery line says why pages were left out (`excluded`, `grouped`, `robots.txt`, `page limit`…). A page that nothing links to and that isn't in a sitemap can't be found: add it with `--page` or `pages.extra`. `compare` never discovers new pages; take a new snapshot to include pages added since.
 
 ## Understanding results
 
@@ -111,7 +111,7 @@ When visual changes keep appearing that aren't real changes:
 4. **Content that changes because time passed** (new blog posts on the home page, "posted 3 days ago"): expected; take a new snapshot after you've reviewed it.
 5. **Different machines** render fonts differently: take the snapshot and the compare on the same machine or the same CI image.
 
-Snapshots learn regions that move on their own, but only what moves within about a second. See [Visual changes](Soundcheck-Visual#when-visual-results-are-noisy).
+Snapshots learn regions that move on their own. They only learn what moves within about a second. See [Visual changes](Soundcheck-Visual#when-visual-results-are-noisy).
 
 ### Everything shows as NEW
 
@@ -127,13 +127,13 @@ Forms that are hidden, have a password field, are search forms, comment forms, t
 
 ### Where are my test submissions?
 
-Every value Soundcheck types contains `soundcheck-test`. Search your inbox, CRM, form plugin entries or database for it to find and delete them. With [Echo](Echo) sealing staging, the emails and webhooks those submits trigger never leave: they're in Echo, tied to each form, and `--echo` compares them between runs. See [With Soundcheck](Echo-With-Soundcheck).
+Every value Soundcheck types contains `soundcheck-test`. Search your inbox, CRM, form plugin entries or database for it to find and delete them. With [Echo](Echo) sealing staging, the emails and webhooks those submits trigger never leave: they're in Echo and tied to each form. `--echo` compares them between runs. See [With Soundcheck](Echo-With-Soundcheck).
 
 ## Reporting a bug
 
 Open an issue at [github.com/RhythmShahriar/soundcheck/issues](https://github.com/RhythmShahriar/soundcheck/issues). Include:
 
-- the output of `rhythm soundcheck --version`, your OS, and the Chrome or Chromium version;
+- the output of `rhythm soundcheck --version`, your OS and the Chrome or Chromium version;
 - the command you ran (with your real domain replaced by `yoursite.com`);
 - the change's check ID (from the HTML report or JSON) and why you believe it's wrong;
 - for visual issues, the before, after and diff images if you can share them.

@@ -1,4 +1,4 @@
-The interact module checks that a page's controls still work: it reads forms and buttons, clicks menus, tabs and modals, and, when you allow it, submits forms and runs scripted flows. This page covers the four levels, dead clicks, the rules that keep clicking safe, and the production guard.
+The interact module checks that a page's controls still work: it reads forms and buttons, clicks menus, tabs and modals. When you allow it, it also submits forms and runs scripted flows. This page covers the four levels, dead clicks, the rules that keep clicking safe and the production guard.
 
 ## The four levels
 
@@ -25,7 +25,7 @@ Pass the same levels to `compare`, or keep them in the config file; otherwise th
 Levels 1 to 3 run on every page while it's open at desktop size, before the mobile reload. Level 4 runs once, after all pages. Nothing is clicked or submitted on `/wp-admin` or `/wp-login.php` pages. Submitting and flows are covered in [Forms and flows](Soundcheck-Forms-And-Flows).
 
 > [!TIP]
-> A form can say "sent" while no email goes out: the confirmation is on the page, the mailer behind it is broken. Soundcheck alone can't see that. Add `--echo` with [Echo](Echo) running, and each submit records the emails, SMS and webhooks it caused; a form that sent nothing gets *Form says sent, but no message went out*, and a message the snapshot had is BROKE when it's gone. See [With Soundcheck](Echo-With-Soundcheck).
+> A form can say "sent" while no email goes out: the confirmation is on the page, the mailer behind it is broken. Soundcheck alone can't see that. Add `--echo` with [Echo](Echo) running: each submit records the emails, SMS and webhooks it caused; a form that sent nothing gets *Form says sent, but no message went out*. A message the snapshot had is BROKE when it's gone. See [With Soundcheck](Echo-With-Soundcheck).
 
 ## Level 1: inspect
 
@@ -38,11 +38,11 @@ Levels 1 to 3 run on every page while it's open at desktop size, before the mobi
 | `interact/unlabeled` | notice | `Required field has no label: Phone` | a visible required field with no `<label>`, `aria-label` or title |
 | `interact/duplicate-id` | notice | `Duplicate id: "main"` | an id used by several elements (icons inside inline SVG excepted) |
 
-Click listeners are found through Chrome's DevTools, so handlers added with `addEventListener`, `onclick` attributes, and handlers delegated to a parent or the document all count. When level 2 is on, the controls it clicks are judged by the click instead.
+Click listeners are found through Chrome's DevTools, so handlers added with `addEventListener`, `onclick` attributes and handlers delegated to a parent or the document all count. When level 2 is on, the controls it clicks are judged by the click instead.
 
 ## Level 2: click
 
-Soundcheck collects up to 200 controls that look interactive: buttons, `role=button|tab|menuitem|switch`, `<summary>`, elements with `aria-expanded`, `aria-controls`, `aria-haspopup`, Bootstrap `data-toggle` attributes, `#` and `javascript:` links, and anything with a click listener. Controls that open menus and panels go first. It then clicks up to `interactions.max_clicks` of them per page (default **15**), each like a visitor: scroll it into view, send hover events, wait a moment for hover effects, then press and release and click. These pointer and mouse events are dispatched inside the page, so clicking works the same in every window while several pages are checked at once. Because they're script events, CSS `:hover` styles don't apply and handlers that insist on `event.isTrusted` ignore them.
+Soundcheck collects up to 200 controls that look interactive: buttons, `role=button|tab|menuitem|switch`, `<summary>`, elements with `aria-expanded`, `aria-controls`, `aria-haspopup`, Bootstrap `data-toggle` attributes, `#` and `javascript:` links and anything with a click listener. Controls that open menus and panels go first. It then clicks up to `interactions.max_clicks` of them per page (default **15**), each like a visitor: scroll it into view, send hover events, wait a moment for hover effects, then press and release and click. These pointer and mouse events are dispatched inside the page, so clicking works the same in every window while several pages are checked at once. Because they're script events, CSS `:hover` styles don't apply and handlers that insist on `event.isTrusted` ignore them.
 
 Only controls a visitor could click are candidates. A control that's hidden, has no size, sits off screen, or is clipped by a parent that scrolls or hides its overflow is left out. One that's covered by something else (an open menu, a modal, a cookie banner) gets one retry after a reload. Clicking stops after **45 seconds** on a page, with a note such as `interact /shop/: stopped clicking after 45s with 12 controls left (the page is slow)`.
 
@@ -67,7 +67,7 @@ After each click it watches for up to 1.5 s (longer while requests the click sta
   fix: Click it with the browser console open to see the stack trace.
 ```
 
-Titles use the control's visible label. Identical controls on a page with the same outcome (six "Add to wishlist" buttons that all throw) are one issue, with the selectors in the detail (`6 controls: …`, up to ten listed). The detail of a single control ends with its selector, so you can find it with `document.querySelector()`. Selectors leave out the state classes form plugins add and change (Contact Form 7's `init`, `sent`, `invalid` and the like, and their WPForms, Gravity Forms and Elementor equivalents), so the same control has the same selector in both runs.
+Titles use the control's visible label. Identical controls on a page with the same outcome (six "Add to wishlist" buttons that all throw) are one issue, with the selectors in the detail (`6 controls: …`, up to ten listed). The detail of a single control ends with its selector, so you can find it with `document.querySelector()`. Selectors leave out the state classes form plugins add and change (Contact Form 7's `init`, `sent`, `invalid` and the like, plus their WPForms, Gravity Forms and Elementor equivalents), so the same control has the same selector in both runs.
 
 Requests to analytics and ad hosts (Google Analytics and Tag Manager, Facebook, Hotjar, Clarity, Segment and others) don't count as a reaction: they fire on almost any click. A link to `#` that only jumps to the top of the page doesn't count either.
 
@@ -82,7 +82,7 @@ Level 2 explores a page without changing anything on the server:
 
   `delete`, `remove`, `unsubscribe`, `log out` / `logout` / `log-out` / `logoff`, `sign out` / `signout` / `sign-out`, `cancel`, `deactivate`, `trash`, `destroy`, `erase`, `purge`, `revoke`, `wipe`, `uninstall`, `disconnect`, `unlink`, `empty cart`, `clear cart`, `reset password`, `lost password`, `close account`, `add to cart`, `place order`, `buy now`, `pay now`, `checkout`, `purchase`, `_wpnonce`, `/wp-admin`, `?action=` / `&action=`
 
-- **Dialogs are defused.** Before clicking, `window.open`, `alert`, `confirm`, `prompt` and `print` are replaced in the page: nothing opens or blocks, and `confirm()` answers **Cancel**, so a "Really delete?" prompt never goes ahead.
+- **Dialogs are defused.** Before clicking, `window.open`, `alert`, `confirm`, `prompt` and `print` are replaced in the page: nothing opens or blocks. `confirm()` answers **Cancel**, so a "Really delete?" prompt never goes ahead.
 - **Form submit buttons belong to level 3.** Level 2 never clicks a submit button inside a form.
 - **Admin pages are off limits.** Nothing under `/wp-admin` or `/wp-login.php` is clicked.
 - **Every check runs as a visitor.** Pages are visited in a private browser session that's never logged in.
@@ -126,7 +126,7 @@ interactions:
 
 ## Speed and reliability
 
-Clicking takes time: each click waits up to 1.5 s for a reaction, and a page with many controls takes several seconds, at most 45. If a check is slow, lower `interactions.max_clicks`, or use `--level inspect` for a quick pass. Controls a visitor couldn't click (hidden, off screen, clipped, still covered after the retry) are never reported, so a control that couldn't be clicked doesn't show up as a false problem.
+Clicking takes time: each click waits up to 1.5 s for a reaction. A page with many controls takes several seconds, at most 45. If a check is slow, lower `interactions.max_clicks` or use `--level inspect` for a quick pass. Controls a visitor couldn't click (hidden, off screen, clipped, still covered after the retry) are never reported, so a control that couldn't be clicked doesn't show up as a false problem.
 
 ---
 <sub>← [Visual changes](Soundcheck-Visual) · [Home](Home) · [Forms and flows](Soundcheck-Forms-And-Flows) →</sub>

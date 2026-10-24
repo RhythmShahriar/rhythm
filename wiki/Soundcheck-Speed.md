@@ -1,4 +1,4 @@
-The speed module measures how fast each page loads, reports pages that got measurably slower after a change, and finds what slows the site down, grouped by cause, including what each WordPress plugin and theme costs. This page covers the lab metrics and their thresholds, regressions and noise floors, the site-wide suggestions and `--lighthouse`.
+The speed module measures how fast each page loads, reports pages that got measurably slower after a change and finds what slows the site down, grouped by cause. That includes what each WordPress plugin and theme costs. This page covers the lab metrics and their thresholds, regressions and noise floors, the site-wide suggestions and `--lighthouse`.
 
 > [!NOTE]
 > Every number is a **lab** measurement: one unthrottled desktop load per page in headless Chrome, on the machine running Soundcheck. Every page loads cold, with the browser's HTTP cache off, so a page's numbers don't depend on which pages were visited before it. Lab numbers are good for spotting changes and their causes. Real visitors on slower phones and networks see higher numbers; for those, use field data such as the Chrome UX Report or your analytics.
@@ -11,7 +11,7 @@ The speed module measures how fast each page loads, reports pages that got measu
 | **FCP** | First Contentful Paint: when anything first showed |
 | **LCP** | Largest Contentful Paint: when the largest element (often the hero image or heading) showed |
 | **CLS** | Cumulative Layout Shift: how much content moved after it rendered |
-| **TBT** | Total Blocking Time, as Lighthouse measures it: the part over 50 ms of each long JavaScript task between First Contentful Paint and the page being ready (loaded, network quiet). It shows how long clicks and typing would be blocked, and stands in for INP in a lab. Scripts that block before anything paints count in FCP and LCP instead. |
+| **TBT** | Total Blocking Time, as Lighthouse measures it: the part over 50 ms of each long JavaScript task between First Contentful Paint and the page being ready (loaded, network quiet). It shows how long clicks and typing would be blocked. It stands in for INP in a lab. Scripts that block before anything paints count in FCP and LCP instead. |
 | **Weight** | bytes transferred for the page: the HTML document and every resource |
 | **Requests** | how many requests it made, the HTML document included |
 
@@ -59,7 +59,7 @@ A rise from 20 ms to 30 ms is 50% but under the floor: noise, not news. A value 
   fix: New or updated JavaScript runs longer tasks; check which plugin or theme scripts changed (see the per-plugin cost suggestions).
 ```
 
-Hits are grouped: when most pages moved (at least three and more than half), it's one site-wide change, such as `LCP 40% slower on 30 pages`, with the median before and after. Otherwise pages that share a URL pattern are one change (`… on 3 /product/{slug} pages`), and the rest one change each.
+Hits are grouped: when most pages moved (at least three and more than half), it's one site-wide change, such as `LCP 40% slower on 30 pages`, with the median before and after. Otherwise pages that share a URL pattern are one change (`… on 3 /product/{slug} pages`). The rest are one change each.
 
 ```yaml
 speed:
@@ -103,7 +103,7 @@ notice | Plugin heavy-slider adds weight to pages | Plugin heavy-slider adds 293
 warning | Text files are sent without compression | 10 responses (HTML, CSS, JS or other text) on every page (8) have no gzip or Brotli: /wp-content/plugins/heavy-slider/slider.js (293 KB); /blog/ (HTML) (3 KB); …
 ```
 
-Each suggestion has a fix with the WordPress, Apache or nginx way to do it. Suggestions describe the site as it is: they're listed by `run` and `snapshot`, and like every speed issue they never show as NEW or FIXED in a comparison. What a change did to speed comes from the regressions above, including the plugin and theme cost.
+Each suggestion has a fix with the WordPress, Apache or nginx way to do it. Suggestions describe the site as it is: they're listed by `run` and `snapshot`. Like every speed issue, they never show as NEW or FIXED in a comparison. What a change did to speed comes from the regressions above, including the plugin and theme cost.
 
 ## --lighthouse
 

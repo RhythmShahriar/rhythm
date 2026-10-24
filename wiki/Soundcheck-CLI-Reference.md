@@ -1,6 +1,6 @@
-Every Soundcheck command and flag, its exit codes, the environment variables it reads, and where it keeps files. Verified against rhythm-soundcheck 1.0.0.
+Every Soundcheck command and flag, its exit codes, the environment variables it reads and where it keeps files. Verified against rhythm-soundcheck 1.0.0.
 
-Soundcheck is the `rhythm-soundcheck` binary. `rhythm soundcheck …` (or `rhythm sc …`) runs it, and so does `rhythm-soundcheck …` directly; this page uses the `rhythm soundcheck` form.
+Soundcheck is the `rhythm-soundcheck` binary. `rhythm soundcheck …` (or `rhythm sc …`) runs it. So does `rhythm-soundcheck …` directly; this page uses the `rhythm soundcheck` form.
 
 ## Commands
 
@@ -9,7 +9,7 @@ Soundcheck is the `rhythm-soundcheck` binary. `rhythm soundcheck …` (or `rhyth
 | `rhythm soundcheck` | | Interactive picker in a terminal; prints help otherwise. See [below](#the-picker). |
 | `rhythm soundcheck snapshot <url> [flags]` | `snap` | Check the site and save the run as a named snapshot. |
 | `rhythm soundcheck compare [url] [flags]` | `cmp` | Check the snapshot's pages again and show what changed. The site defaults to the snapshot's. |
-| `rhythm soundcheck <url> --against <url> [flags]` | | Check the `--against` site, then `<url>` on the same pages, and compare them now. |
+| `rhythm soundcheck <url> --against <url> [flags]` | | Check the `--against` site, then `<url>` on the same pages. Compare them now. |
 | `rhythm soundcheck run <url> [flags]` | `check` | Check the site once, with no comparison. |
 | `rhythm soundcheck report [run] [flags]` | | Show a stored result again: the latest run or comparison, a run folder, or a snapshot by name. |
 | `rhythm soundcheck snapshots` | `ls` | List snapshots. `snapshots delete <name>` (or `rm`) deletes one. |
@@ -82,7 +82,7 @@ Removed unused Chromium /home/you/.cache/rhythm/soundcheck/browser/chromium-1321
 Browser: installed Chrome at /usr/bin/google-chrome (updated with your system)
 ```
 
-With an installed Chrome, Soundcheck uses it and removes any Chromium it downloaded earlier. Otherwise it downloads the Chromium this version is pinned to, if it isn't there yet, removes other downloaded revisions, and prints `Browser: Chromium at <path>`. `rhythm update` runs it after updating the binary.
+With an installed Chrome, Soundcheck uses it and removes any Chromium it downloaded earlier. Otherwise it downloads the Chromium this version is pinned to, if it isn't there yet. It removes other downloaded revisions and prints `Browser: Chromium at <path>`. `rhythm update` runs it after updating the binary.
 
 | Flag | Default | Description |
 |---|---|---|
@@ -123,7 +123,7 @@ These apply to `snapshot`, `compare`, `run` and `--against`. `report` takes the 
 | `-q`, `--quiet` | off | Results only: no header, progress, steps or summary. |
 | `--plain` | off | No color, boxes or glyphs, a line per page. Used automatically when stdout isn't a terminal. |
 | `--no-color` | off | No color. |
-| `-v`, `--verbose` | off | A line per page on stderr, and the browser's log. |
+| `-v`, `--verbose` | off | A line per page on stderr, plus the browser's log. |
 
 Pick one format flag. Without `-o`, a format flag replaces the live view on stdout. Every run also writes `report.html` into its own folder. See [Reading results](Soundcheck-Reading-Results#other-formats).
 

@@ -1,4 +1,4 @@
-Run Soundcheck on every deploy or pull request and fail the pipeline when something broke. This page covers the GitHub Action with every input and output, comparing staging with production, a snapshot and a compare in one job, `--fail-on`, JUnit, the job summary, artifacts, and other CI systems.
+Run Soundcheck on every deploy or pull request and fail the pipeline when something broke. This page covers the GitHub Action with every input and output, comparing staging with production, a snapshot and a compare in one job, `--fail-on`, JUnit, the job summary, artifacts and other CI systems.
 
 ## The GitHub Action
 
@@ -24,7 +24,7 @@ The action downloads the Soundcheck release for the runner (Linux or macOS, `amd
 
 - the Markdown report into the **job summary**;
 - `soundcheck-report.html` and `soundcheck-junit.xml` into an artifact named **`soundcheck-report`**;
-- an error annotation, and a failed job, when the result meets `fail-on`.
+- an error annotation and a failed job when the result meets `fail-on`.
 
 GitHub's `ubuntu-latest` runners have Google Chrome installed, so no browser download is needed there.
 
@@ -41,7 +41,7 @@ GitHub's `ubuntu-latest` runners have Google Chrome installed, so no browser dow
 | `version` | `latest` | Soundcheck version to install, e.g. `1.0.0`. |
 | `upload` | `"true"` | Upload the HTML and JUnit reports as the `soundcheck-report` artifact. |
 
-The default mode is `against` when the `against` input is set, and `run` otherwise. Leave `fail-on` empty for the default that fits the mode; a value of the wrong kind for the mode (`broke` for `run`, `error` for `compare`) is a usage error and fails the step with exit code 2.
+The default mode is `against` when the `against` input is set. Otherwise it's `run`. Leave `fail-on` empty for the default that fits the mode; a value of the wrong kind for the mode (`broke` for `run`, `error` for `compare`) is a usage error and fails the step with exit code 2.
 
 ### Outputs
 
@@ -146,7 +146,7 @@ The Markdown report starts with the verdict and a count table, then a table per 
 
 ## Artifacts
 
-With `upload: "true"`, the `soundcheck-report` artifact holds `soundcheck-report.html`, the standalone report with the before/after sliders, and `soundcheck-junit.xml`. Download it from the run's summary page and open the HTML in any browser.
+With `upload: "true"`, the `soundcheck-report` artifact holds `soundcheck-report.html` (the standalone report with the before/after sliders) and `soundcheck-junit.xml`. Download it from the run's summary page and open the HTML in any browser.
 
 To keep the whole `.soundcheck/runs/` folder (screenshots and JSON) instead, upload it yourself:
 
@@ -215,7 +215,7 @@ soundcheck:
     paths: [soundcheck.md, .soundcheck/runs/]
 ```
 
-`rhythm-soundcheck` is the tool itself; `rhythm soundcheck …` only forwards to it, so you can run `rhythm-soundcheck …` without `rhythm`. In containers running as root, Soundcheck starts Chrome without its sandbox automatically. To fail fast instead of downloading Chromium, add `--no-download`, and point at a browser with `--browser /usr/bin/chromium`. See [FAQ](Soundcheck-FAQ#docker-root-and-the-chrome-sandbox).
+`rhythm-soundcheck` is the tool itself; `rhythm soundcheck …` only forwards to it, so you can run `rhythm-soundcheck …` without `rhythm`. In containers running as root, Soundcheck starts Chrome without its sandbox automatically. To fail fast instead of downloading Chromium, add `--no-download` and point at a browser with `--browser /usr/bin/chromium`. See [FAQ](Soundcheck-FAQ#docker-root-and-the-chrome-sandbox).
 
 In CI, Soundcheck never prints the "new release" notice: it's off whenever the `CI` environment variable is set, as most CI systems do.
 

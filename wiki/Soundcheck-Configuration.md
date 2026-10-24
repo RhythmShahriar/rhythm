@@ -1,4 +1,4 @@
-Soundcheck works with no configuration. To change its defaults for a project, and to share them with your team and CI, use `.soundcheck/config.yaml`. This page lists every key with its default, says what to commit, and describes the `.soundcheck` folder.
+Soundcheck works with no configuration. To change its defaults for a project and share them with your team and CI, use `.soundcheck/config.yaml`. This page lists every key with its default, says what to commit and describes the `.soundcheck` folder.
 
 ## Create the file
 
@@ -127,7 +127,7 @@ interactions:
 production: ["https://yoursite.com", "https://www.yoursite.com"]
 ```
 
-With this file, `rhythm soundcheck snapshot staging.yoursite.com` and the later `compare` use the same settings without any flags, and nobody can submit forms on the live site by accident.
+With this file, `rhythm soundcheck snapshot staging.yoursite.com` and the later `compare` use the same settings without any flags. Nobody can submit forms on the live site by accident.
 
 ## What to commit
 
@@ -138,7 +138,7 @@ With this file, `rhythm soundcheck snapshot staging.yoursite.com` and the later 
 | `.soundcheck/snapshots/` | No. Screenshots and runs, large and machine-specific. |
 | `.soundcheck/runs/` | No. Recent runs and comparisons. |
 
-Inside a git repository, Soundcheck adds the snapshots and runs to `.git/info/exclude` the first time it writes them, so they never show up in `git status`, and your `.gitignore` stays untouched:
+Inside a git repository, Soundcheck adds the snapshots and runs to `.git/info/exclude` the first time it writes them. They never show up in `git status` and your `.gitignore` stays untouched:
 
 ```text
 # Soundcheck snapshots and reports
@@ -158,7 +158,7 @@ Inside a git repository, Soundcheck adds the snapshots and runs to `.git/info/ex
 │   └── before-update/
 │       ├── run.json       the recorded run (schema rhythm-soundcheck/v1)
 │       ├── report.html    the standalone report
-│       └── shots/         screenshots: <page id>-desktop.png, -mobile.png, and .2.png second captures
+│       └── shots/         screenshots: <page id>-desktop.png, -mobile.png and .2.png second captures
 ├── runs/
 │   └── 2026-10-24T02-23-17/
 │       ├── run.json
@@ -172,7 +172,7 @@ Inside a git repository, Soundcheck adds the snapshots and runs to `.git/info/ex
 └── .incoming/             only while a snapshot is being taken; moved into snapshots/ when complete
 ```
 
-- **Snapshots** are kept until you delete them: `rhythm soundcheck snapshots delete <name>`. Taking a snapshot with an existing name replaces it, but only once the new one is complete, so a failed or interrupted snapshot never destroys a good one.
+- **Snapshots** are kept until you delete them: `rhythm soundcheck snapshots delete <name>`. Taking a snapshot with an existing name replaces it only once the new one is complete. A failed or interrupted snapshot never destroys a good one.
 - **Runs** (`run` and `compare`) are pruned to the **20** most recent.
 - A snapshot of a 37-page site with both viewports took about 7 MB. The HTML reports embed scaled-down JPEG screenshots, so they're smaller than the folders they come from.
 

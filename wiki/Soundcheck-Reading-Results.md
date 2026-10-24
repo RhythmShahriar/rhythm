@@ -41,7 +41,7 @@ How grouping works:
 - **Issues** group by their identity: the check, the title and the source. PHP messages and JS errors are normalized (long messages cut, numbers in JS errors replaced) so the same error groups across pages and runs. An error in a script inside the page itself is reported with the source `inline script`, since its line number moves with the content.
 - **Site-wide issues**, such as a broken link or a speed suggestion, are reported once with every page they affect.
 - **Identical controls** on a page with the same outcome are one change. Six wishlist buttons that all throw are `Clicking Add to wishlist throws a JS error`, with the selectors in the detail (`6 controls: …`).
-- **Visual changes** shared by several pages become one change, and more than five pages that each look different in one viewport collapse into one line such as `35 pages look different (desktop)`. See [Visual changes](Soundcheck-Visual#grouping).
+- **Visual changes** shared by several pages become one change. More than five pages that each look different in one viewport collapse into one line such as `35 pages look different (desktop)`. See [Visual changes](Soundcheck-Visual#grouping).
 - **Speed** changes group by URL pattern, or become one site-wide change when most pages moved.
 
 Within a class, changes are sorted by how big they are (how many pages, how much changed or got slower), then by title.
@@ -81,7 +81,7 @@ Within a class, changes are sorted by how big they are (how many pages, how much
 ```
 
 1. **Header.** The version and the site, as it was resolved (scheme and host after redirects).
-2. **Steps.** Which snapshot is compared, how many pages, and the test account (`Login: as sa*** (from SOUNDCHECK_USER)`) when one is set for the leak test and login flows.
+2. **Steps.** Which snapshot is compared, how many pages and the test account (`Login: as sa*** (from SOUNDCHECK_USER)`) when one is set for the leak test and login flows.
 3. **Sections**, one per class, with a count.
 4. **Cards.** BROKE and NEW changes get a card: the class, the title and where it happened, a page or a count of pages, followed by up to three pages.
 5. **Source.** Where it comes from: a theme or plugin file and line, a script URL, a cache layer, a flow file.
@@ -151,13 +151,13 @@ note: cache: skipped the cache leak test; set SOUNDCHECK_USER and SOUNDCHECK_PAS
 full report: .soundcheck/runs/2026-10-24T02-23-17/report.html
 ```
 
-Each page line, such as `[11/12] / 200 1.48s (2 issues)`, shows the progress, the path, the status, how long the visit took, and `ok`, the number of issues, or `error`. For a run (not a comparison), plain mode lists each issue as `[LEVEL] title - pages` with its source, the detail for issues on one page, and, for errors and warnings, the fix. `-v` prints the page lines in the normal view too, and `-q` prints only the results.
+Each page line, such as `[11/12] / 200 1.48s (2 issues)`, shows the progress, the path, the status, how long the visit took and `ok`, the number of issues or `error`. For a run (not a comparison), plain mode lists each issue as `[LEVEL] title - pages` with its source and the detail for issues on one page. Errors and warnings also get the fix. `-v` prints the page lines in the normal view too; `-q` prints only the results.
 
 ## The HTML report
 
 Every `snapshot`, `run` and `compare` writes `report.html` into its folder under `.soundcheck/`. It's one standalone file: styles, scripts and the screenshots (scaled to 960 px wide, as JPEG) are inside, so it opens in any browser without a server and can be attached to a ticket.
 
-- **Verdict and chips.** The verdict, the date of the run (and of the snapshot it was compared with), the stats, and a chip per class (or level) with its count. Click a chip to hide or show that class.
+- **Verdict and chips.** The verdict, the date of the run (and of the snapshot it was compared with), the stats and a chip per class (or level) with its count. Click a chip to hide or show that class.
 - **Filter.** Type to filter by title, page, plugin or file.
 - **Cards.** Each change with its badge, where it happened, before → after, source, detail, the full fix, the check ID (such as `health/php-error`) and the list of pages.
 - **Screenshots.** Visual changes have a viewer: **Slider** (drag the handle across the before and after screenshots), **Before**, **After** and **Diff** (changed pixels highlighted on a faded copy of the page). Mobile captures show at phone width. Past 60 visual changes, the images are linked instead of embedded.
@@ -176,7 +176,7 @@ Open the latest one with `rhythm soundcheck report --open`, or pass `--open` to 
 | `--junit` | JUnit XML: a test suite per class (or level), a test case per change, plus one passing `N pages checked` case | CI test reports |
 | `--html` | the standalone HTML report | sharing |
 
-Without `-o`, a format flag prints the report on stdout instead of the live view. With `-o <file>`, the format comes from the flag or the extension (`.json`, `.md`, `.xml`, `.html`), the live view still shows, and Soundcheck prints `Report written to <file>`. Pick one format per run; `report` re-renders a stored result in any other format without checking the site again:
+Without `-o`, a format flag prints the report on stdout instead of the live view. With `-o <file>`, the format comes from the flag or the extension (`.json`, `.md`, `.xml`, `.html`). The live view still shows and Soundcheck prints `Report written to <file>`. Pick one format per run; `report` re-renders a stored result in any other format without checking the site again:
 
 ```sh
 rhythm soundcheck report --md -o soundcheck.md
@@ -187,7 +187,7 @@ In JUnit, test cases at or above `--fail-on` are failures. Without `--fail-on`, 
 
 ### The JSON schema
 
-A comparison has `schema` (`rhythm-soundcheck/v1`), `tool`, `version`, `before` and `after` (each with `target`, `name`, `dir`, `started`), `pages`, `created`, `warnings` (every note, including the run's own, such as a skipped leak test or an unreadable flow file; left out when there are none), and `changes`. Each change has:
+A comparison has `schema` (`rhythm-soundcheck/v1`), `tool`, `version`, `before` and `after` (each with `target`, `name`, `dir`, `started`), `pages`, `created`, `warnings` (every note, including the run's own, such as a skipped leak test or an unreadable flow file; left out when there are none) and `changes`. Each change has:
 
 | Field | Meaning |
 |---|---|
@@ -240,7 +240,7 @@ rhythm soundcheck compare --fail-on broke
 | `3` | The site couldn't be checked (unreachable, no pages found, no browser), or a report couldn't be written |
 | `130` | Interrupted (Ctrl+C) |
 
-A `--fail-on` value of the wrong kind is a usage error: `run` and `snapshot` don't accept `broke`, and comparisons don't accept `error`. See [CI](Soundcheck-CI).
+A `--fail-on` value of the wrong kind is a usage error: `run` and `snapshot` don't accept `broke`; comparisons don't accept `error`. See [CI](Soundcheck-CI).
 
 ---
 <sub>← [Your first check](Soundcheck-First-Check) · [Home](Home) · [Discovery](Soundcheck-Discovery) →</sub>

@@ -1,4 +1,4 @@
-The health module checks that every page loads and renders without errors. This page lists everything it reports, the level of each issue, and how it becomes a change in a comparison.
+The health module checks that every page loads and renders without errors. This page lists everything it reports, the level of each issue and how it becomes a change in a comparison.
 
 Every issue has a check ID, such as `health/php-error`, shown in the HTML report and the JSON. In a comparison, a new **error** is BROKE and a new **warning** or **notice** is NEW; see [Reading results](Soundcheck-Reading-Results#the-change-classes).
 
@@ -37,7 +37,7 @@ When PHP prints an error into the page (`display_errors` on, as on many staging 
   fix: Fix the code at the source line, and turn display_errors off in production so visitors never see these.
 ```
 
-The source is shortened to the part you recognize: `/var/www/html/wp-content/themes/acme/footer.php` becomes `themes/acme/footer.php`, and paths under `wp-includes/`, `wp-admin/`, `vendor/`, `app/`, `src/` or `public/` keep that folder. Long messages are cut at 140 characters so the same error groups across pages and runs. Up to 20 PHP errors are read per page.
+The source is shortened to the part you recognize: `/var/www/html/wp-content/themes/acme/footer.php` becomes `themes/acme/footer.php`. Paths under `wp-includes/`, `wp-admin/`, `vendor/`, `app/`, `src/` or `public/` keep that folder. Long messages are cut at 140 characters so the same error groups across pages and runs. Up to 20 PHP errors are read per page.
 
 > [!TIP]
 > On staging, turn `display_errors` on (or `WP_DEBUG` and `WP_DEBUG_DISPLAY`) while you snapshot and compare. Errors that PHP only logs are invisible from the browser; the module still catches their effects (a white screen, the critical error screen, a 500).
@@ -92,7 +92,7 @@ At the end of a run, Soundcheck tests links on the visited pages that point at s
 |---|---|---|
 | `health/broken-link` | warning | `Broken link to /spring-offer/ (404)` |
 
-A link answering 404, 410 or 5xx is reported once, with every page that links to it. Links that match discovery's [built-in excludes](Soundcheck-Discovery#urls-soundcheck-never-visits) or your `pages.exclude` (add to cart, log out, `/wp-admin` and so on) are never requested, and neither are files (images, PDFs, CSS, JS).
+A link answering 404, 410 or 5xx is reported once, with every page that links to it. Links that match discovery's [built-in excludes](Soundcheck-Discovery#urls-soundcheck-never-visits) or your `pages.exclude` (add to cart, log out, `/wp-admin` and so on) are never requested. Neither are files (images, PDFs, CSS, JS).
 
 ## Mixed content and indexing
 
