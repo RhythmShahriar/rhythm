@@ -217,7 +217,7 @@ func (t *explainTransport) watch(req *http.Request, resp *http.Response) *http.R
 	return resp
 }
 
-// teeBody reads through r, which copies what it reads, and closes the
+// teeBody reads through r (which copies what it reads) and closes the
 // original body.
 type teeBody struct {
 	io.ReadCloser
@@ -471,8 +471,8 @@ checking each archive against its locked sha256; it installs nothing
 unless every tool matches. Data versions in the lock are passed to each
 tool as update --json --pin.
 
-Each archive is checked against the release's checksums.txt, and
-checksums.txt against its signature when this rhythm checks signatures.
+Each archive is checked against the release's checksums.txt. When this
+rhythm checks signatures, checksums.txt is checked against its own.
 --skip-signature leaves the signature out and warns about it. --cache
 (or RHYTHM_DOWNLOAD_CACHE=1) keeps verified archives and reuses them, so
 a CI runner downloads each one once. --from installs from an offline
@@ -962,7 +962,7 @@ var isTerminal = cli.IsTerminal
 // place.
 //
 // Before that it runs this run's trust steps: the signature check of
-// checksums.txt when a verifier is set, and the archive cache lookup.
+// checksums.txt when a verifier is set, then the archive cache lookup.
 // An archive found in the cache isn't downloaded and draws no line.
 func installWithProgress(ctx context.Context, u *update.Updater, rel *update.Release, dest string, w io.Writer) error {
 	t, ok := u.HTTP.Transport.(*explainTransport)
