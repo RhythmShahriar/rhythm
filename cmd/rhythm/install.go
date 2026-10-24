@@ -269,7 +269,7 @@ func (e *rateLimitedError) explain(binaries string) string {
 		b.WriteString("GitHub rate limit reached")
 	} else {
 		// GITHUB_TOKEN is kept for GitHub itself; a mirror gets its own.
-		fmt.Fprintf(&b, "rate limit reached at %s", e.api)
+		fmt.Fprintf(&b, "rate limit reached at %s", redactURL(e.api))
 		tokenVar = "RHYTHM_GITHUB_TOKEN" //nolint:gosec // a variable name, not a credential
 	}
 	if binaries != "" {
@@ -303,9 +303,9 @@ func (e *noReleaseError) Error() string {
 		return e.repo + " has no release " + e.version
 	case e.version == "":
 		// A mirror that lacks the repository is usually the wrong mirror.
-		return fmt.Sprintf("mirror %s has no release for %s; check RHYTHM_GITHUB_API", e.api, e.repo)
+		return fmt.Sprintf("mirror %s has no release for %s; check RHYTHM_GITHUB_API", redactURL(e.api), e.repo)
 	}
-	return fmt.Sprintf("mirror %s has no release %s for %s; check RHYTHM_GITHUB_API", e.api, e.version, e.repo)
+	return fmt.Sprintf("mirror %s has no release %s for %s; check RHYTHM_GITHUB_API", redactURL(e.api), e.version, e.repo)
 }
 
 // offlineEnv keeps rhythm off the network when set to anything. A bundle
@@ -368,13 +368,27 @@ func netProblem(err error) (key, host string, text func(binaries string) string,
 // RHYTHM_OFFLINE.
 const anyHost = "*"
 
-// hostOf returns the host[:port] of rawURL, or rawURL when it doesn't
-// parse.
+// hostOf returns the host[:port] of rawURL, or its redacted form when
+// it has no host.
 func hostOf(rawURL string) string {
 	if u, err := url.Parse(rawURL); err == nil && u.Host != "" {
 		return u.Host
 	}
-	return rawURL
+	return redactURL(rawURL)
+}
+
+// redactURL drops the user:password part, the query and the fragment
+// of rawURL, any of which can carry a token. RHYTHM_GITHUB_API goes
+// through it before it is shown anywhere.
+func redactURL(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Host == "" {
+		// Without a host, url.Parse may keep "user:pass@..." as opaque
+		// text, so nothing of it is shown.
+		return "(unparsable URL)"
+	}
+	u.User, u.RawQuery, u.ForceQuery, u.Fragment, u.RawFragment = nil, "", false, "", ""
+	return strings.TrimSuffix(u.String(), "/")
 }
 
 // netReport collects the network problems of one run, so each is said

@@ -662,3 +662,40 @@ func TestInstallCache(t *testing.T) {
 		t.Errorf("exit %d, %d archive downloads", code, s.archiveRequests())
 	}
 }
+
+// TestMirrorCredentialsHidden: a user:password or a ?token= in
+// RHYTHM_GITHUB_API never shows in an error, on screen or in JSON.
+func TestMirrorCredentialsHidden(t *testing.T) {
+	s := newSandbox(t, map[string]string{"rhythm-tuner": "0.1.0"}, map[string]string{tools["tuner"]: "0.2.0"})
+	host := strings.TrimPrefix(s.api.URL, "http://")
+	for _, api := range []string{"http://user:sekret@" + host, s.api.URL + "?token=sekret", s.api.URL + "#sekret"} {
+		t.Setenv("RHYTHM_GITHUB_API", api)
+		_, out, errs := runCmd("install", "tuner@9.9.9", "--dir", t.TempDir())
+		if strings.Contains(out+errs, "sekret") || !strings.Contains(errs, host) {
+			t.Errorf("install with %s:\n%s%s", api, out, errs)
+		}
+		_, out, errs = runCmd("update", "tuner", "--check", "--json")
+		if strings.Contains(out+errs, "sekret") {
+			t.Errorf("update --check --json with %s:\n%s%s", api, out, errs)
+		}
+	}
+	srv, _ := rateLimited(t)
+	t.Setenv("RHYTHM_GITHUB_API", strings.Replace(srv.URL, "http://", "http://user:sekret@", 1)+"?token=sekret")
+	_, out, errs := runCmd("install", "tuner", "--dir", t.TempDir())
+	if strings.Contains(out+errs, "sekret") || !strings.Contains(errs, "rate limit reached at") {
+		t.Errorf("rate limited:\n%s%s", out, errs)
+	}
+}
+
+func TestRedactURL(t *testing.T) {
+	for in, want := range map[string]string{
+		"http://user:pw@127.0.0.1:20100/api/?token=x#frag": "http://127.0.0.1:20100/api",
+		"https://ghe.example/api/v3":                      "https://ghe.example/api/v3",
+		"user:pw@ghe.example":                             "(unparsable URL)",
+		"http://%zz":                                      "(unparsable URL)",
+	} {
+		if got := redactURL(in); got != want {
+			t.Errorf("redactURL(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

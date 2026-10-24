@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -505,17 +504,6 @@ func checkToken(env doctorEnv) check {
 		msg += "; release API " + redactURL(api) + " (from RHYTHM_GITHUB_API)"
 	}
 	return check{"token", statusOK, msg}
-}
-
-// redactURL drops the user:password part, the query and the fragment
-// of rawURL, any of which can carry a token.
-func redactURL(rawURL string) string {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return "(unparsable URL)"
-	}
-	u.User, u.RawQuery, u.ForceQuery, u.Fragment, u.RawFragment = nil, "", false, "", ""
-	return strings.TrimSuffix(u.String(), "/")
 }
 
 // checkAPI asks the release API's rate_limit endpoint, which GitHub
