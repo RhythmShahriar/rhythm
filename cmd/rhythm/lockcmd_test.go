@@ -774,7 +774,13 @@ func TestReadLockRejects(t *testing.T) {
 			`tools[0] (tuner): version "v1.0.0" isn't an exact version such as 1.2.3`},
 		{`{"schema":"rhythm-lock/v1","tools":[{"name":"tuner","repo":"a/b","version":"1.0.0","platforms":{"linux_amd64":"abc"}}]}`,
 			`tools[0] (tuner): platforms["linux_amd64"]: sha256 "abc" isn't 64 lowercase hex digits`},
+		// A "," or "=" would add pins to update --pin name=version,...
+		{`{"schema":"rhythm-lock/v1","tools":[{"name":"tuner","repo":"a/b","version":"1.0.0","platforms":{"linux_amd64":"H"},"data":[{"name":"checks","version":"1,vulns=0","sha256":"H"}]}]}`,
+			`tools[0] (tuner): data "checks" version "1,vulns=0" may only use letters, digits and . _ + -`},
+		{`{"schema":"rhythm-lock/v1","tools":[{"name":"tuner","repo":"a/b","version":"1.0.0","platforms":{"linux_amd64":"H"},"data":[{"name":"a b","version":"1","sha256":"H"}]}]}`,
+			`tools[0] (tuner): data "a b" version "1" may only use letters, digits and . _ + -`},
 	} {
+		c.body = strings.ReplaceAll(c.body, `"H"`, `"`+otherSHA("x")+`"`)
 		p := filepath.Join(dir, lockFileName)
 		if err := os.WriteFile(p, []byte(c.body), 0o644); err != nil {
 			t.Fatal(err)

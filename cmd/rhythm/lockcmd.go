@@ -18,6 +18,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -61,6 +62,11 @@ type dataPack struct {
 	Version string `json:"version"`
 	SHA256  string `json:"sha256"`
 }
+
+// packValue is what a data pack's name and version may be. They are
+// joined into update --pin name=version,..., so a "," or "=" would add
+// pins the lock doesn't hold.
+var packValue = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+-]*$`)
 
 // errNoLock is findLock's answer when no rhythm.lock applies.
 var errNoLock = fmt.Errorf("no %s found: %w", lockFileName, fs.ErrNotExist)
@@ -153,6 +159,8 @@ func (f *lockFile) validate() error {
 				errs = append(errs, fmt.Errorf("%s: data %q listed twice", where, d.Name))
 			case d.Version == "":
 				errs = append(errs, fmt.Errorf("%s: data %q has no version", where, d.Name))
+			case !packValue.MatchString(d.Name) || !packValue.MatchString(d.Version):
+				errs = append(errs, fmt.Errorf("%s: data %q version %q may only use letters, digits and . _ + -", where, d.Name, d.Version))
 			}
 			packs[d.Name] = true
 		}
@@ -441,7 +449,7 @@ func lockData(ctx context.Context, t target, stdout, stderr io.Writer) ([]dataPa
 		return nil, err
 	}
 	for _, p := range packs {
-		if p.Name == "" || p.Version == "" || !sha256Hex.MatchString(p.SHA256) {
+		if !packValue.MatchString(p.Name) || !packValue.MatchString(p.Version) || !sha256Hex.MatchString(p.SHA256) {
 			fmt.Fprintf(stderr, "%s reported data %q version %q sha256 %q, which can't be locked\n", t.binary, p.Name, p.Version, p.SHA256)
 			return nil, errDataFailed
 		}
