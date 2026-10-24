@@ -10,10 +10,12 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -397,6 +399,90 @@ func TestCheckAPI(t *testing.T) {
 			t.Errorf("%+v", c)
 		}
 	})
+}
+
+// TestCheckAPIRefusesCleartext points RHYTHM_GITHUB_API at plain http on
+// a host that isn't loopback, through a proxy that logs what reaches it.
+// Doctor must fail the check and send nothing, the token least of all.
+func TestCheckAPIRefusesCleartext(t *testing.T) {
+	var hits atomic.Int32
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		t.Errorf("request reached the proxy: %s %s auth=%q", r.Method, r.URL, r.Header.Get("Authorization"))
+	}))
+	t.Cleanup(proxy.Close)
+	pu, err := url.Parse(proxy.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	viaProxy := func(r *http.Request) (*url.URL, error) {
+		if r.URL.Hostname() == "mirror.invalid" {
+			return pu, nil
+		}
+		return nil, nil
+	}
+	newEnv := func(t *testing.T, api string) doctorEnv {
+		env := fakeDoctorEnv(t, map[string]string{"RHYTHM_GITHUB_API": api, "RHYTHM_GITHUB_TOKEN": "cleartexttok"})
+		env.http = &http.Client{Transport: &http.Transport{Proxy: viaProxy}}
+		return env
+	}
+	for _, api := range []string{
+		"http://mirror.invalid",
+		"ftp://mirror.invalid",
+		"https://user:pw@mirror.invalid",
+		"https://mirror.invalid?token=x",
+		"https://mirror.invalid#frag",
+		"mirror.invalid",
+	} {
+		t.Run(api, func(t *testing.T) {
+			c := checkAPI(context.Background(), newEnv(t, api))
+			if c.Status != statusFail || !strings.HasPrefix(c.Message, apiURLRule+"; got ") {
+				t.Errorf("%+v", c)
+			}
+			if strings.Contains(c.Message, "pw") || strings.Contains(c.Message, "token=") || strings.Contains(c.Message, "cleartexttok") {
+				t.Errorf("message shows a secret: %q", c.Message)
+			}
+		})
+	}
+	t.Run("redirect to http", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "http://mirror.invalid/rate_limit", http.StatusFound)
+		}))
+		t.Cleanup(srv.Close)
+		c := checkAPI(context.Background(), newEnv(t, srv.URL))
+		want := hostOf(srv.URL) + " redirected to a URL that isn't https; nothing was sent there"
+		if c.Status != statusFail || c.Message != want {
+			t.Errorf("%+v, want %q", c, want)
+		}
+	})
+	if n := hits.Load(); n != 0 {
+		t.Errorf("%d requests reached the proxy", n)
+	}
+}
+
+func TestSafeAPIURL(t *testing.T) {
+	for raw, want := range map[string]bool{
+		"https://api.github.com":      true,
+		"https://mirror.example/api/": true,
+		"http://127.0.0.1:21003":      true,
+		"http://[::1]:21003":          true,
+		"http://localhost:21003":      true,
+		"http://LOCALHOST":            true,
+		"http://mirror.invalid":       false,
+		"http://127.0.0.1.nip.io":     false,
+		"https://":                    false,
+		"https://u@api.github.com":    false,
+		"https://api.github.com?x=1":  false,
+		"https://api.github.com?":     false,
+		"https://api.github.com#x":    false,
+		"file:///etc/passwd":          false,
+		"":                            false,
+		"://bad":                      false,
+	} {
+		if got := safeAPIURL(raw); got != want {
+			t.Errorf("safeAPIURL(%q) = %v, want %v", raw, got, want)
+		}
+	}
 }
 
 // useDoctorEnv makes cmdDoctor run with env.
