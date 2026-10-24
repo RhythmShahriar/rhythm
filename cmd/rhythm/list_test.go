@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -230,7 +231,8 @@ func TestCommandHelpFlagsAligned(t *testing.T) {
 		col := -1
 		for _, line := range strings.Split(strings.TrimRight(flags, "\n"), "\n") {
 			i := strings.Index(line, "   ")
-			if !strings.HasPrefix(line, "  --") || i < 0 {
+			// A one-letter flag is shown as -o, the others as --name.
+			if !strings.HasPrefix(line, "  --") && !regexp.MustCompile(`^  -[a-z] `).MatchString(line) || i < 0 {
 				t.Errorf("%s: flag line %q", name, line)
 				continue
 			}

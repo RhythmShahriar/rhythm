@@ -28,7 +28,8 @@ func NewFlagSet(name, synopsis string, stderr io.Writer) *flag.FlagSet {
 }
 
 // PrintUsage writes synopsis and then a "Flags:" block listing every flag
-// in fs as --name, with its argument type and any non-empty default.
+// in fs as --name (or -o for a one-letter flag), with its argument type
+// and any non-empty default.
 func PrintUsage(w io.Writer, synopsis string, fs *flag.FlagSet) {
 	fmt.Fprint(w, synopsis)
 	if !strings.HasSuffix(synopsis, "\n") {
@@ -40,6 +41,9 @@ func PrintUsage(w io.Writer, synopsis string, fs *flag.FlagSet) {
 	fs.VisitAll(func(f *flag.Flag) {
 		arg, usage := flag.UnquoteUsage(f)
 		left := "--" + f.Name
+		if len(f.Name) == 1 {
+			left = "-" + f.Name
+		}
 		if arg != "" {
 			left += " " + arg
 		}
