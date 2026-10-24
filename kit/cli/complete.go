@@ -127,7 +127,7 @@ func FlagWords(flags []HelpFlag) []string {
 }
 
 // TakesValue reports whether word is a flag in flags that needs a value
-// in the next word: "--dir" or "-dir", but not "--dir=x".
+// in the next word: "--dir" or "-dir" but not "--dir=x".
 func TakesValue(flags []HelpFlag, word string) bool {
 	name, ok := strings.CutPrefix(word, "-")
 	if !ok || strings.Contains(name, "=") {
