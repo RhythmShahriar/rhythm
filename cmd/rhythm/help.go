@@ -61,7 +61,10 @@ func cmdHelp(args []string, stdout, stderr io.Writer) int {
 }
 
 func cmdVersion(args []string, stdout, stderr io.Writer) int {
-	fs := cli.NewFlagSet("version", "Usage: rhythm version\n\nPrints rhythm's version.", stdout)
+	fs := cli.NewFlagSet("version", "Usage: rhythm version\n\nPrints rhythm's version.", stderr)
+	if cli.HasFlag(args, "h") || cli.HasFlag(args, "help") {
+		fs.SetOutput(stdout) // help that was asked for goes to stdout, like gh and git
+	}
 	pos, err := cli.ParseArgs(fs, args)
 	switch {
 	case errors.Is(err, cli.ErrHelp):
