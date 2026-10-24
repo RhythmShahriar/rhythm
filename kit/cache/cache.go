@@ -45,7 +45,7 @@ type memoKey struct {
 }
 
 // call is one lookup: in flight until done is closed, then kept in
-// Store.mem only if it succeeded.
+// Store.mem only if its fetch succeeded (or wasn't needed).
 type call struct {
 	done  chan struct{}
 	v     any
@@ -54,6 +54,10 @@ type call struct {
 	// abandoned is set when the lookup failed because its caller's
 	// context ended. Callers that were waiting on it start their own.
 	abandoned bool
+	// fellBack is set when a failed fetch was answered with stale data.
+	// Callers waiting on it get that data, but it isn't remembered, so a
+	// later call tries the network again.
+	fellBack bool
 }
 
 type entry[T any] struct {
@@ -68,7 +72,8 @@ type entry[T any] struct {
 //
 // Within a process, concurrent calls for one kind, key and type share a
 // single lookup and a successful result is remembered for later calls.
-// A failed lookup is not remembered, so the next call tries again. When
+// A failed lookup is not remembered, so the next call tries again, and
+// neither is a stale copy returned because the fetch failed. When
 // the caller running the lookup gives up (its context ends), the others
 // waiting on it start their own lookup instead of getting its context
 // error.
@@ -107,14 +112,15 @@ func Load[T any](s *Store, ctx context.Context, kind, key string, fetch func(con
 }
 
 // lead runs a lookup as the caller that started it, then publishes the
-// result: kept for later calls on success, dropped on failure. If the
+// result: kept for later calls on success, dropped on failure or a
+// stale fallback. If the
 // lookup panics, the callers waiting on it start their own.
 func (s *Store) lead(id memoKey, c *call, run func()) {
 	finished := false
 	defer func() {
 		c.abandoned = c.abandoned || !finished
 		s.mu.Lock()
-		if c.err != nil || c.abandoned {
+		if c.err != nil || c.abandoned || c.fellBack {
 			delete(s.mem, id)
 		}
 		s.mu.Unlock()
@@ -154,7 +160,7 @@ func load[T any](s *Store, ctx context.Context, c *call, kind, key string, fetch
 	if err != nil {
 		c.abandoned = ctx.Err() != nil
 		if have && !s.Force {
-			c.v, c.stale = cached.Data, true
+			c.v, c.stale, c.fellBack = cached.Data, true, true
 			return
 		}
 		c.err = err

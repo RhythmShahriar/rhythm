@@ -79,6 +79,30 @@ func TestLoadRetriesAfterError(t *testing.T) {
 	}
 }
 
+// A stale copy returned because the fetch failed is not remembered, so
+// the next call in the same process tries the network again.
+func TestStaleFallbackRetried(t *testing.T) {
+	dir := t.TempDir()
+	if err := WriteJSON((&Store{Dir: dir}).path("k", "a"), entry[string]{Fetched: time.Now().Add(-2 * time.Hour), Data: "old"}); err != nil {
+		t.Fatal(err)
+	}
+	s := &Store{Dir: dir, TTL: time.Hour}
+	calls := 0
+	fetch := func(context.Context) (string, error) {
+		calls++
+		if calls == 1 {
+			return "", errors.New("down")
+		}
+		return "new", nil
+	}
+	if v, stale, err := Load(s, context.Background(), "k", "a", fetch); v != "old" || !stale || err != nil {
+		t.Fatalf("fallback: %q %v %v", v, stale, err)
+	}
+	if v, stale, err := Load(s, context.Background(), "k", "a", fetch); v != "new" || stale || err != nil || calls != 2 {
+		t.Errorf("after the fallback: %q %v %v calls=%d", v, stale, err, calls)
+	}
+}
+
 func TestCanceledCallerDoesNotPoison(t *testing.T) {
 	s := &Store{}
 	// Sequential: a canceled first call is not remembered.
