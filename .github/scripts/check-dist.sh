@@ -24,8 +24,11 @@ fail() {
 	problems=$((problems + 1))
 }
 
+# listed NAME: NAME is a file in checksums.txt. It compares the text after
+# the two-space separator exactly; grep would read the dots in NAME as any
+# character.
 listed() {
-	grep -q "  $1\$" "$dist/checksums.txt"
+	awk -v f="$1" 'substr($0, index($0, "  ") + 2) == f { found = 1 } END { exit !found }' "$dist/checksums.txt"
 }
 
 # sha256_check FILE: checks the sha256sum-format FILE against the files in

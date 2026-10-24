@@ -111,6 +111,11 @@ fresh
 grep -v '\.deb$' "$d/checksums.txt" >"$d/c" && mv "$d/c" "$d/checksums.txt"
 expect "package not in checksums" 1 "rhythm_1.0.0_amd64.deb is not in checksums.txt" "$d"
 
+# A name only matches exactly: the dots are not regexp wildcards.
+fresh
+sed 's/rhythm_1\.0\.0_amd64\.deb$/rhythm_1x0x0_amd64.deb/' "$d/checksums.txt" >"$d/c" && mv "$d/c" "$d/checksums.txt"
+expect "near-miss name in checksums" 1 "rhythm_1.0.0_amd64.deb is not in checksums.txt" "$d"
+
 fresh
 echo tampered >>"$d/rhythm_linux_amd64.tar.gz"
 expect "tampered archive" 1 "checksums.txt doesn't match" "$d"
