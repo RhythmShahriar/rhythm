@@ -7,7 +7,7 @@
       "latest": "0.1.0",
       "path": "$SANDBOX/bin/rhythm-echo",
       "outdated": false,
-      "signed": "no",
+      "signed": "",
       "managed_by": "",
       "error": "",
       "skipped_newer": null
@@ -18,7 +18,7 @@
       "latest": "0.2.0",
       "path": "$SANDBOX/bin/rhythm-tuner",
       "outdated": true,
-      "signed": "no",
+      "signed": "",
       "managed_by": "",
       "error": "",
       "skipped_newer": null
