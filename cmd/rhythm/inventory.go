@@ -40,8 +40,9 @@ type target struct {
 	real    string // path with symlinks resolved; updates write here so links stay links
 	managed *manager
 
-	extension bool   // from extensions.json, not the registry
-	signer    string // the signer an extension's releases must carry; "" for any
+	extension  bool   // from extensions.json, not the registry
+	signer     string // the signer an extension's releases must carry; "" for any
+	thirdParty bool   // a rhythm-* program on PATH that is neither a tool nor an extension
 }
 
 // selfPath returns the running rhythm binary with symlinks resolved. It is
@@ -175,7 +176,7 @@ func probeTargets(ctx context.Context, targets []target) {
 		wg.Go(func() {
 			t := &targets[i]
 			var p versionProbe
-			p, t.probe = probeVersionInfo(ctx, t.path)
+			p, t.probe = probeVersionInfo(ctx, t.path, !t.thirdParty)
 			t.current, t.hung, t.kitCLI = p.version, p.hung, p.kitCLI
 		})
 	}
@@ -408,7 +409,7 @@ var probeTimeout = 5 * time.Second
 // (the rhythm-version/v1 answer of tools built on kit/cli), then the
 // plain `--version` every tool has. hung reports a timeout.
 func probeVersion(ctx context.Context, bin string) (v, reason string, hung bool) {
-	p, reason := probeVersionInfo(ctx, bin)
+	p, reason := probeVersionInfo(ctx, bin, true)
 	return p.version, reason, p.hung
 }
 
@@ -421,7 +422,11 @@ type versionProbe struct {
 
 // probeVersionInfo is probeVersion with what else the answer tells;
 // reason says why the version is unknown.
-func probeVersionInfo(ctx context.Context, bin string) (p versionProbe, reason string) {
+//
+// withJSON false leaves out `version --json`: a third-party program may
+// read "version" as one of its own commands and act on it, while
+// --version is the flag every program answers.
+func probeVersionInfo(ctx context.Context, bin string, withJSON bool) (p versionProbe, reason string) {
 	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
 	timedOut := func() bool { return errors.Is(ctx.Err(), context.DeadlineExceeded) }
@@ -429,9 +434,11 @@ func probeVersionInfo(ctx context.Context, bin string) (p versionProbe, reason s
 		return versionProbe{version: unknownVersion, hung: true}, fmt.Sprintf("no answer within %s", probeTimeout)
 	}
 
-	if out, err := probeOutput(ctx, bin, "version", "--json"); err == nil {
-		if v, ok := versionFromJSON(out); ok {
-			return versionProbe{version: v, kitCLI: kitVersionIn(out)}, ""
+	if withJSON {
+		if out, err := probeOutput(ctx, bin, "version", "--json"); err == nil {
+			if v, ok := versionFromJSON(out); ok {
+				return versionProbe{version: v, kitCLI: kitVersionIn(out)}, ""
+			}
 		}
 	}
 	if timedOut() {

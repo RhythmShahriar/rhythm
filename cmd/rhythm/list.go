@@ -103,7 +103,7 @@ func listEntries(ctx context.Context, offline bool) ([]listEntry, *netReport) {
 	// registry tools, so hung ones cost the probe timeout once in all.
 	var others []target
 	for _, tp := range thirdPartyTools() {
-		others = append(others, target{tool: tp.name, binary: "rhythm-" + tp.name, path: tp.path, real: resolve(tp.path)})
+		others = append(others, target{tool: tp.name, binary: "rhythm-" + tp.name, path: tp.path, real: resolve(tp.path), thirdParty: true})
 	}
 	probed := make(chan struct{})
 	go func() {

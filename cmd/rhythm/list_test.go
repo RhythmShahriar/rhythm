@@ -244,3 +244,22 @@ func TestCommandHelpFlagsAligned(t *testing.T) {
 		}
 	}
 }
+
+// TestListAsksThirdPartyOnlyForVersion checks that a third-party program
+// is run with --version alone: it may read "version" as a command of its
+// own. rhythm's tools are still asked for version --json first.
+func TestListAsksThirdPartyOnlyForVersion(t *testing.T) {
+	s := newSandbox(t, map[string]string{"rhythm-tuner": "0.1.0"}, nil)
+	log := filepath.Join(s.dir, "deploy.log")
+	script(t, s.bin, "rhythm-deploy", `echo "deploy $*" >> '`+log+`'; echo rhythm-deploy 1.0.0`)
+	code, out, errs := runCmd("list", "--offline")
+	if code != 0 || !strings.Contains(out, "deploy (3rd)  1.0.0") {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	if got, _ := os.ReadFile(log); string(got) != "deploy --version\n" {
+		t.Errorf("rhythm-deploy ran as:\n%s", got)
+	}
+	if calls := s.calls("rhythm-tuner"); len(calls) == 0 || calls[0] != "version --json" {
+		t.Errorf("rhythm-tuner ran as %q", calls)
+	}
+}

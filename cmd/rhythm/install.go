@@ -884,7 +884,7 @@ func pinData(ctx context.Context, it installItem, lock *lockFile, dir string, st
 	}
 	binary := "rhythm-" + it.tool
 	t := target{tool: it.tool, binary: binary, path: filepath.Join(dir, exe(binary))}
-	p, _ := probeVersionInfo(ctx, t.path)
+	p, _ := probeVersionInfo(ctx, t.path, true)
 	t.current, t.kitCLI = p.version, p.kitCLI
 	_, err := refreshData(ctx, t, e.Data, stdout, stderr)
 	return err == nil || ctx.Err() != nil
