@@ -405,7 +405,7 @@ Every command that reaches the release API (`install`, `update`, `list`, `lock`,
 A URL that breaks the rule is refused before anything is sent, per tool:
 
 ```text
-rhythm-tuner       release API: refusing to download over http: http://mirror.example
+rhythm-tuner       release API: refusing plain http: http://mirror.example; use https
 rhythm-tuner       release API: must be a plain base URL, without user info, query or fragment: https://mirror.example
 ```
 

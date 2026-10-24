@@ -177,7 +177,8 @@ func TestPlainHTTPIsRefusedBeforeAnyRequest(t *testing.T) {
 	ft := &fakeTransport{body: `{"tag_name":"v1.0.0","assets":[]}`}
 	u := &Updater{Repo: "RhythmShahriar/tuner", Binary: "rhythm-tuner", API: "http://example.invalid", HTTP: &http.Client{Transport: ft}}
 	_, err := u.Latest(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "refusing to download over http: http://example.invalid") {
+	// A lookup isn't a download, so the refusal says what it is.
+	if err == nil || err.Error() != "release API: refusing plain http: http://example.invalid; use https" {
 		t.Errorf("err = %v", err)
 	}
 	if n := ft.count(); n != 0 {
@@ -221,8 +222,12 @@ func TestAPIMustBeAPlainBaseURL(t *testing.T) {
 			t.Errorf("CheckAPI(%s) = %v, want allowed", ok, err)
 		}
 	}
-	if err := CheckAPI("http://mirror.example"); err == nil || !strings.Contains(err.Error(), "refusing to download over http") {
+	if err := CheckAPI("http://mirror.example"); err == nil || err.Error() != "refusing plain http: http://mirror.example; use https" {
 		t.Errorf("CheckAPI(http) = %v", err)
+	}
+	// Other schemes keep checkURL's words.
+	if err := CheckAPI("ftp://mirror.example"); err == nil || err.Error() != "refusing to download over ftp: ftp://mirror.example" {
+		t.Errorf("CheckAPI(ftp) = %v", err)
 	}
 }
 

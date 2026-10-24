@@ -57,13 +57,20 @@ func checkURL(raw string) error {
 // the one the installers apply too: checkURL's scheme rule and a plain
 // base URL, with no user info, query or fragment. User info would go out
 // as Basic auth and a query or fragment could carry a token to a place
-// the user didn't mean to name.
+// the user didn't mean to name. The API is asked about releases, not
+// downloaded from, so a plain http base is refused in those words.
 func CheckAPI(raw string) error {
 	p, err := url.Parse(raw)
 	if err == nil && p.Host != "" && (p.User != nil || p.RawQuery != "" || p.ForceQuery || p.Fragment != "" || p.RawFragment != "") {
 		return fmt.Errorf("must be a plain base URL, without user info, query or fragment: %s", redactURL(raw))
 	}
-	return checkURL(raw)
+	if cerr := checkURL(raw); cerr != nil {
+		if err != nil || !strings.EqualFold(p.Scheme, "http") {
+			return cerr
+		}
+		return fmt.Errorf("refusing plain http: %s; use https", redactURL(raw))
+	}
+	return nil
 }
 
 func isLoopback(host string) bool {
