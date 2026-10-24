@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/RhythmShahriar/rhythm/internal/lock"
 	"github.com/RhythmShahriar/rhythm/kit/cli"
 )
 
@@ -161,6 +162,39 @@ func TestCompleteSkipsOtherTools(t *testing.T) {
 	}
 	if _, err := os.Stat(called); err == nil {
 		t.Error("a tool without __complete was run with it")
+	}
+}
+
+// TestCompleteProbesOnlyKnownTools checks that a rhythm-* program that is
+// neither in the registry nor an installed extension is never run, not
+// even with version --json, while an installed extension is asked.
+func TestCompleteProbesOnlyKnownTools(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("PATH", dir)
+	t.Setenv("RHYTHM_CONFIG_DIR", filepath.Join(dir, "config"))
+	called := filepath.Join(dir, "called")
+	stub(t, dir, "zap", fmt.Sprintf(`: > %q
+case "$1" in
+version) echo '{"schema":"rhythm-version/v1","name":"rhythm-zap","version":"1.0.0","commit":"","kit_version":"v0.7.0"}' ;;
+__complete) echo spider ;;
+esac`, called))
+
+	if got := complete(t, "zap", ""); len(got) > 0 {
+		t.Errorf("__complete zap '' = %q, want nothing", got)
+	}
+	if _, err := os.Stat(called); err == nil {
+		t.Error("a program that is no known tool was run")
+	}
+
+	store, err := lock.OpenExtensions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Add(lock.Extension{Name: "zap", Repo: "someone/zap"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := complete(t, "zap", ""); !slices.Equal(got, []string{"spider"}) {
+		t.Errorf("__complete zap '' with zap installed = %q, want [spider]", got)
 	}
 }
 

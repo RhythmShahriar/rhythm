@@ -12,9 +12,11 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/RhythmShahriar/rhythm/internal/lock"
 	"github.com/RhythmShahriar/rhythm/kit/cli"
 )
 
@@ -162,7 +164,9 @@ var completeTimeout = 2 * time.Second
 // built on kit/cli.Main answer __complete; any other tool would take it
 // for an argument (Soundcheck would check a site called "__complete"),
 // so the tool is first asked for `version --json`, which only Main
-// prints with a kit_version.
+// prints with a kit_version. Even that probe runs a program, so it is
+// sent only to registry tools and installed extensions: some other
+// rhythm-* program on PATH may take "version" as something to act on.
 func completeTool(name string, args []string) []string {
 	if !validToolName(name) {
 		return nil
@@ -170,6 +174,8 @@ func completeTool(name string, args []string) []string {
 	tool := name
 	if info, ok := lookupTool(name); ok {
 		tool = info.Name
+	} else if !isExtension(name) {
+		return nil
 	}
 	bin, err := exec.LookPath("rhythm-" + tool)
 	if err != nil {
@@ -192,6 +198,21 @@ func completeTool(name string, args []string) []string {
 		}
 	}
 	return lines
+}
+
+// isExtension reports whether name is in the installed extensions
+// list. A list that can't be read counts as empty, as completion has
+// nowhere to report the error.
+func isExtension(name string) bool {
+	store, err := lock.OpenExtensions()
+	if err != nil {
+		return false
+	}
+	list, err := store.List()
+	if err != nil {
+		return false
+	}
+	return slices.ContainsFunc(list, func(x lock.Extension) bool { return x.Name == name })
 }
 
 // answersComplete reports whether the tool at bin runs on kit/cli.Main
