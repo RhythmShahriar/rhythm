@@ -5,8 +5,10 @@ name: release-dry-run
 # A manual dry run of the shared release workflow: GoReleaser builds a
 # snapshot, cosign signs it and the attestation step attests it, but
 # nothing is published. It proves the steps and permissions work before a
-# real tag does. The attestations it creates name a snapshot version, so
-# they never match a published file.
+# real tag does. The attestations it creates are valid provenance from the
+# shared workflow for whatever this branch builds, so they carry the branch
+# as their source ref: verifying with gh attestation verify --source-ref
+# refs/tags/v<version> (as release-go.yml documents) rejects them.
 on:
   workflow_dispatch:
 permissions:
