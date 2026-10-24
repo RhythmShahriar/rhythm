@@ -32,8 +32,8 @@ const bundleSynopsis = `Usage: rhythm bundle --locked -o <file> [flags]
 Packs everything rhythm.lock pins into one file for networks that can't
 reach GitHub: each release's archive for the platforms asked for, its
 checksums.txt and the Sigstore signature over it. Every signature and
-hash is checked here first, against the release and against the lock.
-On the machine without the network, install from it with:
+hash is checked here first, against the release and against the lock. On
+the machine without the network, install from it with:
 
   rhythm install --from rhythm-bundle.tar.gz --locked
 
@@ -41,8 +41,8 @@ which checks the signatures again with the Sigstore root built into
 rhythm and every archive against rhythm.lock, with no network at all.
 
 --platform takes os/arch pairs separated by commas, such as
-linux/amd64,windows/amd64 (default this machine's). rhythm.lock must
-pin an archive for each.
+linux/amd64,windows/amd64 (default this machine's). rhythm.lock must pin
+an archive for each.
 
 Exit status: 0 when the bundle was written, 1 when any release couldn't
 be bundled (nothing is written then), 2 for a usage error and 130 when

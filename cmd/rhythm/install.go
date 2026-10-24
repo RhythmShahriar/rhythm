@@ -516,8 +516,8 @@ over releases younger than the age given, except a version named exactly.
 --locked installs the versions rhythm.lock pins (see rhythm lock),
 checking each archive against its locked sha256; it installs nothing
 unless every tool matches. A version named with --locked must be the
-locked one. Data versions in the lock are passed to each
-tool as update --json --pin.
+locked one. Each tool then pins its data to the versions in the lock
+(update --json --pin).
 
 Each archive is checked against the release's checksums.txt. When this
 rhythm checks signatures, checksums.txt is checked against its own.

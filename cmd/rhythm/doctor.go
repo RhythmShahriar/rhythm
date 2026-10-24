@@ -33,8 +33,8 @@ const doctorSynopsis = `Usage: rhythm doctor [flags]
 Checks that rhythm and its tools are set up well: which copies run first
 on PATH, whether the install folder is writable, development builds, the
 saved update checks, each tool's data, Chrome for Soundcheck, the GitHub
-token in use (never its value) and whether the release API answers.
-Each check says ok, warn or fail.
+token in use (never its value) and whether the release API answers. Each
+check says ok, warn or fail.
 
 Checking the data runs each tool's own data refresh. --offline skips it
 and the release API.
