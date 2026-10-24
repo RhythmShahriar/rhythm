@@ -3,7 +3,7 @@ ACTIONLINT := go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
 GORELEASER := go run github.com/goreleaser/goreleaser/v2@v2.18.3
 GOVULNCHECK := go run golang.org/x/vuln/cmd/govulncheck@v1.8.0
 
-.PHONY: build test lint fmt check hooks actionlint pins release-check vuln test-installers trusted-root
+.PHONY: build test lint fmt check hooks actionlint pins release-check vuln test-installers trusted-root dist-check
 
 build: ## build bin/rhythm
 	go build -o bin/rhythm ./cmd/rhythm
@@ -51,3 +51,10 @@ test-installers: ## run the install script tests
 # TUF from Sigstore's CDN. Run it before a release and commit the result.
 trusted-root: ## refresh kit/sigverify/trusted_root.json
 	go generate ./kit/sigverify
+
+# A local snapshot release (needs syft on PATH) checked like CI's packages
+# job, minus the rpm listing and winget schemas when those tools are absent.
+dist-check: ## build a snapshot release and check SBOMs, packages and manifests
+	sh .github/scripts/check-dist_test.sh
+	$(GORELEASER) release --snapshot --clean --skip=publish,sign
+	sh .github/scripts/check-dist.sh dist rhythm

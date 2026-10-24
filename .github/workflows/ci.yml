@@ -49,3 +49,43 @@ jobs:
         if: runner.os == 'Windows' && hashFiles('scripts/test/run.ps1') != ''
         shell: pwsh
         run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test/run.ps1
+
+  # A snapshot release with the real GoReleaser config: SBOMs, Linux
+  # packages and the Homebrew, Scoop and winget manifests are built and
+  # checked, nothing is signed or published. Same tool versions as the
+  # shared release workflow.
+  packages:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        id: syft
+        with:
+          syft-version: v1.54.1
+      - name: Put syft on PATH
+        env:
+          SYFT: ${{ steps.syft.outputs.cmd }}
+        run: dirname "$SYFT" >> "$GITHUB_PATH"
+      - name: check-dist tests
+        run: sh .github/scripts/check-dist_test.sh
+      - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          version: v2.18.3
+          args: release --snapshot --clean --skip=publish,sign
+        env:
+          GOWORK: "off"
+      - name: Install rpm and check-jsonschema
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q rpm
+          pipx install check-jsonschema==0.38.2
+      # The winget schemas come from microsoft/winget-cli at a pinned commit.
+      - name: Check dist
+        env:
+          WINGET_SCHEMAS: https://raw.githubusercontent.com/microsoft/winget-cli/efcb928ba96d314bc8aee8682a1af3588bb8e3f1/schemas/JSON/manifests
+        run: sh .github/scripts/check-dist.sh dist rhythm
