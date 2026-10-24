@@ -58,7 +58,10 @@ func Normalize(base *url.URL, href string) (string, bool) {
 	return u.String(), true
 }
 
-// key identifies a page for de-duplication: /about and /about/ are one page.
+// key identifies a page for de-duplication: /about and /about/ are one
+// page. Normalize keeps the trailing slash, because the URL that is
+// fetched and reported should be the one the site links to (many sites
+// redirect one form to the other); only the de-duplication ignores it.
 func key(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil {

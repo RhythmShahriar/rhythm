@@ -16,7 +16,7 @@ import (
 	"testing"
 )
 
-func mustURL(t *testing.T, s string) *url.URL {
+func mustURL(t testing.TB, s string) *url.URL {
 	t.Helper()
 	u, err := url.Parse(s)
 	if err != nil {

@@ -23,6 +23,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"golang.org/x/net/html"
 
@@ -85,6 +86,9 @@ type Frontier struct {
 	perKey  map[string]int
 	pages   []Page
 	skipped map[string]int // reason → count
+	// pagesCalls counts Pages calls, so a test can prove the crawl loop
+	// never copies the page list.
+	pagesCalls atomic.Int64
 }
 
 // NewFrontier returns an empty frontier for the site at start. Pass the
@@ -105,16 +109,31 @@ func NewFrontier(start *url.URL, opts Options) *Frontier {
 
 // Add offers a URL to the frontier and reports whether it was accepted.
 func (f *Frontier) Add(raw, source string, depth int) bool {
+	_, ok := f.add(raw, source, depth)
+	return ok
+}
+
+// AddPage is Add that also returns the accepted page, so a caller can
+// queue exactly the pages it added without copying Pages().
+func (f *Frontier) AddPage(raw, source string, depth int) (Page, bool) {
+	return f.add(raw, source, depth)
+}
+
+// add offers a URL and returns the page it accepted.
+func (f *Frontier) add(raw, source string, depth int) (Page, bool) {
 	norm, ok := Normalize(f.start, raw)
 	if !ok {
-		return false
+		return Page{}, false
 	}
 	u, _ := url.Parse(norm)
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	// seen is keyed by key(), which folds /about and /about/ together,
+	// and marks every URL offered, rejected ones too, so a URL is judged
+	// once however many pages link to it.
 	k := key(norm)
 	if f.seen[k] {
-		return false
+		return Page{}, false
 	}
 	f.seen[k] = true
 	// The start page is always admitted, because links are found from it,
@@ -138,20 +157,30 @@ func (f *Frontier) Add(raw, source string, depth int) bool {
 	}
 	if reason != "" {
 		f.skipped[reason]++
-		return false
+		return Page{}, false
 	}
 	group := f.groups.Group(u)
+	// PerGroup < 0 means no sampling: the caller wants every page of a
+	// template (a full audit), so the per-group count is never checked.
 	if f.opts.PerGroup > 0 && f.perKey[group] >= f.opts.PerGroup && !listed {
 		f.skipped["grouped"]++
-		return false
+		return Page{}, false
 	}
 	f.perKey[group]++
-	f.pages = append(f.pages, Page{URL: norm, Group: group, Source: source, Depth: depth})
-	return true
+	p := Page{URL: norm, Group: group, Source: source, Depth: depth}
+	f.pages = append(f.pages, p)
+	return p, true
 }
 
-// Pages returns the accepted pages in discovery order.
+// Pages returns a copy of the accepted pages in discovery order. It
+// copies the whole list, so the crawl itself never calls it per page.
 func (f *Frontier) Pages() []Page {
+	f.pagesCalls.Add(1)
+	return f.snapshot()
+}
+
+// snapshot copies the accepted pages.
+func (f *Frontier) snapshot() []Page {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]Page(nil), f.pages...)
@@ -233,6 +262,12 @@ func (c *Crawler) Crawl(ctx context.Context, start *url.URL) (*Frontier, error) 
 		url   string
 		depth int
 	}
+	// visited is the crawl's own record of what it queued for fetching,
+	// separate from Frontier.seen: seen also holds rejected URLs and is
+	// keyed without the trailing slash, while visited holds the exact
+	// accepted URLs. Each accepted page is pushed once today (the seed
+	// list, then the worker that added it), so visited is a cheap guard
+	// that keeps a page from being fetched twice if that ever changes.
 	var (
 		mu      sync.Mutex
 		queue   []job
@@ -248,7 +283,9 @@ func (c *Crawler) Crawl(ctx context.Context, start *url.URL) (*Frontier, error) 
 		}
 		mu.Unlock()
 	}
-	for _, p := range f.Pages() {
+	// One copy to seed the queue; after this, workers push the pages
+	// they add directly, so a crawl costs O(n) and not O(n²) copies.
+	for _, p := range f.snapshot() {
 		push(p)
 	}
 	for {
@@ -276,12 +313,10 @@ func (c *Crawler) Crawl(ctx context.Context, start *url.URL) (*Frontier, error) 
 			if err != nil {
 				return
 			}
-			before := len(f.Pages())
 			for _, l := range links {
-				f.Add(l, "link", j.depth+1)
-			}
-			for _, p := range f.Pages()[before:] {
-				push(p)
+				if p, ok := f.add(l, "link", j.depth+1); ok {
+					push(p)
+				}
 			}
 		})
 	}
