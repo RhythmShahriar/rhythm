@@ -42,14 +42,22 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
-      - name: Start the fake release API
+      - name: Start the fake release API and give the run its own cache key
         shell: bash
-        run: bash setup/test/start-fake-api.sh
+        run: |
+          bash setup/test/start-fake-api.sh
+          # rhythm.lock is part of the cache key, so a lock that names this
+          # run gives a key no earlier run saved: a key that exists is never
+          # saved again, which would leave this run's marker out. Without
+          # locked it is only hashed, never read.
+          mkdir -p "$RUNNER_TEMP/project"
+          echo "{\"schema\":\"rhythm-lock/v1\",\"run\":\"${{ github.run_id }}\"}" >"$RUNNER_TEMP/project/rhythm.lock"
       - id: setup
         uses: ./setup
         with:
           tools: tuner@0.3.2 soundcheck
           version: 0.7.0
+          working-directory: ${{ runner.temp }}/project
           token: "" # the fake API is no place for a token; gh stays logged out
       - name: Check the tools are on PATH and the outputs
         shell: bash
@@ -111,14 +119,22 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
-      - name: Start the fake release API
+      - name: Start the fake release API and give the run its own cache key
         shell: bash
-        run: bash setup/test/start-fake-api.sh
+        run: |
+          bash setup/test/start-fake-api.sh
+          # rhythm.lock is part of the cache key, so a lock that names this
+          # run gives a key no earlier run saved: a key that exists is never
+          # saved again, which would leave this run's marker out. Without
+          # locked it is only hashed, never read.
+          mkdir -p "$RUNNER_TEMP/project"
+          echo "{\"schema\":\"rhythm-lock/v1\",\"run\":\"${{ github.run_id }}\"}" >"$RUNNER_TEMP/project/rhythm.lock"
       - id: setup
         uses: ./setup
         with:
           tools: tuner@0.3.2 soundcheck
           version: 0.7.0
+          working-directory: ${{ runner.temp }}/project
           token: ""
       - name: Check the download cache was restored
         shell: bash
