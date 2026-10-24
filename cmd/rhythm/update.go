@@ -44,7 +44,7 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 	ctx, stop := signalContext()
 	defer stop()
 	var rep updateReport
-	targets, missing := findTargets(want)
+	targets, missing := findTargets(ctx, want)
 	for _, tool := range missing {
 		fmt.Fprintf(stderr, "%-18s isn't installed; install it with: rhythm install %s\n", "rhythm-"+tool, tool)
 		rep.failed = append(rep.failed, "rhythm-"+tool)
@@ -53,6 +53,10 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 	for _, t := range targets {
 		if ctx.Err() != nil {
 			break
+		}
+		if t.current == unknownVersion {
+			fmt.Fprintf(stdout, "%-18s version unknown (%s), not updated\n", t.binary, t.probe)
+			continue
 		}
 		if !update.IsRelease(t.current) {
 			fmt.Fprintf(stdout, "%-18s %s (development build, not updated)\n", t.binary, t.current)
@@ -84,8 +88,8 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 
 	if !*checkOnly && !*noData {
 		for _, t := range targets {
-			if t.tool == selfName || ctx.Err() != nil {
-				continue // rhythm has no data of its own; tools refresh theirs
+			if t.tool == selfName || t.hung || ctx.Err() != nil {
+				continue // rhythm has no data of its own; a hung tool would hang here too
 			}
 			refreshData(ctx, t, stdout, stderr, &rep)
 		}
@@ -186,17 +190,4 @@ func updateScope(names []string, selfOnly bool, stderr io.Writer) (map[string]bo
 		return nil, exitUsage
 	}
 	return want, 0
-}
-
-// toolVersion asks a tool binary for its version ("rhythm-tuner 0.2.0").
-func toolVersion(bin string) string {
-	out, err := exec.Command(bin, "--version").Output() //nolint:gosec // our own tool binaries
-	if err != nil {
-		return "unknown"
-	}
-	f := strings.Fields(string(out))
-	if len(f) == 0 {
-		return "unknown"
-	}
-	return f[len(f)-1]
 }

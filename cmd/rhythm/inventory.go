@@ -4,10 +4,18 @@
 package main
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"sync"
+	"time"
 )
 
 // The router itself, as a target of rhythm update.
@@ -22,7 +30,9 @@ type target struct {
 	tool    string // registry name, or selfName
 	binary  string // e.g. rhythm-tuner
 	repo    string
-	current string // the version the binary reports
+	current string // the version the binary reports, or unknownVersion
+	probe   string // why the version is unknown
+	hung    bool   // the version probe timed out
 	path    string // where it was found
 }
 
@@ -103,11 +113,12 @@ func levenshtein(a, b string) int {
 
 // findTargets returns rhythm itself and every tool installed on PATH, or
 // only those in want when it is non-nil. missing lists the wanted tools
-// that aren't installed.
-func findTargets(want map[string]bool) (targets []target, missing []string) {
+// that aren't installed. Tools are asked for their versions in parallel,
+// so a slow one costs the probe timeout once, not once per tool.
+func findTargets(ctx context.Context, want map[string]bool) (targets []target, missing []string) {
 	if want == nil || want[selfName] {
 		if self, err := selfPath(); err == nil {
-			targets = append(targets, target{selfName, selfName, selfRepo, version, self})
+			targets = append(targets, target{tool: selfName, binary: selfName, repo: selfRepo, current: version, path: self})
 		}
 	}
 	for _, tool := range toolNames() {
@@ -121,7 +132,115 @@ func findTargets(want map[string]bool) (targets []target, missing []string) {
 			}
 			continue
 		}
-		targets = append(targets, target{tool, "rhythm-" + tool, tools[tool], toolVersion(bin), bin})
+		targets = append(targets, target{tool: tool, binary: "rhythm-" + tool, repo: tools[tool], path: bin})
 	}
+	var wg sync.WaitGroup
+	for i := range targets {
+		if targets[i].tool == selfName {
+			continue // the running binary knows its own version
+		}
+		wg.Go(func() {
+			t := &targets[i]
+			t.current, t.probe, t.hung = probeVersion(ctx, t.path)
+		})
+	}
+	wg.Wait()
 	return targets, missing
+}
+
+// unknownVersion is reported for a tool whose version couldn't be read.
+const unknownVersion = "unknown"
+
+// probeTimeout bounds the version probes of one tool, so a tool that
+// hangs can't hang rhythm update with it.
+var probeTimeout = 5 * time.Second
+
+// probeVersion asks a tool binary for its version: first `version --json`
+// (the rhythm-version/v1 answer of tools built on kit/cli), then the
+// plain `--version` every tool has. hung reports a timeout.
+func probeVersion(ctx context.Context, bin string) (v, reason string, hung bool) {
+	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
+	timedOut := func() bool { return errors.Is(ctx.Err(), context.DeadlineExceeded) }
+
+	if out, err := probeOutput(ctx, bin, "version", "--json"); err == nil {
+		if v, ok := versionFromJSON(out); ok {
+			return v, "", false
+		}
+	}
+	if timedOut() {
+		return unknownVersion, fmt.Sprintf("no answer within %s", probeTimeout), true
+	}
+	out, err := probeOutput(ctx, bin, "--version")
+	switch {
+	case timedOut():
+		return unknownVersion, fmt.Sprintf("no answer within %s", probeTimeout), true
+	case err != nil:
+		return unknownVersion, fmt.Sprintf("%s --version failed: %v", filepath.Base(bin), err), false
+	}
+	if v, ok := versionFromText(out); ok {
+		return v, "", false
+	}
+	return unknownVersion, fmt.Sprintf("%s --version printed no version number", filepath.Base(bin)), false
+}
+
+// probeOutput runs bin with args and returns what it printed on stdout,
+// at most 64 KiB of it.
+func probeOutput(ctx context.Context, bin string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, bin, args...) //nolint:gosec // our own tool binaries
+	out := &capped{max: 64 << 10}
+	cmd.Stdout = out
+	// A killed shell script can leave a child holding stdout open;
+	// WaitDelay stops waiting for it shortly after the kill.
+	cmd.WaitDelay = 500 * time.Millisecond
+	err := cmd.Run()
+	return out.buf.Bytes(), err
+}
+
+// capped keeps the first max bytes written to it and drops the rest, so a
+// tool that floods its output can't exhaust memory.
+type capped struct {
+	buf bytes.Buffer
+	max int
+}
+
+func (c *capped) Write(p []byte) (int, error) {
+	if room := c.max - c.buf.Len(); room > 0 {
+		c.buf.Write(p[:min(len(p), room)])
+	}
+	return len(p), nil
+}
+
+// versionFromJSON reads a rhythm-version/v1 answer:
+// {"schema":"rhythm-version/v1","name":...,"version":"0.3.0",...}.
+func versionFromJSON(out []byte) (string, bool) {
+	var v struct {
+		Schema  string `json:"schema"`
+		Version string `json:"version"`
+	}
+	if json.Unmarshal(out, &v) != nil || v.Schema != "rhythm-version/v1" || v.Version == "" {
+		return "", false
+	}
+	return strings.TrimPrefix(v.Version, "v"), true
+}
+
+// semverToken matches a version such as 0.3.0, v1.2.3-rc.1 or 1.0.0+build.
+var semverToken = regexp.MustCompile(`^v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?:\+[0-9A-Za-z.-]+)?$`)
+
+// versionFromText finds the version in --version output such as
+// "rhythm-tuner 0.3.0 (commit abc1234)": the first word that is a semver.
+// A development build says "dev" instead.
+func versionFromText(out []byte) (string, bool) {
+	words := strings.Fields(string(out))
+	for _, w := range words {
+		if m := semverToken.FindStringSubmatch(strings.Trim(w, "(),;:")); m != nil {
+			return m[1], true
+		}
+	}
+	for _, w := range words {
+		if w == "dev" {
+			return w, true
+		}
+	}
+	return "", false
 }
