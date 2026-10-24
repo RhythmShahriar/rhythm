@@ -31,10 +31,10 @@ layout as rhythm's tools and are signed with Sigstore. Once installed,
 rhythm <name> runs it and rhythm update keeps it current.
 
 Commands:
-  rhythm ext search [words...]                  find extensions on GitHub
+  rhythm ext search [words...]                      find extensions on GitHub
   rhythm ext install owner/rhythm-<name>[@version]  install one, signature checked
-  rhythm ext list [--json]                      show the installed extensions
-  rhythm ext remove <name>                      delete one and forget it
+  rhythm ext list [--json]                          show the installed extensions
+  rhythm ext remove <name>                          delete one and forget it
 
 An extension's releases must be signed by a workflow of its own
 repository (or by rhythm's shared release workflow called from it). The
