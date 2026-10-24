@@ -220,7 +220,7 @@ func checkPath(targets []target) []check {
 			case len(copies) == 0:
 				checks = append(checks, check{id, statusWarn, fmt.Sprintf("rhythm isn't on your PATH; add %s to it", filepath.Dir(t.real))})
 				continue
-			case resolve(copies[0]) != t.real:
+			case resolve(copies[0]) != resolve(t.real):
 				checks = append(checks, check{id, statusWarn, fmt.Sprintf("%s comes first on your PATH, not this rhythm (%s)", copies[0], t.real)})
 				continue
 			}
