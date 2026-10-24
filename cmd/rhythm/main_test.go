@@ -83,9 +83,13 @@ func TestInvalidToolName(t *testing.T) {
 	t.Chdir(cwd)
 	t.Setenv("PATH", cwd)
 	marker := filepath.Join(t.TempDir(), "ran")
-	// A planted file at each path an unchecked lookup would reach.
-	for _, p := range []string{"/x", "../x", "a/b"} {
-		stub(t, cwd, p, ": >"+marker) // a builtin, as PATH has no touch
+	// A planted file at each path an unchecked lookup would reach. The
+	// stand-ins are shell scripts, so only Unix plants them; the name
+	// rules below run on every OS.
+	if runtime.GOOS != "windows" {
+		for _, p := range []string{"/x", "../x", "a/b"} {
+			stub(t, cwd, p, ": >"+marker) // a builtin, as PATH has no touch
+		}
 	}
 	for _, name := range []string{"/x", "../x", "a/b", "-x", "", "UPPER", strings.Repeat("a", 5000), "日本"} {
 		var out, errb bytes.Buffer
