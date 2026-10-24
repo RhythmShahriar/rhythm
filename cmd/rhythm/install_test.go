@@ -690,9 +690,9 @@ func TestMirrorCredentialsHidden(t *testing.T) {
 func TestRedactURL(t *testing.T) {
 	for in, want := range map[string]string{
 		"http://user:pw@127.0.0.1:20100/api/?token=x#frag": "http://127.0.0.1:20100/api",
-		"https://ghe.example/api/v3":                      "https://ghe.example/api/v3",
-		"user:pw@ghe.example":                             "(unparsable URL)",
-		"http://%zz":                                      "(unparsable URL)",
+		"https://ghe.example/api/v3":                       "https://ghe.example/api/v3",
+		"user:pw@ghe.example":                              "(unparsable URL)",
+		"http://%zz":                                       "(unparsable URL)",
 	} {
 		if got := redactURL(in); got != want {
 			t.Errorf("redactURL(%q) = %q, want %q", in, got, want)
