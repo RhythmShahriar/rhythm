@@ -1,9 +1,9 @@
-New Tuner checks reach you without a new binary. Whenever checks change, CI publishes them as a *check pack*, and scans pick up the newest pack within a day. This page explains how packs are published, when a scan uses a pack instead of the checks built into your binary, how to control it, and what a pack can and can't do.
+New Tuner checks reach you without a new binary. Whenever checks change, CI publishes them as a *check pack*. Scans pick up the newest pack within a day. This page explains how packs are published, when a scan uses a pack instead of the checks built into your binary, how to control it and what a pack can and can't do.
 
 ## In short
 
 - A pack is the `checks/` folder of YAML files, published on the rolling [`checks-latest`](https://github.com/RhythmShahriar/tuner/releases/tag/checks-latest) release of the tuner repository.
-- Scans check for a new pack at most once a day, verify it against its SHA-256 checksums, and use it only when it's newer than your binary's built-in checks.
+- Scans check for a new pack at most once a day, verify it against its SHA-256 checksums and use it only when it's newer than your binary's built-in checks.
 - A pack contains only declarative checks: GET requests to the site you're scanning and matching on the replies. It can't run code.
 - Any problem with a pack prints a warning and the scan carries on with the last good pack or the built-in checks. A pack never fails a scan.
 - `--no-check-updates` pins a run to your binary's checks; `--checks <dir>` to your own.
@@ -19,7 +19,7 @@ When a change under `checks/` lands on `master`, the [checks-pack workflow](http
 | Asset | Contents |
 |---|---|
 | `checks.tar.gz` | every check and the checks' LICENSE. Fixtures stay out. |
-| `checks-manifest.json` | pack version, schema, `min_tuner`, the commit it was built from and that commit's time, and the number of checks |
+| `checks-manifest.json` | pack version, schema, `min_tuner`, the commit it was built from (and its time) and the number of checks |
 | `checks-sha256.txt` | SHA-256 of the archive and the manifest |
 
 ```json
@@ -63,13 +63,13 @@ A pack supersedes the built-in checks when:
 | built from a working tree with uncommitted changes | never: you always run the checks you're editing |
 | built without commit information (e.g. `go install` from the module proxy) | always, if the pack is compatible |
 
-So right after a Tuner release, the pack and the binary are usually from the same commit, and the built-in checks are used. As soon as a new check lands, the pack wins.
+So right after a Tuner release, the pack and the binary are usually from the same commit, so the built-in checks are used. As soon as a new check lands, the pack wins.
 
 [Local scans](Tuner-Local-Scans) don't run HTTP checks, so a run whose targets are all directories never downloads or uses a pack.
 
 ### Compatibility: `min_tuner` and `schema`
 
-A pack is rejected, and the scan keeps the last good pack or the built-in checks, when:
+The scan rejects a pack, keeping the last good pack or the built-in checks, when:
 
 - its `schema` isn't the one this binary reads (currently `1`);
 - its `min_tuner` is newer than your release (development builds count as new enough);
@@ -100,7 +100,7 @@ The lookup is capped at 10 seconds per scan so an unreachable GitHub never holds
 
 | When | What happens |
 |---|---|
-| network down, or a checksum mismatch (e.g. a release caught mid-upload) | the cached pack is used with a warning (`couldn't refresh the check pack: …`), and the next run tries again |
+| network down, or a checksum mismatch (e.g. a release caught mid-upload) | the cached pack is used with a warning (`couldn't refresh the check pack: …`); the next run tries again |
 | no cached pack and no network | built-in checks, with a warning |
 | `--offline` | the cached pack however old, or built-in checks if none is cached (no warning) |
 | `--no-check-updates` | built-in checks; the cache isn't read |

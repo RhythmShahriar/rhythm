@@ -1,4 +1,4 @@
-This tutorial takes you from a fresh install to a saved report in about five minutes. You'll scan a site, read what Tuner found, save a Markdown report, try the quick profile, and scan a staging site behind a password.
+This tutorial takes you from a fresh install to a saved report in about five minutes. You'll scan a site, read what Tuner found, save a Markdown report, try the quick profile and scan a staging site behind a password.
 
 You need a site you own or have permission to test. The examples use `yoursite.com`; replace it with your own.
 
@@ -93,7 +93,7 @@ Here is a real scan of a deliberately out-of-date test site, trimmed (`⋮` mark
 
 Reading from the top:
 
-- **Fingerprint** and **Components**: what Tuner detected, and the plugin and theme versions it could read.
+- **Fingerprint** and **Components**: what Tuner detected and the plugin and theme versions it could read.
 - **Baseline**: whether the server returns real 404s. If it says `soft-404 detected, filtering enabled`, the server answers `200` for missing pages and Tuner compares every hit against a random path to avoid false findings.
 - **Severity sections**: critical, high and medium findings appear as cards with evidence and a `→` fix line; low and info findings as a compact list.
 - **`~ likely:`** lines mark findings Tuner can't confirm from outside. Here, Debian may have backported fixes into its Apache 2.4.57 package.
@@ -113,7 +113,7 @@ The terminal view is for you. To share findings with a client, a teammate or an 
 rhythm tuner scan yoursite.com -o report.md
 ```
 
-Tuner picks the format from the file extension and still shows the live view in your terminal. When it's done it prints `Report written to report.md`. The report has a summary table, the plugins and themes found, and a section per finding with the evidence, advisories, impact and the full fix.
+Tuner picks the format from the file extension and still shows the live view in your terminal. When it's done it prints `Report written to report.md`. The report has a summary table, the plugins and themes found and a section per finding with the evidence, advisories, impact and the full fix.
 
 Other formats work the same way: `-o report.json`, `-o results.jsonl`, `-o tuner.sarif`. See [Output and reports](Tuner-Output).
 
@@ -125,7 +125,7 @@ For a fast first look, the quick profile runs only the highest-value checks:
 rhythm tuner scan yoursite.com --profile quick
 ```
 
-On the same test site it ran 21 checks in 16 requests and 3 seconds, against 37 checks and 78 requests for the default profile. It still found the exposed `.env`, the debug log and the vulnerable versions, but skipped checks such as the `wp-config.php` backup search.
+On the same test site it ran 21 checks in 16 requests and 3 seconds, against 37 checks and 78 requests for the default profile. It still found the exposed `.env`, the debug log and the vulnerable versions. It skipped checks such as the `wp-config.php` backup search.
 
 Quick scans don't read plugin `readme.txt` or theme `style.css` files, so plugin and theme versions come only from hints in the page's asset URLs. Use the default profile for an accurate inventory. See [Choosing checks](Tuner-Choosing-Checks).
 

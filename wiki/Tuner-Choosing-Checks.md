@@ -1,4 +1,4 @@
-By default a scan runs every polite check plus known-vulnerability matching. This page shows how to run fewer or more: profiles, tags, check IDs, a minimum severity, your own checks, and how to preview a selection before you scan.
+By default a scan runs every polite check plus known-vulnerability matching. This page shows how to run fewer or more: profiles, tags, check IDs, a minimum severity, your own checks and how to preview a selection before you scan.
 
 ## At a glance
 
@@ -20,7 +20,7 @@ List flags take comma-separated values and can be repeated: `--tags leak --tags 
 
 ## Profiles
 
-A profile trades coverage for requests. Each check declares the cheapest profile that runs it, and a profile runs its own checks plus every cheaper one.
+A profile trades coverage for requests. Each check declares the cheapest profile that runs it. A profile runs its own checks plus every cheaper one.
 
 | Profile | Runs | Use it for |
 |---|---|---|
@@ -38,7 +38,7 @@ rhythm tuner scan yoursite.com --profile deep
 
 ### What quick skips
 
-Besides running fewer checks, `quick` skips the version lookups: it doesn't fetch each plugin's `readme.txt`, each theme's `style.css`, or `/feed/` for the WordPress version. Versions then come only from what the home page states (the generator tag, and `?ver=` hints in asset URLs), so some plugins may show no version. When those have known vulnerabilities, Tuner reports `wp-components-unverified` and suggests rerunning with the default profile.
+Besides running fewer checks, `quick` skips the version lookups: it doesn't fetch each plugin's `readme.txt`, each theme's `style.css`, or `/feed/` for the WordPress version. Versions then come only from what the home page states (the generator tag and `?ver=` hints in asset URLs), so some plugins may show no version. When those have known vulnerabilities, Tuner reports `wp-components-unverified` and suggests rerunning with the default profile.
 
 The **PHP version probe still runs in every profile**. When a page cache strips the PHP version from the home page, Tuner asks up to three uncacheable endpoints (such as `/xmlrpc.php`), so quick scans don't wrongly report the version as hidden.
 
@@ -70,11 +70,11 @@ Common tags:
 
 `rhythm tuner checks` shows each check's tags.
 
-Tags also filter vulnerability findings. Matching runs when your `--tags` include one of `vuln`, `wordpress`, `php`, `outdated`, `abandoned`, `nginx`, `apache`, `core`, `plugin`, `theme`, `composer` or `known-exploited`, and its findings are then filtered by the same tags. `--tags headers` alone skips vulnerability matching; `--exclude-tags vuln` turns it off.
+Tags also filter vulnerability findings. Matching runs when your `--tags` include one of `vuln`, `wordpress`, `php`, `outdated`, `abandoned`, `nginx`, `apache`, `core`, `plugin`, `theme`, `composer` or `known-exploited`. Its findings are then filtered by the same tags. `--tags headers` alone skips vulnerability matching; `--exclude-tags vuln` turns it off.
 
 ## Check IDs
 
-`--id` runs only the checks you name, and `--exclude-id` skips them. Both accept shell-style globs (`*`, `?`, `[abc]`); quote them so your shell doesn't expand them.
+`--id` runs only the checks you name; `--exclude-id` skips them. Both accept shell-style globs (`*`, `?`, `[abc]`); quote them so your shell doesn't expand them.
 
 ```sh
 rhythm tuner scan yoursite.com --id leak-dotenv,leak-git
@@ -113,7 +113,7 @@ rhythm tuner scan /var/www/yoursite --id 'local-*'    # only local findings
 
 ## Minimum severity
 
-`--severity` skips checks below a level, and hides vulnerability findings below it too. Levels from most to least severe: `critical`, `high`, `medium`, `low`, `info`.
+`--severity` skips checks below a level and hides vulnerability findings below it too. Levels from most to least severe: `critical`, `high`, `medium`, `low`, `info`.
 
 ```sh
 rhythm tuner scan yoursite.com --severity high
@@ -133,7 +133,7 @@ The other selection flags apply on top. Writing a check takes no Go code; see [W
 
 ### Check packs
 
-New checks are published as a check pack, and scans pick up the newest one within a day without a new binary. `--no-check-updates` pins a run to the checks built into your binary; `--checks` always uses your directory. See [Check packs](Tuner-Check-Packs).
+New checks are published as a check pack. Scans pick up the newest one within a day without a new binary. `--no-check-updates` pins a run to the checks built into your binary; `--checks` always uses your directory. See [Check packs](Tuner-Check-Packs).
 
 ## Preview a selection
 
@@ -167,7 +167,7 @@ The last lines say which checks are in use: built-in, a check pack (with its ver
 > [!TIP]
 > `rhythm tuner checks` defaults to `--profile deep`, so it lists everything. Pass `--profile default` or `--profile quick` to see exactly what those scans run.
 
-The listing shows YAML checks only. Vulnerability and local finding IDs aren't in it, and `rhythm tuner checks --id 'vuln-*'` reports that no checks match.
+The listing shows YAML checks only. Vulnerability and local finding IDs aren't in it, so `rhythm tuner checks --id 'vuln-*'` reports that no checks match.
 
 ## Skip vulnerability matching
 
@@ -175,7 +175,7 @@ The listing shows YAML checks only. Vulnerability and local finding IDs aren't i
 rhythm tuner scan yoursite.com --no-vulns
 ```
 
-`--no-vulns` turns off known-vulnerability matching: no `vuln-*`, `*-eol`, `wp-core-*` or `wp-components-*` findings, and no calls to the vulnerability data services. In a local scan it also skips Composer matching with OSV.dev. Use it for a fast config-only pass, or where the data services aren't reachable and you have no cache. To use the cache without contacting the services, use `--offline` instead; see [Known vulnerabilities](Tuner-Known-Vulnerabilities).
+`--no-vulns` turns off known-vulnerability matching: no `vuln-*`, `*-eol`, `wp-core-*` or `wp-components-*` findings and no calls to the vulnerability data services. In a local scan it also skips Composer matching with OSV.dev. Use it for a fast config-only pass, or where the data services aren't reachable and you have no cache. To use the cache without contacting the services, use `--offline` instead; see [Known vulnerabilities](Tuner-Known-Vulnerabilities).
 
 ---
 <sub>← [Reading results](Tuner-Reading-Results) · [Home](Home) · [Requests and politeness](Tuner-Requests) →</sub>

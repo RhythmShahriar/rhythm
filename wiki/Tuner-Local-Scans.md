@@ -1,4 +1,4 @@
-A local scan reads a site's files in place, usually on the server itself, instead of sending requests to it. It reads exact versions, reviews `wp-config.php`, finds files that don't belong in a web root, matches Composer packages, and checks the preconditions for CVE-2026-115560. This page covers when to use it, what it reads, every local finding, and what it never does.
+A local scan reads a site's files in place, usually on the server itself, instead of sending requests to it. It reads exact versions, reviews `wp-config.php`, finds files that don't belong in a web root, matches Composer packages and checks the preconditions for CVE-2026-115560. This page covers when to use it, what it reads, every local finding and what it never does.
 
 ```sh
 rhythm tuner scan /var/www/yoursite
@@ -6,7 +6,7 @@ rhythm tuner scan /var/www/yoursite
 
 ## When to use a local scan
 
-From the outside, Tuner has to guess versions, and many servers hide PHP's. On the machine it can read them. Use a local scan when:
+From the outside, Tuner has to guess versions. Many servers hide PHP's. On the machine it can read them. Use a local scan when:
 
 - **You can log in to the server** (SSH, a container shell, a CI job with the code checked out).
 - **The PHP version is hidden** and you need to know whether the site is patched.
@@ -14,7 +14,7 @@ From the outside, Tuner has to guess versions, and many servers hide PHP's. On t
 - **You want configuration review**: keys and salts, debug mode, file permissions, the dashboard file editor.
 - **The site sits behind a firewall** or isn't public yet.
 
-It doesn't replace a remote scan. A local scan can't tell whether the web server actually serves a stray file, and it doesn't check headers, cookies or TLS. Run both when you can. See [Remote and local scans](Tuner#remote-and-local-scans).
+It doesn't replace a remote scan. A local scan can't tell whether the web server actually serves a stray file. It doesn't check headers, cookies or TLS either. Run both when you can. See [Remote and local scans](Tuner#remote-and-local-scans).
 
 ## Running it
 
@@ -30,7 +30,7 @@ A target is local when it starts with `.`, `/` or `~`, or names an existing dire
 
 Run Tuner as a user that can read every file in the site, such as the site's own user. Files it can't read are skipped.
 
-Output, `--fail-on`, `--baseline` and the other output flags work exactly as for remote scans. Finding URLs use `file://`, and paths are relative to the folder you scanned.
+Output, `--fail-on`, `--baseline` and the other output flags work exactly as for remote scans. Finding URLs use `file://`. Paths are relative to the folder you scanned.
 
 ### Example
 
@@ -115,7 +115,7 @@ These versions go through the same known-vulnerability matching as remote scans 
 
 ### Choosing the right PHP: --php
 
-The command-line `php` can differ from the PHP your web server runs. PHP-FPM pools often use another version, and servers may have several installed. Pass the one that serves the site:
+The command-line `php` can differ from the PHP your web server runs. PHP-FPM pools often use another version. Servers may also have several installed. Pass the one that serves the site:
 
 ```sh
 rhythm tuner scan /var/www/yoursite --php /usr/bin/php8.3
@@ -137,7 +137,7 @@ Tuner reads `wp-config.php` as text and never runs it. Like WordPress, it also l
 |---|---|---|
 | `local-wp-salts` | medium | Keys and salts are missing, left as the sample placeholder, empty, or duplicated. WordPress then falls back to salts stored in the database, so a database leak lets an attacker forge login cookies. |
 | `local-wp-debug` | medium | `WP_DEBUG` is on and errors are shown to visitors, or logged to the public `wp-content/debug.log`. |
-| | low | `WP_DEBUG` is on, but errors are hidden and logged elsewhere. |
+| | low | `WP_DEBUG` is on; errors are hidden and logged elsewhere. |
 | `local-wp-file-edit` | low | Neither `DISALLOW_FILE_EDIT` nor `DISALLOW_FILE_MODS` is true, so an admin account takeover becomes code execution. Defense in depth, so low. |
 | `local-wp-config-perms` | low | `wp-config.php` is readable by every user on the server. Not checked on Windows. |
 | `local-wp-table-prefix` | info | The default `wp_` table prefix. Obscurity only, so no score penalty. |
@@ -147,7 +147,7 @@ Tuner reads `wp-config.php` as text and never runs it. Like WordPress, it also l
 
 How settings are read:
 
-- Commented-out `define()` lines don't count, and the first definition of a constant wins, as in PHP.
+- Commented-out `define()` lines don't count. The first definition of a constant wins, as in PHP.
 - Keys and salts set from code, such as `getenv()`, aren't judged.
 - The other settings count only when set to a literal value. A constant computed in code, such as `define( 'DISALLOW_FILE_EDIT', getenv( 'WP_NO_EDIT' ) )`, is treated as not set.
 - When `wp-config.php` includes other PHP files (besides `wp-settings.php`), a setting may be defined there. Findings about **missing** settings are then marked likely, with the evidence line `wp-config.php includes other files, which may set this`.
@@ -161,7 +161,7 @@ Tuner walks the web root looking for stray files. A local scan can't tell whethe
 | `local-dotenv` | high (medium without secrets) | `.env`, `.env.production`… Templates (`.env.example`, `.env.sample`, `.env.dist`, `.env.template`, `.env.defaults`) are ignored. |
 | `local-wp-config-backup` | high | `wp-config.php.bak`, `.old`, `.save`, `~`, `.swp`… which a server sends as plain text |
 | `local-sql-dump` | high | `*.sql`, `*.sql.gz` and other compressed dumps, `.mysql`, `.pgsql`, SQLite files |
-| `local-backup-archive` | high | backup-looking archives (`backup`, `site`, `db`, a year…), `.wpress`, `wp-content.zip`, and any archive at the top level |
+| `local-backup-archive` | high | backup-looking archives (`backup`, `site`, `db`, a year…), `.wpress`, `wp-content.zip` and any archive at the top level |
 | `local-composer-auth` | high | Composer `auth.json` with tokens |
 | `local-private-key` | high | `*.pem`, `*.key`, `id_rsa`, `id_ecdsa`, `id_ed25519` that contain a private key |
 | `local-vcs-dir` | medium | `.git`, `.svn`, `.hg` folders |
@@ -174,7 +174,7 @@ Secrets found in these files are shown masked, as everywhere else. Archives and 
 
 **Laravel.** For a Laravel project (an `artisan` file and a `public/` folder), only `public/` is the web root, so the project's own `.env` and `.git` aren't reported as stray files. The `.env` is still read for `local-laravel-debug`.
 
-**What the walk skips:** `node_modules`, `vendor` and `bower_components` (Composer packages are covered by `composer.lock`), `wp-content/cache`, and the media folders in `wp-content/uploads/<year>`. It doesn't follow symlinks, and stops after 250,000 entries with a warning to scan a smaller folder.
+**What the walk skips:** `node_modules`, `vendor` and `bower_components` (Composer packages are covered by `composer.lock`), `wp-content/cache` and the media folders in `wp-content/uploads/<year>`. It doesn't follow symlinks and stops after 250,000 entries with a warning to scan a smaller folder.
 
 ## Session upload progress (CVE-2026-115560)
 
@@ -215,9 +215,9 @@ Every PHP file in the site, **`vendor/` included**, since libraries manage sessi
 | Result | Severity |
 |---|---|
 | all four conditions confirmed | high |
-| configuration unsafe, but the order of calls couldn't be confirmed from one file (or the value set is computed, not a literal) | high, *likely* |
-| the code switches the handler, but PHP's configuration couldn't be read | medium, *likely* |
-| the code switches the handler, but the configured handler is `php` | low |
+| configuration unsafe; the order of calls couldn't be confirmed from one file (or the value set is computed, not a literal) | high, *likely* |
+| the code switches the handler; PHP's configuration couldn't be read | medium, *likely* |
+| the code switches the handler; the configured handler is `php` | low |
 | upload progress is off everywhere checked | info: mitigated |
 
 Sites whose code never switches the handler get no finding: PHP says they aren't affected.
@@ -236,11 +236,11 @@ php_admin_flag[session.upload_progress.enabled] = off
 
 Better still, remove the runtime `ini_set()` of `session.serialize_handler`, or call it with the configured handler. Rescan to confirm the result drops to info.
 
-From outside, Tuner can only see the two settings, and only when a `phpinfo()` page is exposed: the remote check `php-session-upload-progress` reports that at low confidence, alongside `php-phpinfo`. See [PHP advisories](Tuner-PHP-Advisories) for the wider picture.
+From outside, Tuner can see the two settings only when a `phpinfo()` page is exposed: the remote check `php-session-upload-progress` reports that at low confidence, alongside `php-phpinfo`. See [PHP advisories](Tuner-PHP-Advisories) for the wider picture.
 
 ## Selecting local findings
 
-Local findings have IDs starting with `local-` and the tag `local`, and the usual selection flags apply:
+Local findings have IDs starting with `local-` and the tag `local`. The usual selection flags apply:
 
 ```sh
 rhythm tuner scan /var/www/yoursite --id 'local-*'           # local checks only, no version matching
@@ -248,16 +248,16 @@ rhythm tuner scan /var/www/yoursite --exclude-id local-wp-table-prefix
 rhythm tuner scan /var/www/yoursite --no-vulns               # skip vulnerability and Composer matching
 ```
 
-The HTTP checks don't run in a local scan, and request flags (`--rate`, `-H`, `--cookie`, `-k`…) don't apply. `--proxy` and `--offline` still apply to downloading vulnerability data.
+The HTTP checks don't run in a local scan. Request flags (`--rate`, `-H`, `--cookie`, `-k`…) don't apply either. `--proxy` and `--offline` still apply to downloading vulnerability data.
 
 ## What it never does
 
 > [!IMPORTANT]
-> A local scan only reads. It never changes, moves or deletes the scanned files, and never runs the site's code.
+> A local scan only reads. It never changes, moves or deletes the scanned files and never runs the site's code.
 
-- **It runs at most two commands**, both with the `php` binary you chose and fixed arguments, without a shell: `php -n -r 'echo PHP_VERSION;'` for the version (`-n` loads no php.ini, so no `auto_prepend_file` can run), and, only when the site's code switches the session handler, the session-settings query, which loads php.ini with `auto_prepend_file` and `auto_append_file` forced empty.
+- **It runs at most two commands**, both with the `php` binary you chose and fixed arguments, without a shell: `php -n -r 'echo PHP_VERSION;'` for the version (`-n` loads no php.ini, so no `auto_prepend_file` can run). The other is the session-settings query, run only when the site's code switches the session handler. It loads php.ini with `auto_prepend_file` and `auto_append_file` forced empty.
 - **It sends no requests to the site.** The only network traffic is fetching vulnerability data (WPVulnerability, wordpress.org, php.net, OSV.dev), which `--offline` turns off.
-- **It reads at most 1 MB of any file** (8 KB for plugin and theme headers, 16 MB for `composer.lock`), doesn't follow symlinks, and stops walking after 250,000 entries.
+- **It reads at most 1 MB of any file** (8 KB for plugin and theme headers, 16 MB for `composer.lock`), doesn't follow symlinks and stops walking after 250,000 entries.
 - **It masks every secret** it finds, in every output format.
 
 ---

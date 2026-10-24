@@ -1,4 +1,4 @@
-This page explains every part of Tuner's terminal report: what each severity means and what to fix first, why some findings are marked "likely", and exactly how the Tune score is calculated.
+This page explains every part of Tuner's terminal report: what each severity means and what to fix first, why some findings are marked "likely" and exactly how the Tune score is calculated.
 
 ## Anatomy of the report
 
@@ -48,15 +48,15 @@ This page explains every part of Tuner's terminal report: what each severity mea
 8. **Fix.** The `→` line is the first line of the fix. The full fix, often with nginx and Apache variants, is in the Markdown and JSON reports.
 9. **Caveat.** Low-confidence findings get an `~ likely:` line saying why they can't be confirmed. See [Confidence](#confidence-and-likely-findings).
 10. **Compact list.** Low and info findings are one line each: a glyph, the title and the path.
-11. **Score panel.** The [Tune score](#the-tune-score), a bar, and the count per severity. The panel is green at 80 and above, amber from 50 to 79, and red below 50. With no findings it reads `✔ nothing out of tune`.
-12. **Stats.** How many checks ran, requests sent, and how long it took. Extra items appear when they apply: `N baselined` (findings hidden by `--baseline`), `throttled N× (slowed down)` (the site answered `429` or `503`; see [Requests](Tuner-Requests#retries-and-throttling)), and `N errors` (requests that failed after retries).
+11. **Score panel.** The [Tune score](#the-tune-score), a bar and the count per severity. The panel is green at 80 and above, amber from 50 to 79 and red below 50. With no findings it reads `✔ nothing out of tune`.
+12. **Stats.** How many checks ran, requests sent and how long it took. Extra items appear when they apply: `N baselined` (findings hidden by `--baseline`), `throttled N× (slowed down)` (the site answered `429` or `503`; see [Requests](Tuner-Requests#retries-and-throttling)) and `N errors` (requests that failed after retries).
 13. **Notes.** Lines starting with `!`: warnings (for example that cached vulnerability data was used because the data service couldn't be reached) and data attribution.
 
 Card text is truncated to fit 72 columns, marked with `…`. Save a report with `-o report.md` to read everything.
 
 ### Filled and outline badges
 
-The severity badge on a card is **filled** (solid background) for a confirmed finding and **outline** (colored text, no background) for a likely one, so the two read apart at a glance. Likely findings also carry the `~ likely:` caveat line, and in JSON they have `"confidence": "low"` and a `caveat` field.
+The severity badge on a card is **filled** (solid background) for a confirmed finding and **outline** (colored text, no background) for a likely one, so the two read apart at a glance. Likely findings also carry the `~ likely:` caveat line. In JSON they have `"confidence": "low"` and a `caveat` field.
 
 ### Glyphs
 
@@ -89,15 +89,15 @@ Use `--fail-on high` in CI to stop new critical or high findings from shipping; 
 
 ## Confidence and "likely" findings
 
-Every finding has a confidence of `high` or `low`. Low-confidence findings are shown as **likely**: the evidence points to a problem, but Tuner can't confirm it from where it stands. They're sorted after confirmed findings of the same severity and count half in the score.
+Every finding has a confidence of `high` or `low`. Low-confidence findings are shown as **likely**: the evidence points to a problem that Tuner can't confirm from where it stands. They're sorted after confirmed findings of the same severity and count half in the score.
 
 | Why it's likely | Caveat shown | What to do |
 |---|---|---|
 | **Distribution build.** The server reports a distro package version such as `PHP/7.4.3-4ubuntu2.19` or `Apache/2.4.57 (Debian)`. Distributions backport security fixes without changing the upstream version number. | `a distro build may already include the fix` | Check the package's security status with your distribution (for example its security tracker or `apt changelog`), or ask your host. |
 | **Hidden PHP version.** The site runs PHP but doesn't reveal which version (`php-version-hidden`). Tuner lists recent critical PHP flaws and the releases that fix them. | `the PHP version is hidden, so this can't be confirmed` | Check the version yourself: `php -v` on the server, your hosting panel, or WordPress → Tools → Site Health → Info → Server. Or run a [local scan](Tuner-Local-Scans). |
-| **End-of-life inference.** Branches past end of life stop getting advisories. Tuner infers that advisories for the oldest supported branch also reach older ones, and adds them with "no fix for this branch". | `inferred from a supported branch's advisories` | Upgrade to a supported PHP branch; that removes the question. |
-| **Order of calls (local CVE-2026-115560 check).** The configuration is unsafe and the code switches the session handler, but Tuner couldn't confirm from one file that the switch runs before `session_start()`. | `likely: the code's order of calls couldn't be confirmed from one file` | Apply the mitigation (turn off upload progress). See [Local scans](Tuner-Local-Scans#session-upload-progress-cve-2026-115560). |
-| **Unknown PHP configuration (local CVE-2026-115560 check).** The code switches the handler, but PHP's configuration couldn't be read. | `likely: PHP's configuration couldn't be read; check session.serialize_handler` | Check `session.serialize_handler` in the PHP that serves the site. |
+| **End-of-life inference.** Branches past end of life stop getting advisories. Tuner infers that advisories for the oldest supported branch also reach older ones and adds them with "no fix for this branch". | `inferred from a supported branch's advisories` | Upgrade to a supported PHP branch; that removes the question. |
+| **Order of calls (local CVE-2026-115560 check).** The configuration is unsafe and the code switches the session handler. Tuner couldn't confirm from one file that the switch runs before `session_start()`. | `likely: the code's order of calls couldn't be confirmed from one file` | Apply the mitigation (turn off upload progress). See [Local scans](Tuner-Local-Scans#session-upload-progress-cve-2026-115560). |
+| **Unknown PHP configuration (local CVE-2026-115560 check).** The code switches the handler; PHP's configuration couldn't be read. | `likely: PHP's configuration couldn't be read; check session.serialize_handler` | Check `session.serialize_handler` in the PHP that serves the site. |
 | **phpinfo() settings (remote CVE-2026-115560 check).** An exposed `phpinfo()` page shows the two risky settings; whether the code switches the handler can only be checked on the server. | `not confirmed from outside` | Delete the phpinfo page, then run a local scan. |
 | **Missing settings in an included file (local wp-config review).** `wp-config.php` includes other files that may define what's missing. | Evidence line: `wp-config.php includes other files, which may set this` | Check the included files. |
 
@@ -126,7 +126,7 @@ Each scan gets a score from 0 to 100. It's calculated in [`engine.Score`](https:
 
 Vulnerability findings have one ID per component (`vuln-plugin-elementor`, `vuln-theme-astra`, `vuln-php`…), so each vulnerable plugin counts separately.
 
-**Worked example.** A site with an exposed `.env` (critical), missing HSTS (medium), three missing security headers (low each), and a likely critical Apache finding from a distro build:
+**Worked example.** A site with an exposed `.env` (critical), missing HSTS (medium), three missing security headers (low each) and a likely critical Apache finding from a distro build:
 
 | Check | Penalty |
 |---|---|
@@ -174,7 +174,7 @@ Differences from the pretty view:
 - Findings **stream in the order they're found**, one `[SEVERITY] title - URL` line each, instead of being grouped by severity at the end.
 - Each finding has at most one detail: up to three advisories, the masked secrets, or the first evidence line.
 - The `fix:` line is shown only for critical and high findings.
-- A low-confidence finding reads `[SEVERITY, likely]`, with the reason on the next line, so logs never present it as confirmed. (Before v0.3.2 plain output left the marker out.) The Markdown report adds a "Why only likely" line, and `--json` has both `confidence` and `caveat`.
+- A low-confidence finding reads `[SEVERITY, likely]`, with the reason on the next line, so logs never present it as confirmed. (Before v0.3.2 plain output left the marker out.) The Markdown report adds a "Why only likely" line. `--json` has both `confidence` and `caveat`.
 - The summary is one line, `Score N/100 - counts - stats`, followed by `note:` lines.
 
 See [Output and reports](Tuner-Output) for every output mode.

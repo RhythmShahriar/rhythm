@@ -1,6 +1,6 @@
-Every Tuner command and flag, its exit codes, the environment variables Tuner and the rhythm installer read, and where files are kept. Verified against rhythm-tuner 0.3.1.
+Every Tuner command and flag, its exit codes, the environment variables Tuner and the rhythm installer read and where files are kept. Verified against rhythm-tuner 0.3.1.
 
-Tuner is the `rhythm-tuner` binary. `rhythm tuner …` (or `rhythm t …`) runs it, and so does `rhythm-tuner …` directly; this page uses the `rhythm tuner` form.
+Tuner is the `rhythm-tuner` binary. `rhythm tuner …` (or `rhythm t …`) runs it, as does `rhythm-tuner …` directly; this page uses the `rhythm tuner` form.
 
 ## Commands
 
@@ -8,7 +8,7 @@ Tuner is the `rhythm-tuner` binary. `rhythm tuner …` (or `rhythm t …`) runs 
 |---|---|---|
 | `rhythm tuner` | | Interactive picker in a terminal; prints help otherwise. See [below](#the-picker). |
 | `rhythm tuner scan <target>... [flags]` | `s` | Scan one or more sites (URLs or hostnames) or site directories. |
-| `rhythm tuner checks [flags]` | `ls` | List the checks a selection includes, and where they come from. |
+| `rhythm tuner checks [flags]` | `ls` | List the checks a selection includes and where they come from. |
 | `rhythm tuner update [--clear]` | | Refresh the check pack and cached vulnerability data now. |
 | `rhythm tuner version` | `-v`, `--version` | Print the version: `rhythm-tuner 0.3.1`. |
 | `rhythm tuner help` | `-h`, `--help` | Print the help text. `rhythm tuner scan --help` prints the same. |
@@ -90,7 +90,7 @@ See [Tuner Requests](Tuner-Requests).
 |---|---|---|
 | `--php <binary>` | `php` on `PATH` | The PHP binary to ask for its version and session settings. |
 
-Request flags don't apply to local scans, and HTTP checks don't run.
+In a local scan, request flags don't apply and HTTP checks don't run.
 
 ### Batch and CI
 
@@ -110,7 +110,7 @@ Duplicate targets are scanned once. See [Tuner Batch Scans](Tuner-Batch-Scans) a
 rhythm tuner checks [flags]
 ```
 
-Prints a table of checks (ID, severity, profile, tags, name), which check set is in use, and the count. `rhythm tuner checks --help` lists its flags.
+Prints a table of checks (ID, severity, profile, tags, name), which check set is in use and the count. `rhythm tuner checks --help` lists its flags.
 
 | Flag | Default | Description |
 |---|---|---|
@@ -132,7 +132,7 @@ rhythm tuner checks --tags wordpress --json  # machine-readable
 rhythm tuner update [--clear]
 ```
 
-Refreshes the [check pack](Tuner-Check-Packs) and every cached [vulnerability data](Tuner-Known-Vulnerabilities#caching-and-automatic-refresh) record now, ignoring the daily schedule, and says which checks scans will use. `rhythm update` runs it for you after updating the binaries.
+Refreshes the [check pack](Tuner-Check-Packs) and every cached [vulnerability data](Tuner-Known-Vulnerabilities#caching-and-automatic-refresh) record now, ignoring the daily schedule. It also says which checks scans will use. `rhythm update` runs it for you after updating the binaries.
 
 | Flag | Default | Description |
 |---|---|---|
@@ -156,7 +156,7 @@ Cache: /home/you/.cache/rhythm/tuner/vulns
 | `3` | A target couldn't be scanned (other targets' reports are still written), a report couldn't be written, or `update` failed to refresh something. |
 | `130` | Interrupted (Ctrl+C); partial results are written. |
 
-When several apply, `130` wins over `1`, and `1` over `3`. A run stopped by `--max-time` exits `3` (or `1` if `--fail-on` is met), with partial results.
+When several apply, `130` wins over `1` and `1` wins over `3`. A run stopped by `--max-time` exits `3` (or `1` if `--fail-on` is met), with partial results.
 
 ## Environment variables
 

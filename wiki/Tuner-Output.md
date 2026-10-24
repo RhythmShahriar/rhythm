@@ -1,4 +1,4 @@
-Tuner shows a live report in your terminal and can write the same results as JSON, JSON Lines, SARIF or Markdown. This page covers the terminal modes, each machine format, writing to a file with `-o`, and the fields in the JSON report.
+Tuner shows a live report in your terminal and can write the same results as JSON, JSON Lines, SARIF or Markdown. This page covers the terminal modes, each machine format, writing to a file with `-o` and the fields in the JSON report.
 
 ## At a glance
 
@@ -49,7 +49,7 @@ NO_COLOR=1 rhythm tuner scan yoursite.com
 
 ### Verbose
 
-`-v` logs every request to stderr as it completes, with its status and time, and `(attempt N)` on retries:
+`-v` logs every request to stderr as it completes, with its status, its time and `(attempt N)` on retries:
 
 ```text
 GET 200 https://yoursite.com 37ms
@@ -102,9 +102,9 @@ rhythm tuner scan https://staging.yoursite.com --sarif -o tuner.sarif
 
 ### Markdown
 
-`--md` writes a report for people: a title and summary line with the score, a collapsible table of plugins and themes with their versions and where each version came from, a table of findings, and a details section per finding with the check ID, severity, confidence, request and status, evidence, masked secrets, impact, an advisory table (CVE, fixed version, actively exploited), the full fix and references. Several sites are separated by horizontal rules.
+`--md` writes a report for people: a title and summary line with the score, a collapsible table of plugins and themes with their versions and where each version came from, a table of findings and a details section per finding with the check ID, severity, confidence, request and status, evidence, masked secrets, impact, an advisory table (CVE, fixed version, actively exploited), the full fix and references. Several sites are separated by horizontal rules.
 
-It pastes cleanly into GitHub issues and pull requests, and reads well as a client report.
+It pastes cleanly into GitHub issues and pull requests and reads well as a client report.
 
 ## Writing to a file: -o
 
@@ -193,7 +193,7 @@ The JSON report is the most complete output. Its layout is identified by `schema
 | `php_build` | the full build string when it has a distribution suffix, e.g. `7.4.3-4ubuntu2.19` |
 | `php_source` | the header and path the PHP version came from, e.g. `x-powered-by /wp-login.php` |
 | `server` | the `Server` header |
-| `components` | plugins and themes: `type`, `slug`, `version`, and `version_source` (`readme`, `style.css` or `asset` remotely; `plugin header` or `style.css` locally) |
+| `components` | plugins and themes: `type`, `slug`, `version` and `version_source` (`readme`, `style.css` or `asset` remotely; `plugin header` or `style.css` locally) |
 
 ### Finding fields
 
@@ -205,7 +205,7 @@ The JSON report is the most complete output. Its layout is identified by `schema
 | `confidence` | `high`, or `low` for [likely findings](Tuner-Reading-Results#confidence-and-likely-findings) |
 | `caveat` | why confidence is low, e.g. `a distro build may already include the fix` |
 | `target`, `url`, `path` | the site, the full URL (or `file://` path) and the path that triggered it |
-| `evidence` | `request` (e.g. `GET /.env`, or `version match`), `status`, `matched` (lines that matched), and `secrets` (each with `kind`, `name` and a `masked` value) |
+| `evidence` | `request` (e.g. `GET /.env`, or `version match`), `status`, `matched` (lines that matched) and `secrets` (each with `kind`, `name` and a `masked` value) |
 | `impact` | why it matters |
 | `fix` | how to fix it, often with nginx, Apache or WordPress variants on separate lines |
 | `references` | links for more detail |

@@ -1,4 +1,4 @@
-Tuner's remote checks are YAML files: one file per check, no Go code. This page covers the full check format, the fixtures every check needs, how to test locally, the rules every check follows, and a worked example of adding a check from start to finish.
+Tuner's remote checks are YAML files: one file per check, no Go code. This page covers the full check format, the fixtures every check needs, how to test locally, the rules every check follows and a worked example of adding a check from start to finish.
 
 ## Where checks live
 
@@ -68,14 +68,14 @@ Unknown fields are errors. A typo such as `regx:` fails to load with a clear mes
 ### How a check runs
 
 - Check requests **never follow redirects**: a `301` to a login page is a `301`, not the login page.
-- The home page (`/`) is fetched once, following redirects, and shared by every check that requests `/`. Header, cookie and TLS checks use it.
+- The home page (`/`) is fetched once (following redirects) and shared by every check that requests `/`. Header, cookie and TLS checks use it.
 - Responses are cached per scan, so two checks asking for the same path cost one request.
 - Matchers see at most the first 1 MB of a body.
 - A check that `requires` something the fingerprint didn't find is skipped and doesn't count toward the scan's check total.
 
 ## Matchers
 
-Each item in `all` or `any` is one matcher, and **every field set on it must hold**. Put conditions in separate items when you want them read separately; combine fields in one item when they belong together.
+Each item in `all` or `any` is one matcher. **Every field set on it must hold**. Put conditions in separate items when you want them read separately; combine fields in one item when they belong together.
 
 | Field | Holds when | Example |
 |---|---|---|
@@ -92,7 +92,7 @@ Each item in `all` or `any` is one matcher, and **every field set on it must hol
 | `tls` | `{expired, expires_within_days: N, untrusted, legacy}`: certificate and protocol state, for `/` on https targets. Set at least one; every one set must hold. | `tls: {expires_within_days: 14}` |
 | `not_baseline` | the response differs from the server's reply to a random path of the same shape | `not_baseline: true` |
 
-`all` and `any` combine like this: every matcher in `all` must hold, and if `any` is present, at least one of its matchers must too. Baseline comparisons run last, so a soft-404 probe is only requested when everything else already matched.
+`all` and `any` combine like this: every matcher in `all` must hold. If `any` is present, at least one of its matchers must too. Baseline comparisons run last, so a soft-404 probe is only requested when everything else already matched.
 
 > [!IMPORTANT]
 > Use `not_baseline: true` on every check for a file path. Many servers answer `200` for any URL (a "soft 404"). The baseline teaches Tuner what that looks like on each site, so a catch-all page never becomes a finding.
@@ -101,7 +101,7 @@ The finding's evidence shows what matched: the matched text (shortened to 120 ch
 
 ### Secrets
 
-`extract.secrets: true` scans the body for credentials and adds them to the finding, masked: a few leading characters, then `•`. It recognizes AWS access keys, Stripe live keys, Google API keys, GitHub and Slack tokens, private keys, credentials in URLs, `wp-config.php` defines (`DB_PASSWORD`, keys and salts), and `.env`-style `*PASS*`, `*SECRET*`, `*_KEY*`, `*TOKEN*` and `*AUTH*` variables. Placeholders such as `null`, `true` or `${VAR}` are ignored.
+`extract.secrets: true` scans the body for credentials and adds them to the finding, masked: a few leading characters, then `•`. It recognizes AWS access keys, Stripe live keys, Google API keys, GitHub and Slack tokens, private keys, credentials in URLs, `wp-config.php` defines (`DB_PASSWORD`, keys and salts) and `.env`-style `*PASS*`, `*SECRET*`, `*_KEY*`, `*TOKEN*` and `*AUTH*` variables. Placeholders such as `null`, `true` or `${VAR}` are ignored.
 
 Raw secret values never leave the matcher package: not in the terminal, not in any report format.
 
@@ -113,11 +113,11 @@ Raw secret values never leave the matcher package: not in the terminal, not in a
 | `default` | most checks: everything polite and non-intrusive. |
 | `deep` | aggressive enumeration that sends many requests. |
 
-Profiles are cumulative: `default` runs `quick` checks too, and `deep` runs everything. `--id` ignores profiles. Preview a selection with `rhythm tuner checks --profile quick`.
+Profiles are cumulative: `default` runs `quick` checks too; `deep` runs everything. `--id` ignores profiles. Preview a selection with `rhythm tuner checks --profile quick`.
 
 ## Fixtures
 
-Every check needs `<name>_test.yaml` next to it, with **at least one positive and one negative case**. The test suite starts a mock web server for each case, runs the check against it, and fails if a positive case produces no finding or a negative case produces one.
+Every check needs `<name>_test.yaml` next to it, with **at least one positive and one negative case**. The test suite starts a mock web server for each case, runs the check against it and fails if a positive case produces no finding or a negative case produces one.
 
 ```yaml
 positive:
@@ -156,7 +156,7 @@ negative:
 
 Unknown fields fail the test too. Every masked secret in every case is also checked to really be masked.
 
-**Good negatives** cover the ways a check could misfire: the file blocked (`403`), a soft-404 catch-all (`default` with `{{path}}`), a page that looks similar (an HTML download page named `backup.zip`), and a configuration that's already safe.
+**Good negatives** cover the ways a check could misfire: the file blocked (`403`), a soft-404 catch-all (`default` with `{{path}}`), a page that looks similar (an HTML download page named `backup.zip`) and a configuration that's already safe.
 
 ```yaml
 # TLS fixtures from checks/tls/cert-expiring_test.yaml
@@ -289,7 +289,7 @@ rhythm tuner scan staging.yoursite.com --checks ./checks --id leak-sftp-config
 **6. Open a pull request** with both files. CI runs the full suite. Once merged to `master`, the [checks-pack workflow](Tuner-Check-Packs#how-a-pack-is-published) runs every fixture again and publishes a new pack; scans pick it up within a day. See [Contributing](Contributing) for commit and review conventions.
 
 > [!TIP]
-> If your check needs a matcher that doesn't exist yet, that's a Go change in [`matchers/matchers.go`](https://github.com/RhythmShahriar/tuner/blob/master/matchers/matchers.go), and older binaries will skip packs that use it. See [min_tuner](Tuner-Check-Packs#compatibility-min_tuner-and-schema) for when to bump the pack's minimum version.
+> If your check needs a matcher that doesn't exist yet, that's a Go change in [`matchers/matchers.go`](https://github.com/RhythmShahriar/tuner/blob/master/matchers/matchers.go). Older binaries will skip packs that use it. See [min_tuner](Tuner-Check-Packs#compatibility-min_tuner-and-schema) for when to bump the pack's minimum version.
 
 ---
 <sub>← [CI and code scanning](Tuner-CI) · [Home](Home) · [Check packs](Tuner-Check-Packs) →</sub>

@@ -17,7 +17,7 @@ Tuner couldn't load the home page, so it couldn't scan anything. Work through th
 4. **Slow sites.** Raise the per-request timeout: `--timeout 30s`.
 5. **Proxies.** On a network that requires a proxy, set `HTTPS_PROXY` or pass `--proxy`. See [Proxies](#proxies-and-corporate-networks).
 
-For a bare hostname, Tuner tries `https://` first and then `http://`; the error shows the last attempt. Run with `-v` to see every request. In a [batch scan](Tuner-Batch-Scans) the other sites carry on, and the run exits `3`.
+For a bare hostname, Tuner tries `https://` first and then `http://`; the error shows the last attempt. Run with `-v` to see every request. In a [batch scan](Tuner-Batch-Scans) the other sites carry on and the run exits `3`.
 
 ### Invalid TLS certificate
 
@@ -37,7 +37,7 @@ If **every** https site fails this way, something on your network is interceptin
 
 ### The site answers "200 OK" for everything (soft 404)
 
-Some sites return a normal page with status `200` for URLs that don't exist. Tuner detects this before running checks; the report says `Baseline  soft-404 detected, filtering enabled`. Every hit on a sensitive path is then compared with a random path of the same shape (same folder, same extension, dotfile or not), and ignored if the two responses match. You don't need to do anything.
+Some sites return a normal page with status `200` for URLs that don't exist. Tuner detects this before running checks; the report says `Baseline  soft-404 detected, filtering enabled`. Every hit on a sensitive path is then compared with a random path of the same shape (same folder, same extension, dotfile or not). It's ignored if the two responses match. You don't need to do anything.
 
 If you still see a finding you believe is a soft-404 page, look at its evidence (`-o report.md` shows the request, status and matched text) and [report it](#reporting-a-false-positive-or-a-bug).
 
@@ -63,7 +63,7 @@ For a complete, exact inventory, run a [local scan](Tuner-Local-Scans) on the se
 
 ### Why is the PHP version hidden?
 
-Many servers and page caches remove `X-Powered-By`, which is good practice. Tuner tries up to three uncacheable endpoints (such as `/xmlrpc.php`) to find it. If it's still hidden, the fingerprint shows `PHP` with no number, and you may get `php-version-hidden`: a medium, low-confidence finding listing recent critical PHP flaws and the releases that fix them.
+Many servers and page caches remove `X-Powered-By`, which is good practice. Tuner tries up to three uncacheable endpoints (such as `/xmlrpc.php`) to find it. If it's still hidden, the fingerprint shows `PHP` with no number. You may also get `php-version-hidden`: a medium, low-confidence finding listing recent critical PHP flaws and the releases that fix them.
 
 To resolve it, check the version yourself: `php -v` on the server (the command line can run a different PHP than the web server), your hosting panel, or WordPress → Tools → Site Health → Info → Server. Or run a [local scan](Tuner-Local-Scans) with `--php` pointing at the PHP that serves the site. Then fix or dismiss the finding. See [Known vulnerabilities](Tuner-Known-Vulnerabilities).
 
@@ -118,7 +118,7 @@ The scan itself still needs to reach the site, or use a [local scan](Tuner-Local
 
 ### Proxies and corporate networks
 
-Tuner uses the standard proxy variables (`HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`), or `--proxy` to override them. HTTP, HTTPS and SOCKS5 proxies work, and the proxy is used for the scan, the vulnerability data and the check pack.
+Tuner uses the standard proxy variables (`HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`), or `--proxy` to override them. HTTP, HTTPS and SOCKS5 proxies work. The proxy is used for the scan, the vulnerability data and the check pack.
 
 ```sh
 rhythm tuner scan yoursite.com --proxy http://proxy.corp.example:3128
@@ -139,7 +139,7 @@ Behind a proxy, Tuner skips the TLS 1.0/1.1 test, because it needs a direct conn
   rhythm tuner scan https://staging.yoursite.com -H "Authorization: Basic $auth"
   ```
 
-- **Local scans** take Windows paths: an existing folder such as `C:\inetpub\wwwroot\yoursite`, or a relative one such as `.\yoursite`. The `wp-config.php` permissions check is skipped on Windows, and the session-settings check reads Linux PHP configuration paths, so it's most useful on the server itself.
+- **Local scans** take Windows paths: an existing folder such as `C:\inetpub\wwwroot\yoursite`, or a relative one such as `.\yoursite`. The `wp-config.php` permissions check is skipped on Windows. The session-settings check reads Linux PHP configuration paths, so it's most useful on the server itself.
 - **Quote globs** in PowerShell too: `--id 'leak-*'`.
 
 ### Where is data cached?
@@ -152,7 +152,7 @@ Under your user cache directory:
 | macOS | `~/Library/Caches/rhythm/tuner` |
 | Windows | `%LocalAppData%\rhythm\tuner` |
 
-Inside it, `vulns/` holds the vulnerability data (WPVulnerability, wordpress.org, php.net, and `osv/` for Composer packages), and `checks/` holds the check pack. `rhythm tuner update` refreshes both and prints the cache path; `rhythm tuner update --clear` deletes them.
+Inside it, `vulns/` holds the vulnerability data (WPVulnerability, wordpress.org, php.net and `osv/` for Composer packages). `checks/` holds the check pack. `rhythm tuner update` refreshes both and prints the cache path; `rhythm tuner update --clear` deletes them.
 
 The one-time responsible-use notice is remembered in your user config directory (`~/.config/rhythm` on Linux).
 
@@ -160,13 +160,13 @@ The one-time responsible-use notice is remembered in your user config directory 
 
 Open an issue at [github.com/RhythmShahriar/tuner/issues](https://github.com/RhythmShahriar/tuner/issues). Include:
 
-- the output of `rhythm tuner --version`, and `check_set` / `check_pack` from a JSON report;
+- the output of `rhythm tuner --version` and `check_set` / `check_pack` from a JSON report;
 - the finding's **ID**, severity and evidence (request, status, matched text);
-- why you believe it's wrong, and what the URL actually returns;
+- why you believe it's wrong and what the URL actually returns;
 - the fingerprint line, if it's a version-based finding.
 
 > [!WARNING]
-> Never paste unmasked secrets, credentials, private URLs or client data into a public issue. Tuner's output is already masked; keep it that way, and replace your real domain with `yoursite.com` if you need to.
+> Never paste unmasked secrets, credentials, private URLs or client data into a public issue. Tuner's output is already masked; keep it that way. Replace your real domain with `yoursite.com` if you need to.
 
 Want a new check, or have one ready? See [Writing checks](Tuner-Writing-Checks) and [Contributing](Contributing).
 

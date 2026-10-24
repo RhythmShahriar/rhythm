@@ -1,4 +1,4 @@
-Every finding ID Tuner 0.3.1 can produce, with its default severity and a one-line meaning. Use these IDs with `--id`, `--exclude-id` and baselines, and to look up a finding you got in a report.
+Every finding ID Tuner 0.3.1 can produce, with its default severity and a one-line meaning. Use these IDs with `--id`, `--exclude-id` and baselines. They also help you look up a finding you got in a report.
 
 There are three kinds:
 
@@ -83,7 +83,7 @@ IDs written with `<…>` are patterns: `vuln-plugin-<slug>` becomes `vuln-plugin
 
 ## Vulnerability and version findings
 
-From matching detected versions against [vulnerability data](Tuner-Known-Vulnerabilities). They run alongside the checks in every profile, and are skipped with `--no-vulns`. The `vuln-*` severity is the worst severity among the advisories that apply (an unrated advisory counts as medium).
+From matching detected versions against [vulnerability data](Tuner-Known-Vulnerabilities). They run alongside the checks in every profile and are skipped with `--no-vulns`. The `vuln-*` severity is the worst severity among the advisories that apply (an unrated advisory counts as medium).
 
 | ID | Severity | Meaning |
 |---|---|---|
@@ -97,13 +97,13 @@ From matching detected versions against [vulnerability data](Tuner-Known-Vulnera
 | `php-eol` | high | The PHP branch no longer gets security fixes. |
 | `nginx-eol` | medium | The nginx branch no longer gets security fixes. |
 | `apache-eol` | medium | The Apache branch no longer gets security fixes. |
-| `php-version-hidden` | medium, *likely* | The site runs PHP but hides its version, and recent critical PHP flaws can't be ruled out. |
+| `php-version-hidden` | medium, *likely* | The site runs PHP but hides its version, so recent critical PHP flaws can't be ruled out. |
 | `wp-core-outdated` | low | A newer WordPress release exists (reported only when `vuln-core` isn't). |
 | `wp-components-outdated` | low | Plugins or themes have newer releases on wordpress.org (one finding lists them all). |
 | `wp-plugin-closed` | medium | The plugin was closed on wordpress.org, often for an unfixed security issue. |
 | `wp-theme-closed` | medium | The theme was closed on wordpress.org. |
 | `wp-components-abandoned` | low | Plugins or themes with no release in over two years. |
-| `wp-components-unverified` | info, *likely* | Plugins or themes have known vulnerabilities in some versions, but their installed versions couldn't be read. |
+| `wp-components-unverified` | info, *likely* | Plugins or themes have known vulnerabilities in some versions, though their installed versions couldn't be read. |
 
 `vuln-php`, `vuln-nginx`, `vuln-apache` and the `*-eol` findings drop to *likely* when the version string names a distribution build, which may include backported fixes.
 
@@ -117,7 +117,7 @@ From `rhythm tuner scan <directory>`. See [Tuner Local Scans](Tuner-Local-Scans)
 |---|---|---|
 | `local-wp-salts` | medium | Keys and salts in `wp-config.php` are missing, the sample placeholder, empty or duplicated, so a database leak lets an attacker forge login cookies. |
 | `local-wp-debug` | medium | `WP_DEBUG` is on and errors are shown to visitors, or logged to the public `wp-content/debug.log`. |
-| | low | `WP_DEBUG` is on, but errors are hidden and logged elsewhere. |
+| | low | `WP_DEBUG` is on; errors are hidden and logged elsewhere. |
 | `local-wp-file-edit` | low | `DISALLOW_FILE_EDIT` isn't true, so an admin account takeover becomes code execution. |
 | `local-wp-config-perms` | low | `wp-config.php` is readable by every user on the server. |
 | `local-wp-table-prefix` | info | Tables use the default `wp_` prefix. Obscurity only, no score penalty. |
@@ -148,9 +148,9 @@ Settings Tuner can't see in `wp-config.php` itself (for example, when it include
 | ID | Severity | Meaning |
 |---|---|---|
 | `local-php-session-upload-progress` | high | All four [CVE-2026-115560](Tuner-PHP-Advisories#session-upload-progress-cve-2026-115560) conditions hold. |
-| | high, *likely* | The configuration is unsafe, but the order of calls couldn't be confirmed from one file. |
-| | medium, *likely* | The code switches the serialize handler, but PHP's configuration couldn't be read. |
-| | low | The code switches the handler, but the configured handler is `php`, so it isn't reachable now. |
+| | high, *likely* | The configuration is unsafe; the order of calls couldn't be confirmed from one file. |
+| | medium, *likely* | The code switches the serialize handler; PHP's configuration couldn't be read. |
+| | low | The code switches the handler. The configured handler is `php`, so it isn't reachable now. |
 | | info | Upload progress is off everywhere checked: mitigated. |
 
 Local scans also report every [vulnerability and version finding](#vulnerability-and-version-findings) above, using versions read from disk.

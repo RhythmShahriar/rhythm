@@ -1,8 +1,8 @@
-Run Tuner on a schedule or on every deploy, show its findings in GitHub's **Security** tab, and fail a pipeline when something serious appears. This page covers GitHub Actions in detail; the same commands work in any CI.
+Run Tuner on a schedule or on every deploy, show its findings in GitHub's **Security** tab and fail a pipeline when something serious appears. This page covers GitHub Actions in detail; the same commands work in any CI.
 
 ## Weekly scan with GitHub code scanning
 
-Tuner writes [SARIF](https://docs.github.com/en/code-security/code-scanning/integrating-with-code-scanning/sarif-support-for-code-scanning), which GitHub turns into code scanning alerts: each finding appears in the repository's **Security → Code scanning** list, with its severity, the fix, and history across runs.
+Tuner writes [SARIF](https://docs.github.com/en/code-security/code-scanning/integrating-with-code-scanning/sarif-support-for-code-scanning), which GitHub turns into code scanning alerts: each finding appears in the repository's **Security → Code scanning** list, with its severity, the fix and history across runs.
 
 ```yaml
 # .github/workflows/tuner.yml
@@ -73,7 +73,7 @@ rhythm tuner scan https://staging.yoursite.com -o tuner-baseline.json
 rhythm tuner scan https://staging.yoursite.com --baseline tuner-baseline.json --fail-on medium
 ```
 
-Findings are matched by **check ID and URL**. Commit the baseline to the repository, so accepting a finding is a reviewed change, and the summary line shows how many were hidden ("3 baselined"). A finding that changes (for example a plugin gets a *new* vulnerability) keeps the same ID and URL, so review the baseline when you update it.
+Findings are matched by **check ID and URL**. Commit the baseline to the repository so accepting a finding is a reviewed change. The summary line shows how many were hidden ("3 baselined"). A finding that changes (for example a plugin gets a *new* vulnerability) keeps the same ID and URL, so review the baseline when you update it.
 
 ## Keeping reports
 
@@ -122,7 +122,7 @@ In CI, Tuner never prints the "new release" notice: it's off whenever the `CI` e
 
 ## Other CI systems
 
-Nothing above is GitHub-specific except the SARIF upload. In GitLab CI, Jenkins or a cron job, install with the same one-liner, run the scan with `--fail-on`, and keep `-o report.md` or `-o report.json` as an artifact. For many sites at once, see [Batch scans](Tuner-Batch-Scans).
+Nothing above is GitHub-specific except the SARIF upload. In GitLab CI, Jenkins or a cron job, install with the same one-liner, run the scan with `--fail-on` and keep `-o report.md` or `-o report.json` as an artifact. For many sites at once, see [Batch scans](Tuner-Batch-Scans).
 
 > [!IMPORTANT]
 > Point CI at sites you own or are authorized to test, ideally staging. Scheduled scans of production are fine at Tuner's default rate (5 requests a second); see [Requests and politeness](Tuner-Requests).

@@ -1,4 +1,4 @@
-Tuner is polite by default: five requests a second, a slower pace when a site pushes back, and an honest user agent. This page covers every flag that shapes the requests a remote scan sends, and how to scan staging sites, sites behind a login, and sites behind Cloudflare or another firewall.
+Tuner is polite by default: five requests a second, a slower pace when a site pushes back and an honest user agent. This page covers every flag that shapes the requests a remote scan sends. It also covers how to scan staging sites, sites behind a login and sites behind Cloudflare or another firewall.
 
 None of these flags apply to [local scans](Tuner-Local-Scans), which send no requests to the site.
 
@@ -40,12 +40,12 @@ Both limits are **per site**. When you scan several sites with `--parallel`, eac
 2. Retries, up to `--retries` times.
 3. **Halves its request rate for the rest of the scan.** Each further throttling reply halves it again, down to one request every two seconds.
 
-If the site still answers `429` or `503` after the last retry, Tuner keeps that response and moves on. The stats line at the end says how often it happened (`throttled 3× (slowed down)`), and the JSON report has the count in `throttled`.
+If the site still answers `429` or `503` after the last retry, Tuner keeps that response and moves on. The stats line at the end says how often it happened (`throttled 3× (slowed down)`). The JSON report has the count in `throttled`.
 
-With `--rate 0` there's no limiter to slow down, but Tuner still honors `Retry-After` and retries.
+With `--rate 0` there's no limiter to slow down. Tuner still honors `Retry-After` and retries.
 
 > [!TIP]
-> If a scan is throttled often, start lower: `--rate 1` or `--rate 2`. You'll finish sooner than with repeated back-offs, and you won't trip rate-limit bans.
+> If a scan is throttled often, start lower: `--rate 1` or `--rate 2`. You'll finish sooner than with repeated back-offs and won't trip rate-limit bans.
 
 ## Timeouts and --max-time
 
@@ -95,7 +95,7 @@ A header must look like `Name: value`; anything else is a usage error.
 rhythm tuner scan http://203.0.113.10 -H "Host: yoursite.com"
 ```
 
-Over `https://` the certificate won't match the IP address, so add `-k`, and expect a `tls-cert-untrusted` finding that doesn't apply to the real hostname.
+Over `https://` the certificate won't match the IP address, so add `-k` and expect a `tls-cert-untrusted` finding that doesn't apply to the real hostname.
 
 ## Cookies: scanning as a logged-in user
 
@@ -105,7 +105,7 @@ Over `https://` the certificate won't match the IP address, so add `-k`, and exp
 rhythm tuner scan https://staging.yoursite.com --cookie "wordpress_logged_in_abc123=…"
 ```
 
-Some sites only reveal certain pages or headers to logged-in users. Tuner still sends only GET requests, but they run with that user's rights, so use a low-privilege account where you can, and log the session out afterwards.
+Some sites only reveal certain pages or headers to logged-in users. Tuner still sends only GET requests. They run with that user's rights, though, so use a low-privilege account where you can. Log the session out afterwards.
 
 ## Proxies
 
@@ -116,7 +116,7 @@ rhythm tuner scan yoursite.com --proxy http://127.0.0.1:8080
 rhythm tuner scan yoursite.com --proxy socks5://127.0.0.1:1080
 ```
 
-Without `--proxy`, Tuner uses the standard environment variables: `HTTPS_PROXY` for https URLs, `HTTP_PROXY` for http URLs, and `NO_PROXY` for exceptions (lower-case names work too).
+Without `--proxy`, Tuner uses the standard environment variables: `HTTPS_PROXY` for https URLs, `HTTP_PROXY` for http URLs and `NO_PROXY` for exceptions (lower-case names work too).
 
 ```sh
 export HTTPS_PROXY=http://proxy.corp.example:3128
@@ -127,7 +127,7 @@ rhythm tuner scan yoursite.com
 
 ## Invalid certificates: -k
 
-By default Tuner verifies certificates, and stops on a site whose certificate can't be verified:
+By default Tuner verifies certificates and stops on a site whose certificate can't be verified:
 
 ```text
 rhythm tuner: staging.yoursite.com: can't reach staging.yoursite.com: invalid TLS certificate: x509: certificate signed by unknown authority (rerun with --insecure to scan anyway)
@@ -167,7 +167,7 @@ What helps:
 4. **Run a [local scan](Tuner-Local-Scans)** on the server, which doesn't go through the firewall at all.
 
 > [!IMPORTANT]
-> Don't try to evade a firewall you don't control. Scan only sites you own or have permission to test, and coordinate with whoever runs the firewall.
+> Don't try to evade a firewall you don't control. Scan only sites you own or have permission to test. Coordinate with whoever runs the firewall.
 
 ---
 <sub>← [Choosing checks](Tuner-Choosing-Checks) · [Home](Home) · [Output and reports](Tuner-Output) →</sub>

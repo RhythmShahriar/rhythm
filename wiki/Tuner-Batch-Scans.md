@@ -1,4 +1,4 @@
-Tuner can scan many sites in one run: from the command line, a list file or standard input, several at a time. This page covers the list format, parallelism and rate limits, output for many sites, exit codes when some sites fail, and a weekly scan for an agency.
+Tuner can scan many sites in one run: from the command line, a list file or standard input, several at a time. This page covers the list format, parallelism and rate limits, output for many sites, exit codes when some sites fail and a weekly scan for an agency.
 
 ## Three ways to pass targets
 
@@ -12,7 +12,7 @@ You can combine them: `rhythm tuner scan yoursite.com -l sites.txt` scans `yours
 
 ## List file format
 
-One target per line. Anything after `#` is a comment, blank lines are skipped, surrounding spaces are trimmed, and duplicates are scanned once:
+One target per line. Anything after `#` is a comment, blank lines are skipped, surrounding spaces are trimmed and duplicates are scanned once:
 
 ```text
 # Client sites, scanned weekly
@@ -91,7 +91,7 @@ Reports for the sites that worked are still written. The exit code tells you wha
 
 | Code | Meaning |
 |---|---|
-| `0` | every site was scanned, and nothing reached `--fail-on` |
+| `0` | every site was scanned and nothing reached `--fail-on` |
 | `1` | at least one site has a finding at or above `--fail-on` |
 | `2` | usage error, e.g. a bad flag or an invalid target; nothing was scanned |
 | `3` | at least one site couldn't be scanned, or was cut short by `--max-time` |
@@ -128,7 +128,7 @@ rhythm tuner scan -l sites.txt --parallel 4 --rate 3 --max-time 30m \
 echo "$day exit $?" >> reports/runs.log
 ```
 
-The plain terminal view and any errors go to a dated log next to the report, and `runs.log` keeps each run's exit code.
+The plain terminal view and any errors go to a dated log next to the report. `runs.log` keeps each run's exit code.
 
 **3. The schedule.** Run `crontab -e` and add:
 
@@ -137,7 +137,7 @@ The plain terminal view and any errors go to a dated log next to the report, and
 0 6 * * 1  /bin/sh "$HOME/tuner/weekly.sh"
 ```
 
-Putting the date logic in the script avoids cron's special handling of `%`. The `PATH` line matters: cron runs with a minimal `PATH`, and `rhythm` finds Tuner through `PATH`. If you installed somewhere else, or as root (`/usr/local/bin`), adjust it.
+Putting the date logic in the script avoids cron's special handling of `%`. The `PATH` line matters because `rhythm` finds Tuner through `PATH` and cron runs with a minimal one. If you installed somewhere else, or as root (`/usr/local/bin`), adjust it.
 
 > [!NOTE]
 > Tuner checks for a newer release at most once a day and only mentions it; it never replaces binaries by itself. Keep scheduled hosts current with `rhythm update` (which also refreshes the data), or set `RHYTHM_NO_UPDATE_CHECK=1` to silence the check. See [Updating](Updating).

@@ -1,9 +1,9 @@
-Besides its YAML checks, every Tuner scan matches the software versions it finds against public vulnerability data: WordPress core, plugins, themes, PHP, nginx and Apache, plus Composer packages in local scans. This page explains where the data comes from, how matching works, what each finding means, and how the data stays current.
+Besides its YAML checks, every Tuner scan matches the software versions it finds against public vulnerability data: WordPress core, plugins, themes, PHP, nginx and Apache, plus Composer packages in local scans. This page explains where the data comes from, how matching works, what each finding means and how the data stays current.
 
 ## At a glance
 
-- One finding per vulnerable component, listing every advisory that applies, with CVE, severity, CVSS, the version that fixes it, and whether attackers are using it in the wild.
-- Extra findings for outdated, closed and abandoned plugins and themes, end-of-life PHP and web servers, and sites that hide their PHP version.
+- One finding per vulnerable component, listing every advisory that applies, with CVE, severity, CVSS, the version that fixes it and whether attackers are using it in the wild.
+- Extra findings for outdated, closed and abandoned plugins and themes, for end-of-life PHP and web servers and for sites that hide their PHP version.
 - No API key. Data is cached on your machine and refreshed automatically once it's a day old.
 - Matching runs alongside the checks in every scan. Turn it off with `--no-vulns`, or run only matching with `--id 'vuln-*'`.
 
@@ -19,7 +19,7 @@ rhythm tuner scan yoursite.com --no-vulns       # checks only
 |---|---|---|
 | [WPVulnerability](https://www.wpvulnerability.com/) | advisories for WordPress core, plugins, themes, PHP, nginx and Apache, plus end-of-life dates for PHP and server branches | public domain (CC0). Aggregates CVE, Wordfence, WPScan and Patchstack |
 | [api.wordpress.org](https://api.wordpress.org/) | latest WordPress release; each plugin's and theme's latest version and last update date | used for "outdated" and "abandoned" findings |
-| [php.net release states](https://www.php.net/releases/states.php) | which PHP branches are supported, and until when | drives hidden-version and end-of-life inference, so a new PHP branch or end of life needs no Tuner update |
+| [php.net release states](https://www.php.net/releases/states.php) | which PHP branches are supported and until when | drives hidden-version and end-of-life inference, so a new PHP branch or end of life needs no Tuner update |
 | [OSV.dev](https://osv.dev/) | Composer packages from `composer.lock` ([local scans](Tuner-Local-Scans) only) | GitHub Advisory Database and FriendsOfPHP |
 
 Findings from vulnerability data carry their source for attribution. The terminal shows it once at the end of a scan:
@@ -41,7 +41,7 @@ In JSON, each such finding has `"source": "WPVulnerability (wpvulnerability.com,
 | nginx, Apache | the `Server` header, e.g. `nginx/1.24.0`, `Apache/2.4.57 (Debian)` | not read |
 | Composer packages | not read | `composer.lock` |
 
-Plugins and themes are found from the asset URLs on the home page (`/wp-content/plugins/<slug>/…`, `/wp-content/themes/<slug>/…`). Up to 50 of them get a version lookup per scan. The `quick` profile skips those lookups, so it relies on `?ver=` hints, and an asset's `?ver=` is ignored when it equals the WordPress version (many plugins pass that instead of their own).
+Plugins and themes are found from the asset URLs on the home page (`/wp-content/plugins/<slug>/…`, `/wp-content/themes/<slug>/…`). Up to 50 of them get a version lookup per scan. The `quick` profile skips those lookups, so it relies on `?ver=` hints. An asset's `?ver=` is ignored when it equals the WordPress version (many plugins pass that instead of their own).
 
 ## One finding per component
 
@@ -68,9 +68,9 @@ Tuner groups every advisory that affects an installed version into a single find
 How a finding is built:
 
 - **Severity** is the worst advisory's severity. An unrated advisory counts as medium.
-- **Advisories** are ordered: actively exploited first, then by severity, then by CVSS score. The terminal shows the top three, the finding's evidence the top five; JSON and Markdown list every advisory, and SARIF carries every CVE.
+- **Advisories** are ordered: actively exploited first, then by severity, then by CVSS score. The terminal shows the top three, the finding's evidence the top five. JSON and Markdown list every advisory; SARIF carries every CVE.
 - **Fixed in** is the first safe version, when the advisory states one. The fix line names the highest fixed version across all advisories, so one update clears them all. When no fixed version is known, Tuner says so and suggests removing or replacing the component.
-- **Actively exploited** marks advisories in CISA's [Known Exploited Vulnerabilities](https://www.cisa.gov/known-exploited-vulnerabilities-catalog) catalog. They're tagged `[actively exploited]`, the finding gets the `known-exploited` tag, and the impact says how many there are.
+- **Actively exploited** marks advisories in CISA's [Known Exploited Vulnerabilities](https://www.cisa.gov/known-exploited-vulnerabilities-catalog) catalog. They're tagged `[actively exploited]`, the finding gets the `known-exploited` tag and the impact says how many there are.
 
 In JSON, each advisory is an object in the finding's `advisories` array:
 
@@ -97,10 +97,10 @@ In JSON, a finding with any actively exploited advisory has `known-exploited` in
 | `wp-components-outdated` | low | plugins or themes have newer releases; one finding lists them all (those already in a `vuln-*` finding are left out) |
 | `wp-plugin-closed`, `wp-theme-closed` | medium | closed on wordpress.org, often for an unfixed security issue; shows the date and reason when known |
 | `wp-components-abandoned` | low | no release on wordpress.org in over two years |
-| `wp-components-unverified` | info, *likely* | a plugin or theme has known vulnerabilities in some versions, but its installed version couldn't be read |
+| `wp-components-unverified` | info, *likely* | a plugin or theme has known vulnerabilities in some versions, though its installed version couldn't be read |
 | `php-eol` | high | the PHP branch is past end of life (see [below](#end-of-life-php-and-inferred-advisories)) |
 | `nginx-eol`, `apache-eol` | medium | the server branch is past end of life |
-| `php-version-hidden` | medium, *likely* | the site runs PHP, its version couldn't be read, and recent critical PHP flaws exist (see [below](#hidden-php-versions)) |
+| `php-version-hidden` | medium, *likely* | the site runs PHP, its version couldn't be read and recent critical PHP flaws exist (see [below](#hidden-php-versions)) |
 
 Plugins and themes that aren't on wordpress.org (premium or custom) get no outdated or abandoned findings; they're still matched against advisories. See the [Finding Reference](Tuner-Finding-Reference) for every ID.
 
@@ -114,7 +114,7 @@ It's reported when all of these hold:
 2. No PHP version was found on the home page or the [uncached endpoints](#versions-behind-page-caches).
 3. At least one advisory qualifies.
 
-**Which advisories qualify.** Tuner reads php.net's release states and keeps the branches that still get security fixes (state `stable` or `security`, and the security-support end date not yet passed). For each supported branch it looks up the advisories that were **published in the last 180 days** and are **critical or in CISA's KEV catalog**. The same CVE across branches is merged into one entry that lists the fixed release on each branch, or "no fix yet" for a branch without one.
+**Which advisories qualify.** Tuner reads php.net's release states and keeps the branches that still get security fixes (state `stable` or `security` with the security-support end date not yet passed). For each supported branch it looks up the advisories that were **published in the last 180 days** and are **critical or in CISA's KEV catalog**. The same CVE across branches is merged into one entry that lists the fixed release on each branch, or "no fix yet" for a branch without one.
 
 The title names the most pressing flaw: actively exploited first, then the most recently published, then the highest CVSS score. For example, as of 2026-10-23:
 
@@ -141,7 +141,7 @@ Page caches (Cloudflare, LiteSpeed, Varnish and others) often serve the home pag
 | WordPress | `/xmlrpc.php`, `/wp-admin/admin-ajax.php`, `/wp-login.php` |
 | Other PHP sites | `/index.php` |
 
-That's at most three extra plain GET requests, in every profile, and the checks reuse the responses. The JSON report's `fingerprint.php_source` names the header and path the version came from, and PHP findings add a `version from …` line to their evidence:
+That's at most three extra plain GET requests in every profile. The checks reuse the responses. The JSON report's `fingerprint.php_source` names the header and path the version came from. PHP findings add a `version from …` line to their evidence:
 
 ```json
 "fingerprint": {
@@ -157,9 +157,9 @@ That's at most three extra plain GET requests, in every profile, and the checks 
 Branches past end of life (8.1, 8.0, 7.4 and older as of this writing) never get fixes. Vulnerability databases usually stop listing new flaws for them, so a plain version match would make an old PHP look safer than a supported one. Tuner closes that gap:
 
 1. The PHP record's end-of-life date has passed, so `php-eol` is raised, at **high**.
-2. Tuner takes the oldest supported branch newer than yours (from php.net), and looks at its advisories.
-3. Advisories with **no lower version bound**, published **after your branch's end of life**, and not already listed for your version are added to `vuln-php`, marked `(no fix for this branch)`.
-4. The fix says to move to a supported branch, and how many of the issues will never be fixed on yours.
+2. Tuner takes the oldest supported branch newer than yours (from php.net) and looks at its advisories.
+3. Advisories with **no lower version bound**, published **after your branch's end of life** and not already listed for your version are added to `vuln-php`, marked `(no fix for this branch)`.
+4. The fix says to move to a supported branch and how many of the issues will never be fixed on yours.
 
 ```text
 [CRITICAL] PHP 8.1.27: 41 known vulnerabilities - http://yoursite.com/
@@ -174,16 +174,16 @@ Branches past end of life (8.1, 8.0, 7.4 and older as of this writing) never get
 
 **Limits of inference.** It's an informed estimate, not a confirmed match:
 
-- An advisory with no lower bound is assumed to reach older code. A flaw in a feature added after your branch was released doesn't, but the data often can't tell.
-- Only the oldest supported branch's advisories are considered, and only those with a publish date.
+- An advisory with no lower bound is assumed to reach older code. A flaw in a feature added after your branch was released doesn't. The data often can't tell which is which.
+- Only advisories of the oldest supported branch that have a publish date are considered.
 - When *every* advisory in `vuln-php` is inferred, the finding gets low confidence with the caveat "inferred from a supported branch's advisories".
-- nginx and Apache get `*-eol` findings, but no inferred advisories.
+- nginx and Apache get `*-eol` findings but no inferred advisories.
 
 Whatever the count, the fix is the same: move to a supported PHP branch.
 
 ## Distribution builds and backports
 
-Linux distributions patch security flaws without changing the upstream version number. `Apache/2.4.57 (Debian)` may already include fixes from 2.4.60. Tuner can't see that from outside, so when the PHP or server version string names a distribution build, the finding gets low confidence, the caveat "a distro build may already include the fix", and a note to check the package's security status before acting.
+Linux distributions patch security flaws without changing the upstream version number. `Apache/2.4.57 (Debian)` may already include fixes from 2.4.60. Tuner can't see that from outside, so when the PHP or server version string names a distribution build, the finding gets low confidence, the caveat "a distro build may already include the fix" and a note to check the package's security status before acting.
 
 This applies to `vuln-php`, `vuln-nginx`, `vuln-apache` and the `*-eol` findings when the version string contains a marker such as `ubuntu`, `debian`, `deb12`, `el9`, `centos`, `red hat`, `rhel`, `fedora`, `amazon`, `rocky`, `alma` or `suse` (e.g. `PHP/7.4.3-4ubuntu2.19`). Such findings count half in the score and are marked *likely* in the live terminal view, with `confidence: low` in JSON and Markdown reports.
 
@@ -192,7 +192,7 @@ This applies to `vuln-php`, `vuln-nginx`, `vuln-apache` and the `*-eol` findings
 
 ## Caching and automatic refresh
 
-Each lookup (one component, one release record, the PHP branch list) is cached as a small JSON file and reused for 24 hours. A scan that needs a record older than that fetches it again. Requests to the data services go through your `--proxy`, use the scan's User-Agent, and are spaced 200 ms apart to be polite to free services.
+Each lookup (one component, one release record, the PHP branch list) is cached as a small JSON file and reused for 24 hours. A scan that needs a record older than that fetches it again. Requests to the data services go through your `--proxy`, use the scan's User-Agent and are spaced 200 ms apart to be polite to free services.
 
 | OS | Vulnerability data cache |
 |---|---|
@@ -200,9 +200,9 @@ Each lookup (one component, one release record, the PHP branch list) is cached a
 | macOS | `~/Library/Caches/rhythm/tuner/vulns` |
 | Windows | `%LocalAppData%\rhythm\tuner\vulns` |
 
-Inside it: `wpvulnerability/<kind>/<key>.json`, `wordpress.org/<kind>/<slug>.json`, `php.net/releases/states.json`, and `osv/…` for Composer data.
+Inside it: `wpvulnerability/<kind>/<key>.json`, `wordpress.org/<kind>/<slug>.json`, `php.net/releases/states.json` and `osv/…` for Composer data.
 
-**When a service can't be reached**, Tuner uses the cached copy, however old, and says so after the scan:
+**When a service can't be reached**, Tuner uses the cached copy (however old) and says so after the scan:
 
 ```text
 used cached vulnerability data older than 24h0m0s for 3 components

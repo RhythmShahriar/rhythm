@@ -1,4 +1,4 @@
-A living page for current PHP security advisories: what each one is, exactly how Tuner covers it, and what to do on your servers. It covers conditions and mitigations only, never how to exploit anything.
+A living page for current PHP security advisories: what each one is, exactly how Tuner covers it and what to do on your servers. It covers conditions and mitigations only, never how to exploit anything.
 
 **Last reviewed: 2026-10-23**
 
@@ -8,7 +8,7 @@ A living page for current PHP security advisories: what each one is, exactly how
 | [Session upload progress](#session-upload-progress-cve-2026-115560) (CVE-2026-115560) | **unpatched**, mitigation available | `local-php-session-upload-progress`, `php-session-upload-progress` |
 
 > [!IMPORTANT]
-> Scan only sites you own or are authorized to test. Every Tuner check here is read-only: version matching, plain GET requests, and reading files on your own server.
+> Scan only sites you own or are authorized to test. Every Tuner check here is read-only: version matching, plain GET requests and reading files on your own server.
 
 ## How to check your servers
 
@@ -63,7 +63,7 @@ See [Tuner Local Scans](Tuner-Local-Scans) and [Tuner Batch Scans](Tuner-Batch-S
 | 8.2 | 8.2.35 | supported (security fixes only) |
 | 8.1 and older | **no fix** | end of life |
 
-**Exploitation.** Reports of exploitation in the wild were disputed at the time of writing, and neither CVE was in CISA's Known Exploited Vulnerabilities catalog. If that changes, Tuner marks them `[actively exploited]` after its next daily data refresh, with no update needed.
+**Exploitation.** Reports of exploitation in the wild were disputed at the time of writing. Neither CVE was in CISA's Known Exploited Vulnerabilities catalog. If that changes, Tuner marks them `[actively exploited]` after its next daily data refresh, with no update needed.
 
 ### How Tuner covers it
 
@@ -72,9 +72,9 @@ Tuner matches the PHP version against [WPVulnerability](https://www.wpvulnerabil
 | Situation | What Tuner reports |
 |---|---|
 | **Version visible** on the home page (`X-Powered-By`, or `PHP/x.y.z` in `Server`) | `vuln-php`, critical, listing both CVEs with the fixed release for your branch |
-| **Version hidden on the home page by a page cache**, but sent by an uncached endpoint (`/xmlrpc.php`, `/wp-admin/admin-ajax.php`, `/wp-login.php`, or `/index.php` on other PHP sites) | the same `vuln-php`; the evidence says where the version came from, e.g. `version from x-powered-by /wp-login.php` |
+| **Version hidden on the home page by a page cache**; an uncached endpoint sends it (`/xmlrpc.php`, `/wp-admin/admin-ajax.php`, `/wp-login.php`, or `/index.php` on other PHP sites) | the same `vuln-php`; the evidence says where the version came from, e.g. `version from x-powered-by /wp-login.php` |
 | **Version hidden everywhere** | `php-version-hidden`, medium with low confidence: "PHP version hidden: can't rule out CVE-2026-109618 (critical) and N more", listing the fixed release on each supported branch |
-| **End-of-life branch** (8.1 and older) | `php-eol` at high, and both CVEs added to `vuln-php` as `(no fix for this branch)`, inferred from the 8.2 advisories |
+| **End-of-life branch** (8.1 and older) | `php-eol` at high plus both CVEs added to `vuln-php` as `(no fix for this branch)`, inferred from the 8.2 advisories |
 | **Distribution build** (e.g. `PHP/8.3.6-0ubuntu0.24.04.5`) | `vuln-php` with low confidence: the distribution may have backported the fix without changing the version number |
 | **Local scan** | `vuln-php` from the exact version `php` reports |
 
@@ -106,7 +106,7 @@ Tuner 0.3.0 or later is needed for the uncached-endpoint probe, `php-version-hid
 3. it does so before calling `session_start()`;
 4. `session.upload_progress.enabled` is on. It's on by default.
 
-Sites whose code never switches the serialize handler at runtime aren't affected, according to PHP. Most sites don't switch it, but libraries in `vendor/` sometimes manage sessions, so it's worth checking.
+Sites whose code never switches the serialize handler at runtime aren't affected, according to PHP. Most sites don't switch it. Libraries in `vendor/` sometimes manage sessions, though, so it's worth checking.
 
 **PHP's interim mitigation.** Turn off upload progress where PHP is configured for the site, then restart PHP-FPM or the web server:
 
@@ -132,24 +132,24 @@ Few sites rely on upload progress; it's used for upload progress bars that poll 
 | Result | Severity |
 |---|---|
 | all four conditions confirmed | high |
-| configuration unsafe, but the order of calls couldn't be confirmed from one file | high, *likely* |
+| configuration unsafe; the order of calls couldn't be confirmed from one file | high, *likely* |
 | the code switches the handler but PHP's configuration couldn't be read | medium, *likely* |
-| the code switches the handler, but the configured handler is `php` | low |
+| the code switches the handler; the configured handler is `php` | low |
 | upload progress is off everywhere checked | info: mitigated |
 
 No finding means the code never switches the handler. This check needs Tuner 0.3.1 or later.
 
-**From outside (`php-session-upload-progress`).** A remote scan can only see the two configuration settings, and only when a `phpinfo()` page is exposed. The check reads the effective (local) values on common phpinfo paths and fires when the handler is `php_binary` or `php_serialize` and upload progress is on. It's medium with low confidence, reported alongside `php-phpinfo`, because whether the code switches the handler can only be checked on the server. It shipped in the [check pack](Tuner-Check-Packs), so Tuner 0.3.0 and later pick it up without an update.
+**From outside (`php-session-upload-progress`).** A remote scan can see the two configuration settings only when a `phpinfo()` page is exposed. The check reads the effective (local) values on common phpinfo paths and fires when the handler is `php_binary` or `php_serialize` and upload progress is on. It's medium with low confidence, reported alongside `php-phpinfo`, because whether the code switches the handler can only be checked on the server. It shipped in the [check pack](Tuner-Check-Packs), so Tuner 0.3.0 and later pick it up without an update.
 
-**Once PHP ships a fix,** the advisory data will list the fixed releases, and `vuln-php` will match it like any other PHP advisory through the daily data refresh. No Tuner release is needed, and this page will be updated.
+**Once PHP ships a fix,** the advisory data will list the fixed releases. `vuln-php` will then match it like any other PHP advisory through the daily data refresh. No Tuner release is needed. This page will be updated too.
 
 ### What to do
 
 1. Run a local scan on each server: `rhythm tuner scan /var/www/yoursite --id 'local-php-*'`.
-2. If you get a high finding, apply the mitigation above now, restart PHP, and scan again. The finding drops to info: mitigated.
-3. If you get a low finding, nothing is reachable today, but the code would become exposed if someone changed the configured handler. Remove the runtime switch when you can.
+2. If you get a high finding, apply the mitigation above now, restart PHP and scan again. The finding drops to info: mitigated.
+3. If you get a low finding, nothing is reachable today. Still, the code would become exposed if someone changed the configured handler. Remove the runtime switch when you can.
 4. Delete any exposed `phpinfo()` page. It leaks configuration to anyone.
-5. Upgrade PHP once a fixed release is out, and keep the mitigation until then.
+5. Upgrade PHP once a fixed release is out and keep the mitigation until then.
 
 ---
 <sub>← [Known vulnerabilities](Tuner-Known-Vulnerabilities) · [Home](Home) · [CI and code scanning](Tuner-CI) →</sub>
