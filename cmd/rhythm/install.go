@@ -49,26 +49,10 @@ var signalContext = func() (context.Context, context.CancelFunc) {
 }
 
 // newFlagSet returns a flag set whose usage prints synopsis once and then
-// every flag with a double dash, the way rhythm's help writes them.
+// every flag with a double dash, aligned the way kit/cli writes them.
+// parseArgs decides where the usage goes.
 func newFlagSet(name, synopsis string) *flag.FlagSet {
-	fs := flag.NewFlagSet(name, flag.ContinueOnError)
-	fs.Usage = func() {
-		w := fs.Output()
-		fmt.Fprintln(w, synopsis)
-		fmt.Fprintln(w, "\nFlags:")
-		fs.VisitAll(func(f *flag.Flag) {
-			arg, usage := flag.UnquoteUsage(f)
-			name := "--" + f.Name
-			if arg != "" {
-				name += " " + arg
-			}
-			if f.DefValue != "" && f.DefValue != "false" {
-				usage += fmt.Sprintf(" (default %s)", f.DefValue)
-			}
-			fmt.Fprintf(w, "  %-16s %s\n", name, usage)
-		})
-	}
-	return fs
+	return cli.NewFlagSet(name, synopsis, io.Discard)
 }
 
 // parseArgs parses flags before or after positional arguments. When ok is

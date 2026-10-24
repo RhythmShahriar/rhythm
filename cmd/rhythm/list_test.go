@@ -212,3 +212,35 @@ func TestListJSON(t *testing.T) {
 	}
 	requireKeys(t, objs, "name", "binary", "version", "latest", "signed", "path", "third_party", "managed_by", "error")
 }
+
+// TestCommandHelpFlagsAligned: each command's --help exits 0 and lists
+// its flags in one column, with room after the longest flag name.
+func TestCommandHelpFlagsAligned(t *testing.T) {
+	for _, name := range []string{"install", "update", "list", "uninstall", "doctor", "lock"} {
+		code, out, errs := runCmd(name, "--help")
+		if code != 0 || errs != "" {
+			t.Errorf("%s --help: exit %d, stderr %q", name, code, errs)
+			continue
+		}
+		_, flags, ok := strings.Cut(out, "\nFlags:\n")
+		if !ok {
+			t.Errorf("%s --help has no Flags block:\n%s", name, out)
+			continue
+		}
+		col := -1
+		for _, line := range strings.Split(strings.TrimRight(flags, "\n"), "\n") {
+			i := strings.Index(line, "   ")
+			if !strings.HasPrefix(line, "  --") || i < 0 {
+				t.Errorf("%s: flag line %q", name, line)
+				continue
+			}
+			start := len(line) - len(strings.TrimLeft(line[i:], " "))
+			if col == -1 {
+				col = start
+			}
+			if start != col {
+				t.Errorf("%s: %q starts its text at column %d, not %d", name, line, start, col)
+			}
+		}
+	}
+}
