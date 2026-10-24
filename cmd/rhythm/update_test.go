@@ -951,6 +951,11 @@ func TestInstallMinAge(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "rhythm-tuner 0.3.3 is 1 day old; installing 0.3.2 (min age 3d)\nInstalled rhythm-tuner 0.3.2") {
 		t.Fatalf("exit %d\n%s%s", code, out, errs)
 	}
+	// --quiet leaves only the Installed line.
+	code, out, errs = runCmd("install", "tuner", "--dir", t.TempDir(), "--min-age", "3d", "--quiet")
+	if code != 0 || !strings.HasPrefix(out, "Installed rhythm-tuner 0.3.2 to ") || strings.Count(out, "\n") != 1 || errs != "" {
+		t.Errorf("--quiet: exit %d\n%s%s", code, out, errs)
+	}
 	// An exact version is the user's call; the cooldown doesn't apply.
 	code, out, errs = runCmd("install", "tuner@0.3.3", "--dir", s.bin, "--min-age", "3d")
 	if code != 0 || !strings.Contains(out, "Installed rhythm-tuner 0.3.3") {

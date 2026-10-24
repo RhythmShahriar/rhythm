@@ -860,7 +860,7 @@ func installTool(ctx context.Context, it installItem, opt installOptions, stdout
 		if rel, err = resolveSpec(ctx, u, it.spec, opt.minAge.d); err != nil {
 			return installResult{}, err
 		}
-		if rel.skippedNewer != nil {
+		if rel.skippedNewer != nil && !opt.quiet {
 			fmt.Fprintln(stdout, opt.minAge.skipNote(binary, rel.skippedNewer, "installing "+rel.Version))
 		}
 	}
