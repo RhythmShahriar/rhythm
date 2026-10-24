@@ -154,10 +154,22 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 			res.Current = ""
 			res.Error = "version unknown (" + t.probe + ")"
 			fmt.Fprintf(human, "%-18s %s, not updated\n", t.binary, res.Error)
+			if *to != "" {
+				rep.failed = append(rep.failed, t.binary)
+			}
 			continue
 		}
 		if !update.IsRelease(t.current) {
-			if !*quiet {
+			switch {
+			case *to != "":
+				// The version asked for wasn't installed, so it is a failure.
+				hint := ""
+				if t.tool != selfName {
+					hint = fmt.Sprintf("; replace it with: rhythm install %s@%s --force", t.tool, *to)
+				}
+				fmt.Fprintf(human, "%-18s %s (development build, not updated)%s\n", t.binary, t.current, hint)
+				rep.failed = append(rep.failed, t.binary)
+			case !*quiet:
 				fmt.Fprintf(human, "%-18s %s (development build, not updated)\n", t.binary, t.current)
 			}
 			continue

@@ -1140,6 +1140,23 @@ func TestUpdateTo(t *testing.T) {
 	}
 }
 
+// TestUpdateToNeedsAVersion: --to fails when the tool's version can't
+// be told or is a development build, since the version asked for wasn't
+// installed.
+func TestUpdateToNeedsAVersion(t *testing.T) {
+	s, _ := pinSandbox(t)
+	s.stub(t, "rhythm-tuner", "dev", "")
+	code, out, errs := runCmd("update", "tuner", "--to", "0.3.1", "--no-data")
+	if code != 1 || !strings.Contains(out, "rhythm-tuner       dev (development build, not updated); replace it with: rhythm install tuner@0.3.1 --force\n") {
+		t.Errorf("dev: exit %d\n%s%s", code, out, errs)
+	}
+	script(t, s.bin, "rhythm-tuner", "echo garbage")
+	code, out, errs = runCmd("update", "tuner", "--to", "0.3.1", "--no-data")
+	if code != 1 || !strings.Contains(out, "rhythm-tuner       version unknown") {
+		t.Errorf("unknown: exit %d\n%s%s", code, out, errs)
+	}
+}
+
 func TestUpdateModeUsage(t *testing.T) {
 	pinSandbox(t)
 	for _, c := range []struct{ args, want string }{
