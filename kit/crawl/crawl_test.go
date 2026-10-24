@@ -43,6 +43,8 @@ func TestNormalize(t *testing.T) {
 	for in, want := range map[string]string{
 		"/p?id=1;x=2":                  "https://example.com/p?id=1;x=2",
 		"/p?b=2;x&utm_source=nl&a=1":   "https://example.com/p?b=2;x&a=1",
+		"/p?utm_source=x;id=1":         "https://example.com/p?id=1",
+		"/p?id=1;utm_source=x&a=1":     "https://example.com/p?id=1&a=1",
 		"/q?x=%zz&utm_medium=email":    "https://example.com/q?x=%zz",
 		"/files/a%2Fb":                 "https://example.com/files/a%2Fb",
 		"/files/./a%2Fb/../c%2Fd/":     "https://example.com/files/c%2Fd/",

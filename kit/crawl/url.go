@@ -75,47 +75,78 @@ func cleanPath(p string) string {
 // normQuery drops tracking parameters from a raw query. A query Go
 // parses cleanly is sorted by key (values of one key keep their order)
 // and re-escaped the standard way, so equivalent URLs compare equal. A
-// query it can't parse is kept pair by pair as written, because
-// url.Query would silently drop the pairs it doesn't understand.
+// query it can't parse, or one using ';', is kept pair by pair as
+// written, because url.Query would silently drop the pairs it doesn't
+// understand.
 func normQuery(raw string) string {
 	if raw == "" {
 		return ""
 	}
+	if _, err := url.ParseQuery(raw); err != nil || strings.Contains(raw, ";") {
+		return verbatimQuery(raw)
+	}
 	type pair struct{ key, text string }
-	_, err := url.ParseQuery(raw)
-	verbatim := err != nil || strings.Contains(raw, ";")
 	var pairs []pair
 	for _, p := range strings.Split(raw, "&") {
 		if p == "" {
 			continue
 		}
 		k, v, hasValue := strings.Cut(p, "=")
-		key, kerr := url.QueryUnescape(k)
-		if kerr != nil {
-			key = k
-		}
-		if trackingParam.MatchString(strings.ToLower(key)) {
+		key, _ := url.QueryUnescape(k) // ParseQuery succeeded, so these can't fail
+		if isTracking(key) {
 			continue
 		}
-		if verbatim {
-			pairs = append(pairs, pair{key, p})
-			continue
-		}
-		val, _ := url.QueryUnescape(v) // ParseQuery succeeded, so this can't fail
+		val, _ := url.QueryUnescape(v)
 		text := url.QueryEscape(key)
 		if hasValue {
 			text += "=" + url.QueryEscape(val)
 		}
 		pairs = append(pairs, pair{key, text})
 	}
-	if !verbatim {
-		slices.SortStableFunc(pairs, func(a, b pair) int { return strings.Compare(a.key, b.key) })
-	}
+	slices.SortStableFunc(pairs, func(a, b pair) int { return strings.Compare(a.key, b.key) })
 	texts := make([]string, len(pairs))
 	for i, p := range pairs {
 		texts[i] = p.text
 	}
 	return strings.Join(texts, "&")
+}
+
+// verbatimQuery drops tracking pairs from a query without re-escaping or
+// reordering it. Both '&' and ';' separate pairs, and each kept pair keeps
+// the separator written before it, so "utm_source=x;id=1" keeps "id=1"
+// instead of losing the whole "utm_source=x;id=1" chunk.
+func verbatimQuery(raw string) string {
+	var b strings.Builder
+	sep := ""
+	for raw != "" {
+		i := strings.IndexAny(raw, "&;")
+		p := raw
+		next := ""
+		if i >= 0 {
+			p, next = raw[:i], raw[i:i+1]
+			raw = raw[i+1:]
+		} else {
+			raw = ""
+		}
+		k, _, _ := strings.Cut(p, "=")
+		key, err := url.QueryUnescape(k)
+		if err != nil {
+			key = k
+		}
+		if p != "" && !isTracking(key) {
+			if b.Len() > 0 {
+				b.WriteString(sep)
+			}
+			b.WriteString(p)
+		}
+		sep = next
+	}
+	return b.String()
+}
+
+// isTracking reports whether a decoded query key is a tracking parameter.
+func isTracking(key string) bool {
+	return trackingParam.MatchString(strings.ToLower(key))
 }
 
 // key identifies a page for de-duplication: /about and /about/ are one
