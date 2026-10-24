@@ -17,7 +17,7 @@
 #                        It is a plain base URL: no user info, query or fragment.
 #   GITHUB_TOKEN         sent to api.github.com only, to lift the anonymous rate limit
 #   RHYTHM_GITHUB_TOKEN  sent to the RHYTHM_GITHUB_API host, whatever it is; wins over GITHUB_TOKEN
-#   RHYTHM_INSTALL_TIMEOUT  seconds to wait for a server to answer (default 30)
+#   RHYTHM_INSTALL_TIMEOUT  seconds to wait for a server to answer (default 30, at most 3600)
 #
 # Everything is in one script block, closed on the last line, so a download
 # cut off partway is a parse error instead of a partial install. The block
@@ -59,7 +59,7 @@
         throw "rhythm install: refusing to download over http: $Url"
     }
 
-    # A mirror base needs none of these. [Uri] reads them as curl does, but
+    # A mirror base needs none of these. [Uri] reads them as curl does while
     # install.sh refuses them, so both installers take the same values.
     if ($Api -match '[@?#\\]') {
         throw "rhythm install: RHYTHM_GITHUB_API must be a plain base URL, without user info, query or fragment: $Api"
@@ -85,10 +85,16 @@
     # A stalled API or download would hang `irm | iex` for good. The web
     # cmdlets give up on a server that hasn't answered in this long.
     $Timeout = if ($env:RHYTHM_INSTALL_TIMEOUT) { $env:RHYTHM_INSTALL_TIMEOUT } else { '30' }
-    if ($Timeout -notmatch '^[0-9]+$' -or [int64]$Timeout -eq 0) {
+    # Digits only: TryParse alone would take ' 5', '+5' or '1e3'. A number
+    # too big for Int32 fails TryParse, so it gets the 3600 message too.
+    $Secs = 0
+    if ($Timeout -notmatch '^[0-9]+$' -or ($Timeout -match '^0+$')) {
         throw "rhythm install: RHYTHM_INSTALL_TIMEOUT must be a whole number of seconds: '$Timeout'"
     }
-    $Timeout = [int]$Timeout
+    if (-not [int]::TryParse($Timeout, [ref]$Secs) -or $Secs -gt 3600) {
+        throw "rhythm install: RHYTHM_INSTALL_TIMEOUT must be at most 3600 seconds: '$Timeout'"
+    }
+    $Timeout = $Secs
 
     # Test-Timeout reports whether a web cmdlet's error was a timeout. The
     # wording differs between Windows PowerShell 5.1 and pwsh.

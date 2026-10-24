@@ -470,6 +470,23 @@ case_path_hint() {
 	! grep -q 'install .*--quiet' "$cdir/argv.log" || fail "--quiet went to a router without it"
 }
 
+case_path_hint_quote() {
+	# A ' in the folder must not break the command the hint prints.
+	qbin="$cdir/it's/bin"
+	install SHELL=/bin/bash RHYTHM_INSTALL_DIR="$qbin"
+	expect_code 0
+	expect_path_hint "echo 'export PATH=\"$cdir/it'\\''s/bin:\$PATH\"' >> ~/.bashrc"
+	cmd=$(sed -n 's/^Add .* to your PATH, then open a new terminal: //p' "$cdir/out")
+	mkdir -p "$cdir/qhome"
+	HOME="$cdir/qhome" sh -c "$cmd" || fail "the hint isn't a working command: $cmd"
+	# shellcheck disable=SC2016 # the line must hold a literal $PATH
+	[ "$(cat "$cdir/qhome/.bashrc")" = "export PATH=\"$qbin:\$PATH\"" ] || fail ".bashrc got: $(cat "$cdir/qhome/.bashrc")"
+
+	install SHELL=/usr/bin/fish RHYTHM_INSTALL_DIR="$qbin"
+	expect_code 0
+	expect_path_hint "Add $qbin to your PATH: fish_add_path '$cdir/it'\\''s/bin'"
+}
+
 case_path_hint_macos() {
 	# A macOS terminal starts bash as a login shell, which reads ~/.bash_profile.
 	mkdir -p "$work/darwin"
@@ -755,13 +772,16 @@ case_timeout() {
 	expect_out "rhythm install: timed out after 2s downloading $base/hang/dl/rhythm/v9.0.5/rhythm_"
 	expect_no_file rhythm
 
-	for t in abc 0 -1 1.5 ' '; do
+	for t in abc 0 00 -1 1.5 ' ' 3601 99999999999 0099999; do
 		path=$work/fakebin:/usr/bin:/bin
 		rm -f "$cdir/curl.log"
 		install RHYTHM_INSTALL_TIMEOUT="$t"
 		path=
 		expect_code 1
-		expect_out "rhythm install: RHYTHM_INSTALL_TIMEOUT must be a whole number of seconds: '$t'"
+		case $t in
+		3601 | 99999999999 | 0099999) expect_out "rhythm install: RHYTHM_INSTALL_TIMEOUT must be at most 3600 seconds: '$t'" ;;
+		*) expect_out "rhythm install: RHYTHM_INSTALL_TIMEOUT must be a whole number of seconds: '$t'" ;;
+		esac
 		[ ! -e "$cdir/curl.log" ] || fail "curl ran with RHYTHM_INSTALL_TIMEOUT=$t"
 	done
 }
@@ -906,8 +926,8 @@ case_readme_commands() {
 }
 
 # check_links runs the wiki checker's relative-link rule over a README:
-# every relative link, href, src and srcset names a file that exists, and
-# every #anchor a heading in the README.
+# every relative link, href, src and srcset names a file that exists.
+# Every #anchor names a heading in the README.
 check_links() {
 	python3 -I - "$here/../check-wiki.py" "$1" <<'EOF'
 import importlib.util
@@ -954,7 +974,7 @@ case_readme_links() {
 	check_links "$cdir/README.md" || fail "a good README failed"
 }
 
-cases=${*:-default none some commas typo tool_fails defaults pins locked path_hint path_hint_macos path_ok
+cases=${*:-default none some commas typo tool_fails defaults pins locked path_hint path_hint_quote path_hint_macos path_ok
 signature_cosign signature_cosign_fails signature_gh signature_none skip_signature router_verify bad_checksum no_checksums missing_dir relative_dir unwritable_dir truncated proto http_refused http_download_refused api_not_plain version_checked timeout github_token
 rhythm_token rate_limit old_router old_router_named router_without_dry_run
 router_without_tools_block unknown_tool readme readme_commands readme_links}

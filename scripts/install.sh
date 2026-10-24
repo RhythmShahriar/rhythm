@@ -18,7 +18,7 @@
 #                        It is a plain base URL: no user info, query or fragment.
 #   GITHUB_TOKEN         sent to api.github.com only, to lift the anonymous rate limit
 #   RHYTHM_GITHUB_TOKEN  sent to the RHYTHM_GITHUB_API host, whatever it is; wins over GITHUB_TOKEN
-#   RHYTHM_INSTALL_TIMEOUT  seconds to wait for a connection, or on one that has stalled (default 30)
+#   RHYTHM_INSTALL_TIMEOUT  seconds to wait for a connection, or on one that has stalled (default 30, at most 3600)
 #
 # Everything, helpers included, is inside main, called on the last line, so a
 # download cut off halfway through is a syntax error instead of a partial install.
@@ -272,10 +272,13 @@ main() {
 	# path_hint says how to put $dir on PATH in the user's shell. zsh, the
 	# macOS default, never reads ~/.profile; a macOS terminal starts bash as
 	# a login shell, which reads ~/.bash_profile and not ~/.bashrc.
+	# The folder goes inside single quotes, so each ' in it is written as
+	# '\'' (close, an escaped quote, reopen), which sh and fish both read.
 	path_hint() {
+		qdir=$(printf '%s\n' "$dir" | sed "s/'/'\\\\''/g")
 		case ${SHELL:-} in
 		*/fish | fish)
-			say "Add $dir to your PATH: fish_add_path '$dir'"
+			say "Add $dir to your PATH: fish_add_path '$qdir'"
 			return
 			;;
 		*/zsh | zsh) rc=.zshrc ;;
@@ -285,7 +288,7 @@ main() {
 			;;
 		*) rc=.profile ;;
 		esac
-		say "Add $dir to your PATH, then open a new terminal: echo 'export PATH=\"$dir:\$PATH\"' >> ~/$rc"
+		say "Add $dir to your PATH, then open a new terminal: echo 'export PATH=\"$qdir:\$PATH\"' >> ~/$rc"
 	}
 
 	command -v curl >/dev/null 2>&1 || die "curl is required"
@@ -327,9 +330,14 @@ main() {
 	# up on a connection that takes longer than this, or that moves less
 	# than a byte a second for this long; a slow but working link goes on.
 	timeout=${RHYTHM_INSTALL_TIMEOUT:-30}
+	# Leading zeros go first, so 00 counts as 0 and 090 isn't octal.
+	secs=${timeout#"${timeout%%[!0]*}"}
 	case $timeout in
-	'' | *[!0-9]* | 0) die "RHYTHM_INSTALL_TIMEOUT must be a whole number of seconds: '$timeout'" ;;
+	'' | *[!0-9]*) secs= ;;
 	esac
+	[ -n "$secs" ] || die "RHYTHM_INSTALL_TIMEOUT must be a whole number of seconds: '$timeout'"
+	[ ${#secs} -le 4 ] && [ "$secs" -le 3600 ] || die "RHYTHM_INSTALL_TIMEOUT must be at most 3600 seconds: '$timeout'"
+	timeout=$secs
 	limits="--connect-timeout $timeout --speed-limit 1 --speed-time $timeout"
 
 	os=$(lower "$(uname -s)")

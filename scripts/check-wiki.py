@@ -3,8 +3,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 
 """Checks the wiki before it's published: every internal link points at a
-page that exists (and at a heading that exists, for #anchors), and every
-page is reachable from the sidebar. Usage: check-wiki.py <wiki-dir>"""
+page that exists (and at a heading that exists, for #anchors). Every
+page must be reachable from the sidebar. Usage: check-wiki.py <wiki-dir>"""
 import os
 import re
 import sys

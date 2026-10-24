@@ -790,11 +790,16 @@ function Case-timeout {
     Assert-Out "rhythm install: timed out after 2s downloading $BaseUrl/hang/dl/rhythm/v9.0.5/rhythm_windows_amd64.zip; set RHYTHM_INSTALL_TIMEOUT to wait longer"
     Assert-NoFile 'rhythm.exe'
 
-    foreach ($T in 'abc', '0', '-1', '1.5', ' ') {
+    foreach ($T in 'abc', '0', '00', '-1', '1.5', ' ', '3601', '99999999999', '0099999') {
         Remove-Item (Join-Path $script:CaseDir 'mock.log') -ErrorAction SilentlyContinue
         Invoke-Install @{ RHYTHM_INSTALL_TIMEOUT = $T } $Mock
         Assert-Code 1
-        Assert-Out "rhythm install: RHYTHM_INSTALL_TIMEOUT must be a whole number of seconds: '$T'"
+        if ($T -in '3601', '99999999999', '0099999') {
+            Assert-Out "rhythm install: RHYTHM_INSTALL_TIMEOUT must be at most 3600 seconds: '$T'"
+        }
+        else {
+            Assert-Out "rhythm install: RHYTHM_INSTALL_TIMEOUT must be a whole number of seconds: '$T'"
+        }
         if (Test-Path (Join-Path $script:CaseDir 'mock.log')) { Fail "a request was made with RHYTHM_INSTALL_TIMEOUT=$T" }
     }
 }
