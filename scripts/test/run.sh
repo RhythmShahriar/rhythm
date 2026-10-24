@@ -357,6 +357,12 @@ EOF
 	expect_code 1
 	expect_out "Installed: tuner. Failed: echo (see above)."
 
+	# A tool rhythm says is already installed gets its first step too.
+	install RHYTHM_LOCKED=1 RHYTHM_TEST_ALREADY=tuner
+	expect_code 0
+	expect_out "rhythm-tuner 0.3.1 is already installed at $cdir/bin/rhythm-tuner (use --force to reinstall)"
+	expect_started tuner echo
+
 	# A rhythm without --locked can't.
 	rm -rf "${cdir:?}/bin"
 	install RHYTHM_LOCKED=1 RHYTHM_VERSION=0.6.0

@@ -472,7 +472,9 @@ main() {
 			failed=$(sed -n 's/^Installed [0-9]*, .*failed [0-9]*: //p' "$tmp/install.out" | tr -d ',' | sed 's/rhythm-//g')
 			[ -n "$failed" ] || failed="rhythm.lock"
 		fi
-		done_tools=$(sed -n 's/^Installed rhythm-\([^ ]*\) .*/\1/p' "$tmp/install.out")
+		# A tool already at the locked version counts as installed too.
+		done_tools=$(sed -n -e 's/^Installed rhythm-\([^ ]*\) .*/\1/p' \
+			-e 's/^rhythm-\([^ ]*\) [^ ]* is already installed at .*/\1/p' "$tmp/install.out")
 		grep -v "^Note: .* isn't on your PATH\.\$" "$tmp/install.out" >&2 || :
 	fi
 	for tool in $todo; do

@@ -17,7 +17,9 @@
 # by writing a rhythm-<tool> stand-in into --dir. Before that it fetches the
 # tool's archive from $RHYTHM_GITHUB_API and fails that tool on anything but
 # 200, so a test can make one download 404. Unknown names get rhythm's
-# did-you-mean lines. The rhythm versions differ the way real releases do:
+# did-you-mean lines. A tool named in $RHYTHM_TEST_ALREADY gets rhythm's
+# "is already installed" line instead of an install. The rhythm versions
+# differ the way real releases do:
 #   0.7.0 (latest)  knows tuner, soundcheck and echo; has install --dry-run
 #                   and --quiet; says once that --dir isn't on PATH; has
 #                   verify (which fails when RHYTHM_TEST_VERIFY=fail),
@@ -236,6 +238,15 @@ ok=0 failed= count=0
 for spec in $names; do
 	n=${spec%@*} v=${spec#*@}
 	count=$((count + 1))
+	# A tool in $RHYTHM_TEST_ALREADY is "already installed", as rhythm says
+	# when the binary in --dir is the version asked for.
+	case " ${RHYTHM_TEST_ALREADY:-} " in
+	*" $n "*)
+		echo "rhythm-$n ${v:-0.0.0-test} is already installed at $dir/rhythm-$n (use --force to reinstall)"
+		ok=$((ok + 1))
+		continue
+		;;
+	esac
 	# The archive is fetched from the fake API, so a test can make it 404.
 	if [ -n "${RHYTHM_GITHUB_API:-}" ]; then
 		archive=${n}_${os}_${arch}.tar.gz

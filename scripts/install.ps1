@@ -410,7 +410,9 @@
         $R = Invoke-Native (@('install', '--locked', '--dir', $Dir) + $Quiet)
         $Lines = @($R.Out -split "`n" | Where-Object { $_ -and $_ -notmatch "^Note: .* isn't on your PATH\.$" })
         if ($Lines.Count) { Write-Host ($Lines -join "`n") }
-        $Done = @([regex]::Matches($R.Out, '(?m)^Installed rhythm-(\S+) ') | ForEach-Object { $_.Groups[1].Value })
+        # A tool already at the locked version counts as installed too.
+        $Done = @([regex]::Matches($R.Out, '(?m)^(?:Installed rhythm-(\S+) |rhythm-(\S+) \S+ is already installed at )') |
+            ForEach-Object { if ($_.Groups[1].Success) { $_.Groups[1].Value } else { $_.Groups[2].Value } })
         if ($R.Code -ne 0) {
             $Failed = @([regex]::Matches($R.Out, '(?m)^Installed \d+, .*failed \d+: (.*)$') | ForEach-Object { $_.Groups[1].Value -split ',\s*' } | ForEach-Object { $_.Trim() -replace '^rhythm-', '' })
             if (-not $Failed.Count) { $Failed = @('rhythm.lock') }

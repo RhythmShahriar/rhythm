@@ -201,3 +201,22 @@ func TestInstallCopiesItselfAndLogs(t *testing.T) {
 		t.Fatalf("unknown command = %d", code)
 	}
 }
+
+func TestAlreadyInstalled(t *testing.T) {
+	stubAs(t, "0.7.0", "tuner:t,echo:e", "dry-run,pins", "yes")
+	dir := t.TempDir()
+	t.Setenv("RHYTHM_TEST_ALREADY", "tuner")
+	t.Setenv("PATH", dir)
+	code, out, errOut := call("install", "t@0.3.1", "echo", "--dir", dir)
+	name := "rhythm-tuner"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	want := "rhythm-tuner 0.3.1 is already installed at " + filepath.Join(dir, name) + " (use --force to reinstall)\n"
+	if code != 0 || !strings.HasPrefix(out, want) || !strings.Contains(out, "Installed rhythm-echo ") {
+		t.Fatalf("install = %d %q %q", code, out, errOut)
+	}
+	if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+		t.Fatalf("an already installed tool was copied: %v", err)
+	}
+}

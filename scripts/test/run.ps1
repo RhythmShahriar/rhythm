@@ -507,6 +507,12 @@ function Case-locked {
     Assert-Code 1
     Assert-Out 'Installed: tuner. Failed: echo (see above).'
 
+    # A tool rhythm says is already installed gets its first step too.
+    Invoke-Install @{ RHYTHM_LOCKED = '1'; RHYTHM_TEST_ALREADY = 'tuner' }
+    Assert-Code 0
+    Assert-Out "rhythm-tuner 0.3.1 is already installed at $(Get-Bin "rhythm-tuner$Exe") (use --force to reinstall)"
+    Assert-Started 'tuner', 'echo'
+
     # A rhythm without --locked can't.
     Remove-Item -Recurse -Force $Bin
     Invoke-Install @{ RHYTHM_LOCKED = '1'; RHYTHM_VERSION = '0.6.0' }

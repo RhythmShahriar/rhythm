@@ -24,9 +24,11 @@
 // $RHYTHM_GITHUB_API so a test can make one 404, "installs" a tool by
 // copying itself to rhythm-<tool>(.exe) in --dir and notes when --dir isn't
 // on PATH: once with dry-run (unless --quiet), after each tool without, like
-// the real releases. `hold` keeps it running for a minute
-// so a test can install over a running rhythm.exe. scripts/test/mkfake.sh
-// has the same stand-in as a shell script for install.sh.
+// the real releases. A tool named in $RHYTHM_TEST_ALREADY (separated by
+// spaces) gets rhythm's "is already installed" line instead. `hold` keeps
+// it running for a minute so a test can install over a running rhythm.exe.
+// scripts/test/mkfake.sh has the same stand-in as a shell script for
+// install.sh.
 package main
 
 import (
@@ -38,6 +40,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -220,22 +223,26 @@ func install(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stdout, name)
 			continue
 		}
+		dest := filepath.Join(dir, "rhythm-"+name)
+		if runtime.GOOS == "windows" {
+			dest += ".exe"
+		}
+		v := pinned[i]
+		if v == "" {
+			v = "0.0.0-test"
+		}
+		if slices.Contains(strings.Fields(os.Getenv("RHYTHM_TEST_ALREADY")), name) {
+			fmt.Fprintf(stdout, "rhythm-%s %s is already installed at %s (use --force to reinstall)\n", name, v, dest)
+			continue
+		}
 		if err := fetchArchive(name); err != nil {
 			fmt.Fprintf(stderr, "%-18s %v\n", "rhythm-"+name, err)
 			failed = append(failed, "rhythm-"+name)
 			continue
 		}
-		dest := filepath.Join(dir, "rhythm-"+name)
-		if runtime.GOOS == "windows" {
-			dest += ".exe"
-		}
 		if err := copySelf(dest); err != nil {
 			fmt.Fprintln(stderr, "rhythm:", err)
 			return 1
-		}
-		v := pinned[i]
-		if v == "" {
-			v = "0.0.0-test"
 		}
 		fmt.Fprintf(stdout, "Installed rhythm-%s %s to %s\n", name, v, dest)
 		if !has("dry-run") && !onPath(dir) {
