@@ -135,15 +135,32 @@ func TestHeadersScopedToTarget(t *testing.T) {
 		}
 	}
 
-	// A direct request to the other host is stripped the same way.
-	resp, err = get(t, c, other.URL+"/direct", "Authorization", "Bearer caller", "X-Other", "kept")
+	// A direct request to the other host is stripped the same way, and
+	// credential headers the caller set go too even when no -H names them.
+	resp, err = get(t, c, other.URL+"/direct", "Authorization", "Bearer caller", "X-Other", "kept",
+		"Proxy-Authorization", "Basic cHJveHk6cHc=", "Cookie2", "x=1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	_ = resp.Body.Close()
 	last := other.headers()[1]
-	if last.Get("Authorization") != "" || last.Get("X-Other") != "kept" {
+	if last.Get("Authorization") != "" || last.Get("Proxy-Authorization") != "" || last.Get("Cookie2") != "" || last.Get("X-Other") != "kept" {
 		t.Errorf("direct request to another host: %v", last)
+	}
+
+	// A Cookie the caller set reaches another port on a redirect hop
+	// unless the transport removes it, because Go keeps it there.
+	c = New(Options{Target: mustURL(t, target.URL), Headers: []string{"X-Custom: v"}, OffSiteRedirects: true})
+	resp, err = get(t, c, target.URL+"/hop", "Cookie", "session=caller")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if th := target.headers(); th[len(th)-1].Get("Cookie") != "session=caller" {
+		t.Errorf("the target lost the caller's cookie: %v", th[len(th)-1])
+	}
+	if oh := other.headers(); oh[len(oh)-1].Get("Cookie") != "" {
+		t.Errorf("the hop to another port got the caller's cookie: %v", oh[len(oh)-1])
 	}
 }
 
@@ -517,7 +534,13 @@ func TestSameHost(t *testing.T) {
 		{"https://Example.com", "https://example.com:443/x", true},
 		{"https://example.com", "https://example.com:8443", false},
 		{"https://example.com", "http://example.com", false},
+		{"http://example.com", "https://example.com/", true},
+		{"http://example.com:80", "https://example.com:443/", true},
+		{"http://example.com:8080", "https://example.com/", false},
+		{"http://example.com", "https://example.com:8443/", false},
+		{"http://example.com", "https://www.example.com/", false},
 		{"https://example.com", "https://www.example.com", false},
+		{"https://www.example.com", "https://example.com", false},
 		{"http://127.0.0.1:20001", "http://127.0.0.1:20002", false},
 	} {
 		if got := SameHost(mustURL(t, c.a), mustURL(t, c.b)); got != c.want {

@@ -10,8 +10,9 @@
 //     down when it answers 429 or 503, retrying after its Retry-After
 //   - follows redirects only on the target's site (see SameSite)
 //   - adds the user's -H headers only to requests for the target's host
-//     and port and strips them (and Authorization) from any other host,
-//     even when the caller set them on the request itself
+//     and port (see SameHost) and strips them, Authorization, cookies and
+//     Proxy-Authorization from any other host, even when the caller set
+//     them on the request itself
 //   - limits every response body to Options.MaxBody
 //   - refuses to connect to loopback, link-local and private addresses
 //     unless the target is on the same kind of address (see Guard)
@@ -61,7 +62,7 @@ type Options struct {
 	// value means no limit.
 	MaxBody int64
 	// Headers are the user's -H values ("Name: value"). They are sent
-	// only to Target's host and port, so they need a Target. Malformed
+	// only where SameHost(Target, url) holds, so they need a Target. Malformed
 	// values are skipped; check flags with ParseHeaders first.
 	Headers []string
 	// Target is the site being checked. It scopes Headers, anchors the
@@ -244,14 +245,26 @@ func SameSite(start, u *url.URL) bool {
 	return ss == "http" && us == "https" && sp == "80" && up == "443"
 }
 
-// SameHost reports whether a and b have the same scheme, host and port
-// (ignoring case, with the scheme's default port filled in). It is the
-// rule for sending credentials: unlike SameSite it treats www.example.com
-// and example.com (and http and https) as different, because a
-// credential meant for one should not reach the other.
-func SameHost(a, b *url.URL) bool {
-	return strings.EqualFold(a.Scheme, b.Scheme) && strings.EqualFold(a.Hostname(), b.Hostname()) &&
-		port(strings.ToLower(a.Scheme), a.Port()) == port(strings.ToLower(b.Scheme), b.Port())
+// SameHost reports whether u may receive credentials meant for target:
+// the same host (ignoring case), scheme and port, with the scheme's
+// default port filled in. Unlike SameSite it treats www.example.com and
+// example.com as different hosts, because a credential meant for one
+// should not reach the other, so a target that redirects from the apex
+// to www (or back) loses its -H headers on the hop; give the host the
+// site redirects to. One upgrade is allowed, the one SameSite allows: an
+// http target on the default port may send them to https on the default
+// port of the same host, because most sites redirect there and the
+// credential is safer over TLS. https never sends them to http.
+func SameHost(target, u *url.URL) bool {
+	if !strings.EqualFold(target.Hostname(), u.Hostname()) {
+		return false
+	}
+	ts, us := strings.ToLower(target.Scheme), strings.ToLower(u.Scheme)
+	tp, up := port(ts, target.Port()), port(us, u.Port())
+	if ts == us {
+		return tp == up
+	}
+	return ts == "http" && us == "https" && tp == "80" && up == "443"
 }
 
 // port returns p, or the default port for scheme when p is empty.

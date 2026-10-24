@@ -105,12 +105,13 @@ func (t *transport) prepare(req *http.Request) *http.Request {
 	return r
 }
 
-// scopeHeaders adds the user's headers when r is for the target's
-// scheme, host and port and removes them everywhere else. Removal
-// matters because Go's client copies the first request's headers onto
-// each redirect hop and keeps Authorization when only the port changes,
-// and a caller may have set them on the request itself. Authorization
-// is always removed off the target for the same reason.
+// scopeHeaders adds the user's headers when SameHost(Target, r.URL)
+// holds and removes them everywhere else. Removal matters because Go's
+// client copies the first request's headers onto each redirect hop and
+// keeps Authorization and Cookie when only the port changes, and a
+// caller may have set them on the request itself. The credential
+// headers in offTarget are always removed off the target for the same
+// reason.
 func (t *transport) scopeHeaders(r *http.Request) {
 	if t.opts.Target == nil {
 		return
@@ -132,8 +133,14 @@ func (t *transport) scopeHeaders(r *http.Request) {
 		}
 		r.Header.Del(k)
 	}
-	r.Header.Del("Authorization")
+	for _, k := range offTarget {
+		r.Header.Del(k)
+	}
 }
+
+// offTarget are the headers that carry credentials and never leave the
+// target, whoever set them.
+var offTarget = []string{"Authorization", "Cookie", "Cookie2", "Proxy-Authorization"}
 
 // idempotent reports whether a request with method may be sent again.
 func idempotent(method string) bool {
