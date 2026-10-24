@@ -106,6 +106,7 @@ On macOS the last two live at `~/Library/Caches/rhythm` and `~/Library/Applicati
 ```sh
 make hooks   # Conventional Commits check
 make check   # lint + tests
+sh scripts/test/run.sh          # install.sh against a fake GitHub API on 127.0.0.1
 ```
 
 `kit/` is the shared base every tool imports: theme, config and self-update.

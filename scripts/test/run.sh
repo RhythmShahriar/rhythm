@@ -1,0 +1,179 @@
+#!/bin/sh
+# Copyright (c) 2026 Rhythm Shahriar <me@rhy.io>
+# SPDX-License-Identifier: AGPL-3.0-only
+
+# Tests scripts/install.sh against a fake GitHub API on 127.0.0.1:
+#   sh scripts/test/run.sh [case ...]
+#
+# Runs every case or only the named ones (e.g. "old_router") and exits
+# non-zero on the first failure. Each case pipes install.sh into a shell, as
+# `curl | sh` does, inside env -i with HOME, XDG and TMPDIR in a temp folder.
+#
+# Environment:
+#   RHYTHM_TEST_SH    the shell that runs install.sh (default sh; try dash, bash, "busybox sh")
+#   RHYTHM_TEST_PORT  port for the fake API (default: any free port)
+#   RHYTHM_TEST_KEEP  set to 1 to keep the temp folder for a look afterwards
+set -eu
+
+here=$(cd "$(dirname "$0")" && pwd)
+installer=$here/../install.sh
+shell=${RHYTHM_TEST_SH:-sh}
+work=$(mktemp -d)
+server=
+
+cleanup() {
+	[ -z "$server" ] || kill "$server" 2>/dev/null || :
+	if [ "${RHYTHM_TEST_KEEP:-}" = 1 ]; then
+		echo "kept $work" >&2
+	else
+		rm -rf "$work"
+	fi
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+fail() {
+	printf 'FAIL %s: %s\n' "$case" "$*" >&2
+	if [ -f "$cdir/out" ]; then
+		echo '--- installer output' >&2
+		cat "$cdir/out" >&2
+	fi
+	exit 1
+}
+
+sh "$here/mkfake.sh" "$work/srv"
+python3 -I "$here/server.py" "$work/srv" "$work/requests.log" "${RHYTHM_TEST_PORT:-0}" 2>"$work/server.err" &
+server=$!
+i=0
+until [ -s "$work/srv/.port" ]; do
+	i=$((i + 1))
+	if [ $i -gt 100 ] || ! kill -0 "$server" 2>/dev/null; then
+		cat "$work/server.err" >&2
+		echo "the fake API didn't start" >&2
+		exit 1
+	fi
+	sleep 0.1
+done
+base=http://127.0.0.1:$(cat "$work/srv/.port")
+
+# A curl stand-in for the cases that must not reach the network. It logs its
+# argv (and its stdin when given -K -), then fails like an unknown host.
+mkdir -p "$work/fakebin"
+cat >"$work/fakebin/curl" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$*" >>"$FAKE_CURL_LOG"
+case " $* " in
+*" -K - "*) cat >>"$FAKE_CURL_LOG" ;;
+esac
+exit 6
+EOF
+chmod 0755 "$work/fakebin/curl"
+
+# install runs the installer for the current case with the defaults below,
+# then the VAR=value arguments. It sets $code and leaves the output in
+# $cdir/out. $script overrides the installer, for the truncation cases.
+install() {
+	mkdir -p "$cdir/home" "$cdir/tmp"
+	set +e
+	# $shell is split on purpose, so RHYTHM_TEST_SH can be "busybox sh".
+	# shellcheck disable=SC2086
+	cat "${script:-$installer}" | env -i \
+		HOME="$cdir/home" PATH="${path:-/usr/local/bin:/usr/bin:/bin}" TMPDIR="$cdir/tmp" \
+		XDG_CONFIG_HOME="$cdir/home/.config" XDG_CACHE_HOME="$cdir/home/.cache" \
+		RHYTHM_GITHUB_API="$base" RHYTHM_INSTALL_DIR="$cdir/bin" \
+		RHYTHM_TEST_LOG="$cdir/argv.log" FAKE_CURL_LOG="$cdir/curl.log" \
+		"$@" $shell >"$cdir/out" 2>&1
+	code=$?
+	set -e
+}
+
+# requests prints the fake API's log lines for the current case.
+requests() { [ ! -f "$work/requests.log" ] || cat "$work/requests.log"; }
+
+expect_code() { [ "$code" = "$1" ] || fail "exit code $code, want $1"; }
+expect_out() { grep -qF -- "$1" "$cdir/out" || fail "output lacks: $1"; }
+expect_no_out() { ! grep -qF -- "$1" "$cdir/out" || fail "output has: $1"; }
+expect_file() { [ -x "$cdir/bin/$1" ] || fail "$1 wasn't installed"; }
+expect_no_file() { [ ! -e "$cdir/bin/$1" ] || fail "$1 was installed"; }
+expect_tools() {
+	for t in tuner soundcheck echo; do
+		case " $* " in
+		*" $t "*) expect_file "rhythm-$t" ;;
+		*) expect_no_file "rhythm-$t" ;;
+		esac
+	done
+}
+
+case_default() {
+	install
+	expect_code 0
+	expect_file rhythm
+	expect_tools tuner soundcheck echo
+	expect_out "Installed rhythm 0.6.0 to $cdir/bin"
+}
+
+case_some() {
+	install RHYTHM_TOOLS='soundcheck  echo'
+	expect_code 0
+	expect_tools soundcheck echo
+}
+
+# truncate writes the first $1 percent of install.sh to $2.
+truncate() {
+	size=$(wc -c <"$installer")
+	head -c $((size * $1 / 100)) "$installer" >"$2"
+}
+
+case_truncated() {
+	for pct in 50 90; do
+		script=$cdir/install-$pct.sh
+		truncate "$pct" "$script"
+		: >"$work/requests.log"
+		install
+		script=
+		[ "$code" != 0 ] || fail "a script cut at $pct% exited 0"
+		[ ! -e "$cdir/bin" ] || fail "a script cut at $pct% created $cdir/bin"
+		[ ! -s "$work/requests.log" ] || fail "a script cut at $pct% made a request"
+	done
+}
+
+case_proto() {
+	path=$work/fakebin:/usr/bin:/bin
+	install RHYTHM_GITHUB_API=
+	path=
+	expect_code 1
+	grep -qF -- "--proto =https --tlsv1.2" "$cdir/curl.log" || fail "curl ran without --proto =https --tlsv1.2"
+	grep -qF -- "https://api.github.com/repos/RhythmShahriar/rhythm/releases/latest" "$cdir/curl.log" ||
+		fail "the default API isn't api.github.com"
+	expect_out "couldn't fetch the release from GitHub (https://api.github.com/"
+}
+
+case_http_refused() {
+	for api in http://example.invalid HTTP://10.0.0.1:8080 ftp://127.0.0.1 example.invalid; do
+		path=$work/fakebin:/usr/bin:/bin
+		rm -f "$cdir/curl.log"
+		install RHYTHM_GITHUB_API="$api"
+		path=
+		expect_code 1
+		expect_out "rhythm install: RHYTHM_GITHUB_API must be"
+		[ ! -e "$cdir/curl.log" ] || fail "curl ran for $api"
+	done
+}
+
+case_http_download_refused() {
+	install RHYTHM_VERSION=9.0.1
+	expect_code 1
+	expect_out "refusing to download over http: http://example.invalid/dl/rhythm/v9.0.1/"
+	expect_no_file rhythm
+}
+
+cases=${*:-default some truncated proto http_refused http_download_refused}
+script='' path=''
+for case in $cases; do
+	cdir=$work/cases/$case
+	mkdir -p "$cdir"
+	"case_$case"
+	echo "ok   $case"
+done
+echo "all installer cases passed with $shell"
