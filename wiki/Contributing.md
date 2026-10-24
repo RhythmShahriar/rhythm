@@ -6,12 +6,12 @@ For big changes, open an issue first so the approach can be agreed before you wr
 
 | Repository | What's in it |
 |---|---|
-| [`RhythmShahriar/rhythm`](https://github.com/RhythmShahriar/rhythm) | The `rhythm` CLI, the install scripts and `kit/`, the shared base every tool imports |
+| [`RhythmShahriar/rhythm`](https://github.com/RhythmShahriar/rhythm) | The `rhythm` CLI, the install scripts and their tests, the `setup` GitHub Action and `kit/`, the shared base every tool imports |
 | [`RhythmShahriar/tuner`](https://github.com/RhythmShahriar/tuner) | Tuner (`rhythm-tuner`) and its checks in `checks/` |
 | [`RhythmShahriar/soundcheck`](https://github.com/RhythmShahriar/soundcheck) | Soundcheck (`rhythm-soundcheck`), its modules in `checks/`, the GitHub Action (`action.yml`) and the testbed in `testbed/` |
 | [`RhythmShahriar/echo`](https://github.com/RhythmShahriar/echo) | Echo (`rhythm-echo`), its recognizers in `recognize/`, the connectors in `connectors/` (WordPress, Laravel, Node), the hard-seal recipes in `docs/seal/` and the GitHub Action |
 | [`RhythmShahriar/echo-laravel`](https://github.com/RhythmShahriar/echo-laravel) | Read-only: Echo's `connectors/laravel`, split out for Packagist. Send changes to the `echo` repository. |
-| [`RhythmShahriar/.github`](https://github.com/RhythmShahriar/.github) | Shared community files and the reusable CI and release workflows |
+| [`RhythmShahriar/.github`](https://github.com/RhythmShahriar/.github) | Shared community files, the reusable CI and release workflows and the scripts they run (`check-style.py`, `add-headers.py`, `check-kit-pin.sh`) |
 
 ## Set up
 
@@ -105,7 +105,74 @@ Then run `make hooks` and `make check` in each repository you change.
 | `make testbed`, `make testbed-down` | Soundcheck and Echo: start or delete the testbed in Docker ([Soundcheck's](#soundcheck-and-the-testbed), [Echo's](#echo-and-its-connectors)) |
 | `make bench` | Soundcheck and Echo: build, then run the benchmark ([Soundcheck](Soundcheck-Benchmark), [Echo](Echo-Benchmark)) against the testbed |
 
-CI runs the same checks on every pull request, plus `gofmt`, `go vet`, a build, `shellcheck` on scripts and hooks and `goreleaser check`.
+`rhythm` has a few more:
+
+| Target | Does |
+|---|---|
+| `make check` | `lint`, `test` and `cross`: the same as CI's Go job |
+| `make cross` | `GOOS=windows go vet ./...`, compiles the router's tests for Windows and vets for macOS, so a Unix-only helper in a test fails on your machine and not only on CI |
+| `make test-installers` | the installer tests: `sh scripts/test/run.sh`, then `run.ps1` when `pwsh` is on your `PATH` |
+| `make actionlint`, `make pins` | lint the workflows; check that every third-party action is pinned to a commit SHA |
+| `make vuln` | `govulncheck` over the code rhythm calls |
+| `make release-check`, `make dist-check`, `make trusted-root` | the release config, a checked snapshot release and the Sigstore root; see [Release process](Release-Process#before-a-rhythm-release) |
+
+### Installer tests
+
+`scripts/install.sh` and `scripts/install.ps1` have their own tests in `scripts/test/`, against a fake GitHub API on `127.0.0.1` (`server.py`) with fake releases (`mkfake.sh`): checksum and signature failures, mirrors and tokens, timeouts, pins, `rhythm.lock`, the PATH hint and a script cut off halfway.
+
+```sh
+sh scripts/test/run.sh                          # every case, install.sh under sh
+RHYTHM_TEST_SH=dash dash scripts/test/run.sh    # the same under dash (also bash, "busybox sh")
+sh scripts/test/run.sh pins locked              # only some cases
+pwsh -NoProfile -File scripts/test/run.ps1      # install.ps1; needs go and python3
+```
+
+They need `python3`, `curl` and `tar`. `RHYTHM_TEST_KEEP=1` keeps each case's folder for a look afterwards. A real `cosign` or `gh` on your `PATH` is hidden from the cases.
+
+## CI
+
+Every pull request runs:
+
+| Job | Where | What |
+|---|---|---|
+| `go` | Ubuntu, Windows and macOS (`rhythm`; the tools on Ubuntu) | `go vet`, `go test -race`, a build and, for `rhythm`, the crawl benchmark once. On Linux also `gofmt`, `golangci-lint`, `shellcheck`, `actionlint`, the pinned-actions check (`rhythm`), the kit pin check and `goreleaser check`. |
+| `govulncheck` | Ubuntu | fails on a known vulnerability in code the module calls |
+| `commitlint` | Ubuntu | every commit message and the pull request title ([Commit messages](#commit-messages)) |
+| `installers` | `rhythm`: Ubuntu, macOS, Windows | the installer tests under `sh`, `dash` and `bash`, PowerShell 7 and Windows PowerShell 5.1 |
+| `packages` | `rhythm`: Ubuntu | a snapshot release, then its SBOMs, Linux packages and package-manager manifests are checked |
+| `setup-rhythm-test` | `rhythm`: Ubuntu, macOS, Windows | the [setup-rhythm action](CI-Setup) against a fake release API, its cache and its inputs |
+
+Windows runners check out with `core.autocrlf=true`; the repository's `.gitattributes` keeps text files and signed test fixtures byte for byte, so write new fixtures with LF line ends. A tool fails the **kit pin** check when its `go.mod` requires a kit more than one minor release behind the latest `rhythm` tag:
+
+```text
+check-kit-pin: tuner/go.mod pins github.com/RhythmShahriar/rhythm v0.1.0 but the latest is v0.6.0; move to v0.5.0 or later
+```
+
+Bump the kit (see [When the kit changes](Release-Process#when-the-kit-changes)). A new workflow must pin every third-party action to a full commit SHA, with the version in a comment, or the pinned-actions check lists it: `These uses: lines don't pin a 40-hex commit SHA:`.
+
+## Writing rules and file headers
+
+Docs, help text, messages and comments follow two writing rules: **no em dashes** and **no comma before "and" or "but"**. Write `checks the archive and the signature`, not `checks the archive, and the signature`; use two sentences when one gets long. A line that must keep the pattern (quoted third-party text) opts out with `style:ignore` anywhere on it. Check a repository with the script from `RhythmShahriar/.github`:
+
+```sh
+python3 ../.github/scripts/check-style.py .      # from inside the repository you changed
+```
+
+It reads every tracked text file (not generated output, vendored code or test fixtures), prints `file:line:column: rule: text` for each problem and exits 1 when it found any. Shared CI runs it for repositories that set `style: true`.
+
+Every source file starts with a two-line copyright and license header in its own comment syntax:
+
+```go
+// Copyright (c) 2026 Rhythm Shahriar <me@rhy.io>
+// SPDX-License-Identifier: AGPL-3.0-only
+```
+
+The license comes from the nearest `LICENSE` file, so Tuner's `checks/` (MIT inside an AGPL repository) and the MIT Soundcheck and Echo get theirs. `add-headers.py` adds missing headers and leaves files that have one alone; `--check` only lists the files without one and exits 1:
+
+```sh
+python3 ../.github/scripts/add-headers.py --check .
+python3 ../.github/scripts/add-headers.py .
+```
 
 ## Commit messages
 
@@ -176,7 +243,7 @@ The pull request template asks for:
   - [ ] New or changed checks have positive and negative fixtures
   - [ ] No exploit payloads; secrets stay masked in all output
 
-CI must pass before merging: the Go checks and the commit message check.
+CI must pass before merging: the [jobs above](#ci), including the commit message check.
 
 ## Adding a check
 
