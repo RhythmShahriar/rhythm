@@ -48,8 +48,8 @@ function Fail([string]$Why) {
 }
 
 # New-Stub builds the rhythm.exe stand-in for one fake release.
-function New-Stub([string]$Version, [string]$Tools, [string]$DryRun, [string]$Block, [string]$Out) {
-    $Flags = "-X main.version=$Version -X main.tools=$Tools -X main.dryRun=$DryRun -X main.toolsBlock=$Block"
+function New-Stub([string]$Version, [string]$Tools, [string]$Features, [string]$Block, [string]$Out) {
+    $Flags = "-X main.version=$Version -X main.tools=$Tools -X main.features=$Features -X main.toolsBlock=$Block"
     $env:GOWORK = 'off'
     & go -C $Root build -o $Out -ldflags $Flags ./scripts/test/stub
     if ($LASTEXITCODE -ne 0) { throw "go build of the stub failed" }
@@ -75,9 +75,11 @@ function New-Zip([string]$Binary, [string]$Zip) {
     }
 }
 
-# New-Release writes the zips, checksums.txt and release JSON for a version
-# whose downloads start with $Base. $Broken breaks the checksums on purpose:
-# 'badsum' writes a wrong sum, 'nosums' leaves checksums.txt out.
+# New-Release writes the zips, checksums.txt, a stand-in
+# checksums.txt.sigstore.json and the release JSON for a version whose
+# downloads start with $Base. $Broken breaks the checksums on purpose:
+# 'badsum' writes a wrong sum, 'nosums' leaves checksums.txt out and
+# 'nobundle' the bundle.
 function New-Release([string]$Version, [string]$Binary, [string]$Base, [string]$Broken = '') {
     $Out = Join-Path $Srv "dl/rhythm/v$Version"
     $Tags = Join-Path $Srv 'repos/RhythmShahriar/rhythm/releases/tags'
@@ -96,27 +98,35 @@ function New-Release([string]$Version, [string]$Binary, [string]$Base, [string]$
         $Assets += "{`"name`":`"checksums.txt`",`"browser_download_url`":`"$Base/checksums.txt`"}"
         [IO.File]::WriteAllText((Join-Path $Out 'checksums.txt'), $Sums, $Utf8)
     }
+    if ($Broken -ne 'nosums' -and $Broken -ne 'nobundle') {
+        # Only the fake cosign reads the bundle, so any bytes do.
+        $Assets += "{`"name`":`"checksums.txt.sigstore.json`",`"browser_download_url`":`"$Base/checksums.txt.sigstore.json`"}"
+        [IO.File]::WriteAllText((Join-Path $Out 'checksums.txt.sigstore.json'), '{"mediaType":"application/vnd.dev.sigstore.bundle.v0.3+json"}', $Utf8)
+    }
     $Json = "{`"tag_name`":`"v$Version`",`"prerelease`":false,`"assets`":[$($Assets -join ',')]}"
     [IO.File]::WriteAllText((Join-Path $Tags "v$Version"), $Json, $Utf8)
 }
 
 # The same releases as mkfake.sh builds for install.sh.
 $All = 'tuner:t,soundcheck:sc,echo:e'
+$New = 'dry-run,verify'
 $Build = Join-Path $Work 'build'
 foreach ($R in @(
-        @('0.6.0', $All, 'yes', 'yes'),
-        @('0.5.0', $All, 'no', 'yes'),
-        @('0.4.0', 'tuner:t,soundcheck:sc', 'no', 'yes'),
-        @('0.3.5', $All, 'no', 'no'),
-        @('9.0.1', $All, 'yes', 'yes'),
-        @('9.0.2', $All, 'yes', 'yes', 'badsum'),
-        @('9.0.3', $All, 'yes', 'yes', 'nosums'))) {
+        @('0.7.0', $All, $New, 'yes'),
+        @('0.6.0', $All, 'dry-run', 'yes'),
+        @('0.5.0', $All, '', 'yes'),
+        @('0.4.0', 'tuner:t,soundcheck:sc', '', 'yes'),
+        @('0.3.5', $All, '', 'no'),
+        @('9.0.1', $All, $New, 'yes'),
+        @('9.0.2', $All, $New, 'yes', 'badsum'),
+        @('9.0.3', $All, $New, 'yes', 'nosums'),
+        @('9.0.4', $All, $New, 'yes', 'nobundle'))) {
     $Binary = Join-Path $Build "$($R[0])/rhythm$Exe"
     New-Stub $R[0] $R[1] $R[2] $R[3] $Binary
     $Base = if ($R[0] -eq '9.0.1') { 'http://example.invalid/dl/rhythm/v9.0.1' } else { "{{BASE}}/dl/rhythm/v$($R[0])" }
     New-Release $R[0] $Binary $Base $(if ($R.Count -gt 4) { $R[4] } else { '' })
 }
-Copy-Item (Join-Path $Srv 'repos/RhythmShahriar/rhythm/releases/tags/v0.6.0') (Join-Path $Srv 'repos/RhythmShahriar/rhythm/releases/latest')
+Copy-Item (Join-Path $Srv 'repos/RhythmShahriar/rhythm/releases/tags/v0.7.0') (Join-Path $Srv 'repos/RhythmShahriar/rhythm/releases/latest')
 # The stand-in fetches each tool's archive before it "installs" the tool, so
 # a case can take one away. Only the request matters, not the bytes.
 foreach ($T in 'tuner', 'soundcheck', 'echo') {
@@ -141,9 +151,50 @@ for ($i = 0; -not (Test-Path $PortFile); $i++) {
 }
 $BaseUrl = "http://127.0.0.1:$((Get-Content $PortFile).Trim())"
 
+# Stand-ins for cosign and gh, each in its own folder so a case can have
+# either. They log their argv to $FAKE_SIG_LOG. cosign exits
+# $FAKE_COSIGN_EXIT; gh is logged in unless FAKE_GH_AUTH=1 and its
+# attestation check exits 1 when FAKE_GH_EXIT=1.
+$CosignBin = Join-Path $Work 'cosignbin'
+$GhBin = Join-Path $Work 'ghbin'
+New-Item -ItemType Directory -Force -Path $CosignBin, $GhBin | Out-Null
+if ($OnWindows) {
+    [IO.File]::WriteAllText((Join-Path $CosignBin 'cosign.cmd'), "@echo off`r`necho cosign %*>>`"%FAKE_SIG_LOG%`"`r`nif `"%FAKE_COSIGN_EXIT%`"==`"1`" (echo Error: none of the expected identities matched what was in the certificate 1>&2& exit /b 1)`r`nexit /b 0`r`n", $Utf8)
+    [IO.File]::WriteAllText((Join-Path $GhBin 'gh.cmd'), "@echo off`r`nif `"%~1 %~2`"==`"auth status`" (if `"%FAKE_GH_AUTH%`"==`"1`" (exit /b 1) else (exit /b 0))`r`nif `"%~1 %~2 %~3`"==`"attestation verify --help`" (echo       --source-ref string& exit /b 0)`r`necho gh %*>>`"%FAKE_SIG_LOG%`"`r`nif `"%FAKE_GH_EXIT%`"==`"1`" (echo Error: no attestations found 1>&2& exit /b 1)`r`nexit /b 0`r`n", $Utf8)
+}
+else {
+    [IO.File]::WriteAllText((Join-Path $CosignBin 'cosign'), @'
+#!/bin/sh
+printf 'cosign %s\n' "$*" >>"$FAKE_SIG_LOG"
+[ "${FAKE_COSIGN_EXIT:-0}" = 0 ] || echo 'Error: none of the expected identities matched what was in the certificate' >&2
+exit "${FAKE_COSIGN_EXIT:-0}"
+'@, $Utf8)
+    [IO.File]::WriteAllText((Join-Path $GhBin 'gh'), @'
+#!/bin/sh
+case "$*" in
+"auth status") exit "${FAKE_GH_AUTH:-0}" ;;
+"attestation verify --help") echo '      --source-ref string' && exit 0 ;;
+esac
+printf 'gh %s\n' "$*" >>"$FAKE_SIG_LOG"
+[ "${FAKE_GH_EXIT:-0}" = 0 ] || echo 'Error: no attestations found' >&2
+exit "${FAKE_GH_EXIT:-0}"
+'@, $Utf8)
+    & chmod 755 (Join-Path $CosignBin 'cosign') (Join-Path $GhBin 'gh')
+}
+# The PATH every case gets unless it sets one. A real cosign would check the
+# stand-in bundle for real, so its folder is left out; the shell running the
+# cases is found once, here.
+$ShellExe = (Get-Command $Shell -CommandType Application | Select-Object -First 1).Source
+$Sep = [IO.Path]::PathSeparator
+$SysPath = (@($env:PATH -split $Sep | Where-Object { $_ -and -not (Test-Path (Join-Path $_ 'cosign*')) }) -join $Sep)
+$NoGh = Join-Path $Work 'gh-config' # an empty gh config: not logged in
+New-Item -ItemType Directory -Force -Path $NoGh | Out-Null
+
 # The variables every case sets or clears; Invoke-Install restores them.
 $Vars = 'RHYTHM_GITHUB_API', 'RHYTHM_INSTALL_DIR', 'RHYTHM_VERSION', 'RHYTHM_TOOLS', 'RHYTHM_ARCH',
-'RHYTHM_TEST_LOG', 'GITHUB_TOKEN', 'RHYTHM_GITHUB_TOKEN', 'MOCK_LOG', 'TEMP', 'TMP', 'TMPDIR'
+'RHYTHM_TEST_LOG', 'GITHUB_TOKEN', 'RHYTHM_GITHUB_TOKEN', 'MOCK_LOG', 'TEMP', 'TMP', 'TMPDIR',
+'PATH', 'GH_TOKEN', 'GH_CONFIG_DIR', 'RHYTHM_SKIP_SIGNATURE', 'RHYTHM_TEST_VERIFY',
+'FAKE_SIG_LOG', 'FAKE_COSIGN_EXIT', 'FAKE_GH_AUTH', 'FAKE_GH_EXIT'
 
 # Set-Var sets an environment variable, or deletes it for $null. PowerShell
 # would pass $null to .NET as '', which .NET 9 and later keep as a value.
@@ -166,6 +217,9 @@ function Invoke-Install([hashtable]$Set = @{}, [string]$Prelude = '', [string]$S
         RHYTHM_ARCH        = 'amd64'
         RHYTHM_TEST_LOG    = (Join-Path $script:CaseDir 'argv.log')
         MOCK_LOG           = (Join-Path $script:CaseDir 'mock.log')
+        FAKE_SIG_LOG       = (Join-Path $script:CaseDir 'sig.log')
+        PATH               = $SysPath
+        GH_CONFIG_DIR      = $NoGh
         TEMP               = $Tmp
         TMP                = $Tmp
         TMPDIR             = $Tmp
@@ -183,7 +237,7 @@ function Invoke-Install([hashtable]$Set = @{}, [string]$Prelude = '', [string]$S
     $Prev = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
-        $Lines = & $Shell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $Runner 2>&1 | ForEach-Object { "$_" }
+        $Lines = & $ShellExe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $Runner 2>&1 | ForEach-Object { "$_" }
         $script:Code = $LASTEXITCODE
         $script:Out = $Lines -join "`n"
     }
@@ -241,7 +295,7 @@ function Case-default {
     Assert-Code 0
     Assert-File 'rhythm.exe'
     Assert-Tools 'tuner', 'soundcheck', 'echo'
-    Assert-Out "Installed rhythm 0.6.0 to $(Join-Path $script:CaseDir 'bin')"
+    Assert-Out "Installed rhythm 0.7.0 to $(Join-Path $script:CaseDir 'bin')"
     if ((Get-Content (Join-Path $script:CaseDir 'argv.log')) -notcontains 'rhythm install --dry-run tuner soundcheck echo') {
         Fail "the router wasn't asked about every tool at once"
     }
@@ -304,7 +358,7 @@ function Case-typo {
     Assert-Code 1
     Assert-Out 'rhythm: unknown tool "sondcheck" (did you mean soundcheck?)'
     Assert-Out '  known: echo, soundcheck, tuner'
-    Assert-Out "rhythm install: rhythm 0.6.0 doesn't know sondcheck; run '$(Get-Bin 'rhythm.exe') help' to see the tools"
+    Assert-Out "rhythm install: rhythm 0.7.0 doesn't know sondcheck; run '$(Get-Bin 'rhythm.exe') help' to see the tools"
     Assert-File 'rhythm.exe'
     Assert-Tools
     if (Get-Requests | Where-Object { $_.Contains('/dl/tuner/') }) { Fail 'tuner was downloaded before the names were checked' }
@@ -314,7 +368,7 @@ function Case-typo {
     Assert-Code 1
     Assert-Out 'rhythm: unknown tool "tunr" (did you mean tuner?)'
     Assert-Out 'rhythm: unknown tool "nope"'
-    Assert-Out "rhythm install: rhythm 0.6.0 doesn't know tunr, sondcheck, nope;"
+    Assert-Out "rhythm install: rhythm 0.7.0 doesn't know tunr, sondcheck, nope;"
 }
 
 function Case-tool_fails {
@@ -370,6 +424,128 @@ function Case-path_note {
     Assert-PathLines $(if ($OnWindows) { 1 } else { 0 })
 }
 
+function Get-SigLog { $F = Join-Path $script:CaseDir 'sig.log'; if (Test-Path $F) { @(Get-Content $F) } else { @() } }
+function Clear-SigLog { Remove-Item (Join-Path $script:CaseDir 'sig.log') -ErrorAction SilentlyContinue }
+function Assert-NoInstall([string]$Why) {
+    $Bin = Join-Path $script:CaseDir 'bin'
+    if ((Test-Path $Bin) -and @(Get-ChildItem $Bin).Count) { Fail "$Why installed $(@(Get-ChildItem $Bin | ForEach-Object { $_.Name }) -join ' ')" }
+}
+
+function Case-signature_cosign {
+    Invoke-Install @{ PATH = "$CosignBin$Sep$SysPath" }
+    Assert-Code 0
+    Assert-Out 'Signature ok  RhythmShahriar/rhythm @ refs/tags/v0.7.0 (cosign)'
+    Assert-NoOut 'signature not checked'
+    Assert-Tools 'tuner', 'soundcheck', 'echo'
+    # The same check README tells people to run, flag for flag.
+    $Readme = [IO.File]::ReadAllText((Join-Path $Root 'README.md'))
+    $Block = [regex]::Match($Readme, '(?s)cosign verify-blob .*?\n  checksums\.txt').Value
+    $Flags = @([regex]::Matches($Block, '--[a-z-]+ [^ \\\r\n]+') | ForEach-Object { $_.Value -replace 'v<version>', 'v0.7.0' })
+    if ($Flags.Count -ne 5) { Fail "README's cosign command has $($Flags.Count) flags, want 5" }
+    $Log = (Get-SigLog) -join "`n"
+    foreach ($Flag in $Flags) {
+        if ($Flag -like '--bundle *') { $Flag = '--bundle ' }
+        if (-not $Log.Contains($Flag)) { Fail "cosign wasn't given $Flag" }
+    }
+    if ($Log -notmatch '--bundle \S+checksums\.txt\.sigstore\.json ') { Fail "cosign wasn't given the bundle" }
+    if ($Log -notmatch ' --certificate-github-workflow-repository RhythmShahriar/rhythm ') { Fail "the repository isn't pinned" }
+    if ($Log -notmatch ' --certificate-github-workflow-ref refs/tags/v0\.7\.0 ') { Fail "the tag isn't pinned" }
+    if ($Log -notmatch 'checksums\.txt\s*$') { Fail "cosign didn't check checksums.txt" }
+
+    # A pinned version is the tag the signature must name.
+    Clear-SigLog
+    Invoke-Install @{ PATH = "$CosignBin$Sep$SysPath"; RHYTHM_VERSION = '0.6.0' }
+    Assert-Code 0
+    if (((Get-SigLog) -join "`n") -notmatch ' --certificate-github-workflow-ref refs/tags/v0\.6\.0 ') { Fail "the pinned tag isn't checked" }
+}
+
+function Case-signature_cosign_fails {
+    Invoke-Install @{ PATH = "$CosignBin$Sep$SysPath"; FAKE_COSIGN_EXIT = '1' }
+    Assert-Code 1
+    Assert-Out 'Error: none of the expected identities matched'
+    Assert-Out "rhythm install: cosign says checksums.txt wasn't signed for RhythmShahriar/rhythm v0.7.0; nothing was installed"
+    Assert-NoInstall 'a failed signature'
+}
+
+function Case-signature_gh {
+    Invoke-Install @{ PATH = "$GhBin$Sep$SysPath" }
+    Assert-Code 0
+    Assert-Out 'Signature ok  RhythmShahriar/rhythm @ refs/tags/v0.7.0 (gh attestation)'
+    if (-not ((Get-SigLog) | Where-Object { $_ -match '^gh attestation verify \S*checksums\.txt --repo RhythmShahriar/rhythm --signer-workflow RhythmShahriar/\.github/\.github/workflows/release-go\.yml --source-ref refs/tags/v0\.7\.0\s*$' })) {
+        Fail "gh wasn't asked to verify checksums.txt for the repository and tag: $(Get-SigLog)"
+    }
+
+    Remove-Item -Recurse -Force (Join-Path $script:CaseDir 'bin')
+    Invoke-Install @{ PATH = "$GhBin$Sep$SysPath"; FAKE_GH_EXIT = '1' }
+    Assert-Code 1
+    Assert-Out 'rhythm install: gh found no attestation that RhythmShahriar/rhythm v0.7.0 made this checksums.txt; nothing was installed.'
+    Assert-NoInstall 'a failed attestation'
+
+    # gh without a login can't ask for attestations.
+    Clear-SigLog
+    Invoke-Install @{ PATH = "$GhBin$Sep$SysPath"; FAKE_GH_AUTH = '1' }
+    Assert-Code 0
+    Assert-Out 'signature not checked here (no cosign or gh); rhythm will verify itself and every tool it installs'
+    if ((Get-SigLog).Count) { Fail 'gh ran without a login' }
+}
+
+function Case-signature_none {
+    Invoke-Install
+    Assert-Code 0
+    Assert-Out 'signature not checked here (no cosign or gh); rhythm will verify itself and every tool it installs'
+    Assert-Tools 'tuner', 'soundcheck', 'echo'
+
+    # cosign can't check a release without a bundle; gh isn't there.
+    Invoke-Install @{ PATH = "$CosignBin$Sep$SysPath"; RHYTHM_VERSION = '9.0.4' }
+    Assert-Code 0
+    Assert-Out 'signature not checked here (the release has no checksums.txt.sigstore.json); rhythm will verify itself'
+    if ((Get-SigLog).Count) { Fail 'cosign ran without a bundle' }
+}
+
+function Case-skip_signature {
+    Invoke-Install @{ PATH = "$CosignBin$Sep$SysPath"; RHYTHM_SKIP_SIGNATURE = '1'; FAKE_COSIGN_EXIT = '1' }
+    Assert-Code 0
+    Assert-Out 'warning: RHYTHM_SKIP_SIGNATURE is set: nothing checks that this release was signed by RhythmShahriar/rhythm. Use it only with a mirror you trust.'
+    if ((Get-SigLog).Count) { Fail 'cosign ran with RHYTHM_SKIP_SIGNATURE=1' }
+    if ((Get-Content (Join-Path $script:CaseDir 'argv.log')) -match '^rhythm verify') { Fail 'rhythm verify ran with RHYTHM_SKIP_SIGNATURE=1' }
+    Assert-Tools 'tuner', 'soundcheck', 'echo'
+
+    Invoke-Install @{ PATH = "$CosignBin$Sep$SysPath"; RHYTHM_SKIP_SIGNATURE = '0' }
+    Assert-Code 0
+    Assert-NoOut 'RHYTHM_SKIP_SIGNATURE'
+    if (-not (Get-SigLog).Count) { Fail 'RHYTHM_SKIP_SIGNATURE=0 skipped cosign' }
+}
+
+function Case-router_verify {
+    $Log = Join-Path $script:CaseDir 'argv.log'
+    Invoke-Install
+    Assert-Code 0
+    if ((Get-Content $Log) -notcontains 'rhythm verify rhythm') { Fail "rhythm didn't verify itself" }
+    Assert-Out 'Signature ok  RhythmShahriar/rhythm @ refs/tags/v0.7.0 (release-go.yml)'
+
+    # A rhythm without the command isn't asked.
+    Remove-Item -Recurse -Force (Join-Path $script:CaseDir 'bin'), $Log
+    Invoke-Install @{ RHYTHM_VERSION = '0.6.0' }
+    Assert-Code 0
+    if ((Get-Content $Log) -match '^rhythm verify') { Fail 'a rhythm without verify was asked to verify' }
+
+    # A failed self-check puts the previous rhythm back and installs no tool.
+    Get-ChildItem (Join-Path $script:CaseDir 'bin') -Filter 'rhythm-*' | Remove-Item -Force
+    Invoke-Install @{ RHYTHM_TEST_VERIFY = 'fail' }
+    Assert-Code 1
+    Assert-Out 'signature not valid: RhythmShahriar/rhythm 0.7.0'
+    Assert-Out 'rhythm install: the new rhythm failed its own check (rhythm verify rhythm), so the previous one was put back; nothing was installed'
+    if ((Get-Version) -ne 'rhythm 0.6.0') { Fail "rhythm.exe is $(Get-Version), want the previous rhythm 0.6.0" }
+    Assert-Tools
+
+    # Without a previous one, the new one is removed.
+    Remove-Item -Recurse -Force (Join-Path $script:CaseDir 'bin')
+    Invoke-Install @{ RHYTHM_TEST_VERIFY = 'fail' }
+    Assert-Code 1
+    Assert-Out 'so it was removed; nothing was installed'
+    Assert-NoInstall 'a failed self-check'
+}
+
 function Case-bad_checksum {
     Invoke-Install @{ RHYTHM_VERSION = '9.0.2' }
     Assert-Code 1
@@ -400,7 +576,7 @@ function Case-relative_dir {
     Assert-File 'rhythm.exe'
     Assert-Tools 'tuner'
     $Bin = Join-Path $script:CaseDir 'bin'
-    Assert-Out "Installed rhythm 0.6.0 to $Bin"
+    Assert-Out "Installed rhythm 0.7.0 to $Bin"
     if (-not (Select-String -Path (Join-Path $script:CaseDir 'argv.log') -SimpleMatch "rhythm install tuner --dir $Bin --quiet" -Quiet)) {
         Fail "rhythm wasn't given the absolute folder"
     }
@@ -514,7 +690,7 @@ function Case-unknown_tool {
     Invoke-Install @{ RHYTHM_TOOLS = 'tuner bogus' }
     Assert-Code 1
     Assert-Out 'rhythm: unknown tool "bogus"'
-    Assert-Out "rhythm install: rhythm 0.6.0 doesn't know bogus"
+    Assert-Out "rhythm install: rhythm 0.7.0 doesn't know bogus"
     Assert-File 'rhythm.exe'
     Assert-Tools
 }
@@ -530,7 +706,7 @@ function Case-running_exe {
         if ($Held.HasExited) { Fail "the held rhythm.exe didn't keep running" }
         Invoke-Install @{ RHYTHM_TOOLS = 'none' }
         Assert-Code 0
-        if ((Get-Version) -ne 'rhythm 0.6.0') { Fail "rhythm.exe is $(Get-Version), want rhythm 0.6.0" }
+        if ((Get-Version) -ne 'rhythm 0.7.0') { Fail "rhythm.exe is $(Get-Version), want rhythm 0.7.0" }
         if (Get-ChildItem (Join-Path $script:CaseDir 'bin') -Filter 'rhythm.exe.new-*') { Fail 'a rhythm.exe.new-* file was left behind' }
     }
     finally {
@@ -562,7 +738,7 @@ function Case-swap_fallback {
     Assert-Code 0
     Invoke-Install @{ RHYTHM_TOOLS = 'none' } $Locked
     Assert-Code 0
-    if ((Get-Version) -ne 'rhythm 0.6.0') { Fail "rhythm.exe is $(Get-Version), want rhythm 0.6.0" }
+    if ((Get-Version) -ne 'rhythm 0.7.0') { Fail "rhythm.exe is $(Get-Version), want rhythm 0.7.0" }
     $Left = @(Get-ChildItem (Join-Path $script:CaseDir 'bin') | Where-Object { $_.Name -like 'rhythm.exe.*' } | ForEach-Object { $_.Name })
     if ($Left.Count) { Fail "the swap left $($Left -join ' ') behind" }
 }
@@ -599,7 +775,8 @@ function Case-readonly_dir {
 }
 
 if (-not $Cases.Count) {
-    $Cases = 'default', 'none', 'some', 'commas', 'typo', 'tool_fails', 'path_note', 'bad_checksum', 'no_checksums', 'missing_dir', 'relative_dir', 'truncated', 'http_refused', 'http_download_refused', 'github_token', 'rhythm_token',
+    $Cases = 'default', 'none', 'some', 'commas', 'typo', 'tool_fails', 'path_note',
+    'signature_cosign', 'signature_cosign_fails', 'signature_gh', 'signature_none', 'skip_signature', 'router_verify', 'bad_checksum', 'no_checksums', 'missing_dir', 'relative_dir', 'truncated', 'http_refused', 'http_download_refused', 'github_token', 'rhythm_token',
     'rate_limit', 'old_router', 'old_router_named', 'router_without_dry_run', 'router_without_tools_block',
     'unknown_tool', 'running_exe', 'swap_fallback', 'swap_restore', 'readonly_dir'
 }

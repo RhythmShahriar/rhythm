@@ -6,7 +6,8 @@
 #   sh mkfake.sh ROOT
 #
 # ROOT gets repos/RhythmShahriar/<repo>/releases/{latest,tags/v<version>},
-# the archives under dl/<repo>/v<version>/ and a checksums.txt per release,
+# the archives under dl/<repo>/v<version>/ and a checksums.txt (with a
+# stand-in checksums.txt.sigstore.json) per release,
 # for rhythm, tuner, soundcheck and echo. server.py serves it and fills in
 # {{BASE}} in the release JSON.
 #
@@ -17,8 +18,10 @@
 # tool's archive from $RHYTHM_GITHUB_API and fails that tool on anything but
 # 200, so a test can make one download 404. Unknown names get rhythm's
 # did-you-mean lines. The rhythm versions differ the way real releases do:
-#   0.6.0 (latest)  knows tuner, soundcheck and echo; has install --dry-run
-#                   and --quiet; says once that --dir isn't on PATH
+#   0.7.0 (latest)  knows tuner, soundcheck and echo; has install --dry-run
+#                   and --quiet; says once that --dir isn't on PATH; has
+#                   verify (which fails when RHYTHM_TEST_VERIFY=fail)
+#   0.6.0           the same without verify
 #   0.5.0           knows all three, no --dry-run or --quiet; says for each
 #                   tool that --dir isn't on PATH
 #   0.4.0           knows tuner and soundcheck, no --dry-run
@@ -27,6 +30,7 @@
 #   9.0.1           downloads point at plain http on another host
 #   9.0.2           checksums.txt has a wrong sum for every archive
 #   9.0.3           has no checksums.txt
+#   9.0.4           has no checksums.txt.sigstore.json
 set -eu
 
 root=${1:?usage: mkfake.sh ROOT}
@@ -53,20 +57,28 @@ EOF
 }
 
 # router writes a rhythm stand-in to $1: version $2, tools $3 (with their
-# aliases in parentheses), dry-run support $4 (yes or no), help with a
-# "Tools:" block $5 (yes or no). A router with --dry-run also has --quiet,
-# as in the real releases. The tools it writes are tool stand-ins.
+# aliases in parentheses), features $4 and help with a "Tools:" block $5
+# (yes or no). Features, separated by spaces: "dry-run" (install --dry-run
+# and --quiet, which came together) and "verify" (the verify command; it
+# fails when RHYTHM_TEST_VERIFY is "fail"). The tools it writes are tool
+# stand-ins.
 router() {
 	cat >"$1" <<EOF
 #!/bin/sh
 # A stand-in for rhythm $2, built by mkfake.sh.
 version=$2
 tools="$3"
-dry_run=$4
+features="$4"
 tools_block=$5
 EOF
 	cat >>"$1" <<'EOF'
 [ -z "${RHYTHM_TEST_LOG:-}" ] || printf 'rhythm %s\n' "$*" >>"$RHYTHM_TEST_LOG"
+has() {
+	case " $features " in
+	*" $1 "*) return 0 ;;
+	esac
+	return 1
+}
 on_path() {
 	case ":$PATH:" in
 	*":$1:"*) return 0 ;;
@@ -114,9 +126,22 @@ help | -h | --help)
 		echo
 	fi
 	printf 'Commands:\n  rhythm install <tool> [--dir <dir>]   download a tool\n'
+	! has verify || printf '  rhythm verify [tool...]               check signatures\n'
 	exit 0
 	;;
 install) shift ;;
+verify)
+	has verify || {
+		printf 'rhythm: unknown tool "verify"\n' >&2
+		exit 1
+	}
+	if [ "${RHYTHM_TEST_VERIFY:-}" = fail ]; then
+		echo 'rhythm             signature not valid: RhythmShahriar/rhythm '"$version"': failed to verify signature' >&2
+		exit 1
+	fi
+	echo "Signature ok  RhythmShahriar/rhythm @ refs/tags/v$version (release-go.yml)"
+	exit 0
+	;;
 *)
 	printf 'rhythm: unknown tool "%s"\n' "$1" >&2
 	exit 1
@@ -130,7 +155,7 @@ while [ $# -gt 0 ]; do
 		shift 2
 		;;
 	-h | --help)
-		if [ "$dry_run" != yes ]; then
+		if ! has dry-run; then
 			printf 'Usage of install:\n  -dir string\n    \tinstall directory (default: next to rhythm)\n' >&2
 			echo 'usage: rhythm install <tool> [--dir <dir>]' >&2
 			exit 2
@@ -142,7 +167,7 @@ while [ $# -gt 0 ]; do
 		exit 0
 		;;
 	--quiet | --dry-run)
-		[ "$dry_run" = yes ] || bad_flag "$1"
+		has dry-run || bad_flag "$1"
 		if [ "$1" = --quiet ]; then quiet=1; else dry=1; fi
 		shift
 		;;
@@ -202,9 +227,9 @@ TOOL
 	chmod 0755 "$dir/rhythm-$n"
 	ok=$((ok + 1))
 	echo "Installed rhythm-$n 0.0.0-test to $dir/rhythm-$n"
-	[ "$dry_run" = yes ] || on_path "$dir" || echo "Note: $dir isn't on your PATH."
+	has dry-run || on_path "$dir" || echo "Note: $dir isn't on your PATH."
 done
-[ "$dry_run" != yes ] || [ -n "$quiet" ] || on_path "$dir" || echo "Note: $dir isn't on your PATH."
+! has dry-run || [ -n "$quiet" ] || on_path "$dir" || echo "Note: $dir isn't on your PATH."
 if [ -n "$failed" ]; then
 	set -- $names
 	[ $# -lt 2 ] || printf 'Installed %s, failed %s:%s\n' "$ok" "$(echo $failed | wc -w)" "$(echo "$failed" | sed 's/ /, /g; s/^,//')" >&2
@@ -216,7 +241,8 @@ EOF
 
 # release builds the archives, checksums.txt and release JSON for repo $1,
 # version $2, from the files in $root/build/$1/$2. Download URLs start with
-# $3. $4 breaks the checksums on purpose: "badsum" or "nosums".
+# $3. $4 breaks the checksums on purpose: "badsum", "nosums" or "nobundle"
+# (no checksums.txt.sigstore.json).
 release() {
 	r=$1 v=$2 base=$3 broken=${4:-}
 	bin=rhythm-$r
@@ -241,26 +267,34 @@ release() {
 	else
 		assets="$assets{\"name\":\"checksums.txt\",\"browser_download_url\":\"$base/checksums.txt\"}"
 	fi
+	if [ "$broken" != nosums ] && [ "$broken" != nobundle ]; then
+		# Only the fake cosign reads the bundle, so any bytes do.
+		echo '{"mediaType":"application/vnd.dev.sigstore.bundle.v0.3+json"}' >"$out/checksums.txt.sigstore.json"
+		assets="$assets,{\"name\":\"checksums.txt.sigstore.json\",\"browser_download_url\":\"$base/checksums.txt.sigstore.json\"}"
+	fi
 	printf '{"tag_name":"v%s","prerelease":false,"assets":[%s]}\n' "$v" "$assets" >"$json"
 }
 
 all="tuner (t) soundcheck (sc) echo (e)"
-for spec in "0.6.0|$all|yes|yes" "0.5.0|$all|no|yes" "0.4.0|tuner (t) soundcheck (sc)|no|yes" \
-	"0.3.5|$all|no|no" "9.0.1|$all|yes|yes" "9.0.2|$all|yes|yes" "9.0.3|$all|yes|yes"; do
-	IFS='|' read -r v tools dry block <<EOF
+new="dry-run verify"
+for spec in "0.7.0|$all|$new|yes" "0.6.0|$all|dry-run|yes" "0.5.0|$all||yes" \
+	"0.4.0|tuner (t) soundcheck (sc)||yes" "0.3.5|$all||no" \
+	"9.0.1|$all|$new|yes" "9.0.2|$all|$new|yes" "9.0.3|$all|$new|yes" "9.0.4|$all|$new|yes"; do
+	IFS='|' read -r v tools features block <<EOF
 $spec
 EOF
 	mkdir -p "$root/build/rhythm/$v"
-	router "$root/build/rhythm/$v/rhythm" "$v" "$tools" "$dry" "$block"
+	router "$root/build/rhythm/$v/rhythm" "$v" "$tools" "$features" "$block"
 done
 
-for v in 0.6.0 0.5.0 0.4.0 0.3.5; do
+for v in 0.7.0 0.6.0 0.5.0 0.4.0 0.3.5; do
 	release rhythm "$v" "{{BASE}}/dl/rhythm/v$v"
 done
 release rhythm 9.0.1 http://example.invalid/dl/rhythm/v9.0.1
 release rhythm 9.0.2 "{{BASE}}/dl/rhythm/v9.0.2" badsum
 release rhythm 9.0.3 "{{BASE}}/dl/rhythm/v9.0.3" nosums
-cp "$root/repos/$owner/rhythm/releases/tags/v0.6.0" "$root/repos/$owner/rhythm/releases/latest"
+release rhythm 9.0.4 "{{BASE}}/dl/rhythm/v9.0.4" nobundle
+cp "$root/repos/$owner/rhythm/releases/tags/v0.7.0" "$root/repos/$owner/rhythm/releases/latest"
 
 for t in tuner soundcheck echo; do
 	mkdir -p "$root/build/$t/0.1.0"

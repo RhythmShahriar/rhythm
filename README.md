@@ -36,7 +36,7 @@ curl -fsSL https://rythm.sh/install | sh
 irm https://rythm.sh/install.ps1 | iex
 ```
 
-This installs `rhythm`, Tuner, Soundcheck and Echo to `~/.local/bin` (`/usr/local/bin` as root; `%LOCALAPPDATA%\Programs\rhythm` on Windows, added to your PATH). Every download is checked against the release's `checksums.txt`.
+This installs `rhythm`, Tuner, Soundcheck and Echo to `~/.local/bin` (`/usr/local/bin` as root; `%LOCALAPPDATA%\Programs\rhythm` on Windows, added to your PATH). Every download is checked against the release's `checksums.txt`. When [cosign](https://docs.sigstore.dev/) is installed, or the GitHub CLI and you're logged in, the installer also checks that `checksums.txt` was signed for this repository and tag (see [Verify a release](#verify-a-release)). Then the new `rhythm` checks itself with `rhythm verify rhythm` and every tool it installs.
 
 <details>
 <summary>Installer options</summary>
@@ -49,6 +49,7 @@ This installs `rhythm`, Tuner, Soundcheck and Echo to `~/.local/bin` (`/usr/loca
 | `GITHUB_TOKEN` | sent to `api.github.com` only, to lift GitHub's limit of 60 anonymous requests an hour (shared CI runners hit it) |
 | `RHYTHM_GITHUB_API` | a GitHub API mirror; it must be `https` (plain `http` only for `127.0.0.1`, `::1` and `localhost`) |
 | `RHYTHM_GITHUB_TOKEN` | a token for that mirror; sent to the `RHYTHM_GITHUB_API` host and used instead of `GITHUB_TOKEN` |
+| `RHYTHM_SKIP_SIGNATURE` | `1` skips the signature checks, with a warning. Only for a mirror you trust that can't serve the signatures |
 
 ```sh
 curl -fsSL https://rythm.sh/install | RHYTHM_INSTALL_DIR=/opt/bin RHYTHM_TOOLS=none sh

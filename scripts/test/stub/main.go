@@ -7,14 +7,18 @@
 //
 //	-X main.version=0.4.0          what --version prints
 //	-X main.tools=tuner:t,echo:e   the tools it knows, with their aliases
-//	-X main.dryRun=yes             whether install takes --dry-run and --quiet
+//	-X main.features=dry-run,verify  what it can do, separated by commas:
+//	                               "dry-run" (install --dry-run and --quiet,
+//	                               which came together) and "verify" (the
+//	                               verify command, which fails when
+//	                               RHYTHM_TEST_VERIFY is "fail")
 //	-X main.toolsBlock=yes         whether help has a "Tools:" block
 //
 // It logs its argv to $RHYTHM_TEST_LOG, checks every name before installing
 // any (with rhythm's did-you-mean lines), fetches each tool's archive from
 // $RHYTHM_GITHUB_API so a test can make one 404, "installs" a tool by
 // copying itself to rhythm-<tool>(.exe) in --dir and notes when --dir isn't
-// on PATH: once with dryRun (unless --quiet), after each tool without, like
+// on PATH: once with dry-run (unless --quiet), after each tool without, like
 // the real releases. `hold` keeps it running for a minute
 // so a test can install over a running rhythm.exe. scripts/test/mkfake.sh
 // has the same stand-in as a shell script for install.sh.
@@ -35,9 +39,19 @@ import (
 var (
 	version    = "0.0.0"
 	tools      = "tuner:t,soundcheck:sc,echo:e"
-	dryRun     = "yes"
+	features   = "dry-run,verify"
 	toolsBlock = "yes"
 )
+
+// has reports whether the stand-in has feature f.
+func has(f string) bool {
+	for _, g := range strings.Split(features, ",") {
+		if g == f {
+			return true
+		}
+	}
+	return false
+}
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
@@ -61,6 +75,16 @@ func run(args []string, stdout, stderr io.Writer) int {
 		time.Sleep(time.Minute)
 	case "install":
 		return install(args[1:], stdout, stderr)
+	case "verify":
+		if !has("verify") {
+			fmt.Fprintf(stderr, "rhythm: unknown tool %q\n", cmd)
+			return 1
+		}
+		if os.Getenv("RHYTHM_TEST_VERIFY") == "fail" {
+			fmt.Fprintf(stderr, "%-18s signature not valid: RhythmShahriar/rhythm %s: failed to verify signature\n", "rhythm", version)
+			return 1
+		}
+		fmt.Fprintf(stdout, "Signature ok  RhythmShahriar/rhythm @ refs/tags/v%s (release-go.yml)\n", version)
 	default:
 		fmt.Fprintf(stderr, "rhythm: unknown tool %q\n", cmd)
 		return 1
@@ -79,6 +103,9 @@ func help(w io.Writer) {
 		fmt.Fprintln(w)
 	}
 	fmt.Fprintln(w, "Commands:\n  rhythm install <tool> [--dir <dir>]   download a tool")
+	if has("verify") {
+		fmt.Fprintln(w, "  rhythm verify [tool...]               check signatures")
+	}
 }
 
 func install(args []string, stdout, stderr io.Writer) int {
@@ -87,7 +114,7 @@ func install(args []string, stdout, stderr io.Writer) int {
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "-h", "--help":
-			if dryRun != "yes" {
+			if !has("dry-run") {
 				fmt.Fprintln(stderr, "Usage of install:\n  -dir string\n    \tinstall directory (default: next to rhythm)")
 				fmt.Fprintln(stderr, "usage: rhythm install <tool> [--dir <dir>]")
 				return 2
@@ -103,7 +130,7 @@ func install(args []string, stdout, stderr io.Writer) int {
 				dir = args[i]
 			}
 		case "--quiet", "--dry-run":
-			if dryRun != "yes" {
+			if !has("dry-run") {
 				return badFlag(args[i], stderr)
 			}
 			quiet = quiet || args[i] == "--quiet"
@@ -163,11 +190,11 @@ func install(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		fmt.Fprintf(stdout, "Installed rhythm-%s 0.0.0-test to %s\n", name, dest)
-		if dryRun != "yes" && !onPath(dir) {
+		if !has("dry-run") && !onPath(dir) {
 			fmt.Fprintf(stdout, "Note: %s isn't on your PATH.\n", dir)
 		}
 	}
-	if dryRun == "yes" && !quiet && !dry && !onPath(dir) {
+	if has("dry-run") && !quiet && !dry && !onPath(dir) {
 		fmt.Fprintf(stdout, "Note: %s isn't on your PATH.\n", dir)
 	}
 	if len(failed) > 0 {

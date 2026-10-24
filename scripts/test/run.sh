@@ -57,6 +57,52 @@ until [ -s "$work/srv/.port" ]; do
 done
 base=http://127.0.0.1:$(cat "$work/srv/.port")
 
+# The PATH every case gets unless it sets $path. A cosign or gh found there
+# would check the stand-in bundle for real, so then the cases get a copy of
+# those folders without them.
+syspath=/usr/local/bin:/usr/bin:/bin
+if env -i PATH="$syspath" sh -c 'command -v cosign || command -v gh' >/dev/null 2>&1; then
+	mkdir -p "$work/sysbin"
+	for d in /usr/local/bin /usr/bin /bin; do
+		for f in "$d"/*; do
+			b=${f##*/}
+			case $b in
+			cosign | gh) continue ;;
+			esac
+			if [ -x "$f" ] && [ ! -e "$work/sysbin/$b" ]; then
+				ln -s "$f" "$work/sysbin/$b"
+			fi
+		done
+	done
+	syspath=$work/sysbin
+fi
+
+# Stand-ins for cosign and gh, each in its own folder so a case can have
+# either. They log their argv to $FAKE_SIG_LOG. cosign exits
+# $FAKE_COSIGN_EXIT; gh is logged in unless FAKE_GH_AUTH=1 and its
+# attestation check exits $FAKE_GH_EXIT.
+mkdir -p "$work/cosignbin" "$work/ghbin"
+cat >"$work/cosignbin/cosign" <<'EOF'
+#!/bin/sh
+printf 'cosign %s\n' "$*" >>"$FAKE_SIG_LOG"
+[ "${FAKE_COSIGN_EXIT:-0}" = 0 ] || echo 'Error: none of the expected identities matched what was in the certificate' >&2
+exit "${FAKE_COSIGN_EXIT:-0}"
+EOF
+cat >"$work/ghbin/gh" <<'EOF'
+#!/bin/sh
+case "$*" in
+"auth status") exit "${FAKE_GH_AUTH:-0}" ;;
+"attestation verify --help")
+	echo '      --source-ref string   Enforce that the git ref associated with the source repository matches the provided value'
+	exit 0
+	;;
+esac
+printf 'gh %s\n' "$*" >>"$FAKE_SIG_LOG"
+[ "${FAKE_GH_EXIT:-0}" = 0 ] || echo 'Error: no attestations found' >&2
+exit "${FAKE_GH_EXIT:-0}"
+EOF
+chmod 0755 "$work/cosignbin/cosign" "$work/ghbin/gh"
+
 # A curl stand-in for the cases that must not reach the network. It logs its
 # argv (and its stdin when given -K -), then fails like an unknown host.
 mkdir -p "$work/fakebin"
@@ -80,10 +126,10 @@ install() {
 	# It runs in $cdir, so a relative RHYTHM_INSTALL_DIR lands in the case.
 	# shellcheck disable=SC2086
 	(cd "$cdir" && cat "${script:-$installer}" | env -i \
-		HOME="$cdir/home" PATH="${path:-/usr/local/bin:/usr/bin:/bin}" TMPDIR="$cdir/tmp" \
+		HOME="$cdir/home" PATH="${path:-$syspath}" TMPDIR="$cdir/tmp" \
 		XDG_CONFIG_HOME="$cdir/home/.config" XDG_CACHE_HOME="$cdir/home/.cache" \
 		RHYTHM_GITHUB_API="$base" RHYTHM_INSTALL_DIR="$cdir/bin" \
-		RHYTHM_TEST_LOG="$cdir/argv.log" FAKE_CURL_LOG="$cdir/curl.log" \
+		RHYTHM_TEST_LOG="$cdir/argv.log" FAKE_CURL_LOG="$cdir/curl.log" FAKE_SIG_LOG="$cdir/sig.log" \
 		"$@" $shell >"$cdir/out" 2>&1)
 	code=$?
 	set -e
@@ -134,7 +180,7 @@ case_default() {
 	expect_code 0
 	expect_file rhythm
 	expect_tools tuner soundcheck echo
-	expect_out "Installed rhythm 0.6.0 to $cdir/bin"
+	expect_out "Installed rhythm 0.7.0 to $cdir/bin"
 	grep -qx 'rhythm install --dry-run tuner soundcheck echo' "$cdir/argv.log" ||
 		fail "the router wasn't asked about every tool at once"
 	grep -qx "rhythm install echo --dir $cdir/bin --quiet" "$cdir/argv.log" || fail "the router wasn't told --quiet"
@@ -191,7 +237,7 @@ case_typo() {
 	expect_code 1
 	expect_out 'rhythm: unknown tool "sondcheck" (did you mean soundcheck?)'
 	expect_out '  known: echo, soundcheck, tuner'
-	expect_out "rhythm install: rhythm 0.6.0 doesn't know sondcheck; run '$cdir/bin/rhythm help' to see the tools"
+	expect_out "rhythm install: rhythm 0.7.0 doesn't know sondcheck; run '$cdir/bin/rhythm help' to see the tools"
 	expect_file rhythm
 	expect_tools
 	! requests | grep -q '/dl/tuner/' || fail "tuner was downloaded before the names were checked"
@@ -201,7 +247,7 @@ case_typo() {
 	expect_code 1
 	expect_out 'rhythm: unknown tool "tunr" (did you mean tuner?)'
 	expect_out 'rhythm: unknown tool "nope"'
-	expect_out "rhythm install: rhythm 0.6.0 doesn't know tunr, sondcheck, nope;"
+	expect_out "rhythm install: rhythm 0.7.0 doesn't know tunr, sondcheck, nope;"
 }
 
 case_tool_fails() {
@@ -257,7 +303,7 @@ case_relative_dir() {
 	expect_code 0
 	expect_file rhythm
 	expect_tools tuner
-	expect_out "Installed rhythm 0.6.0 to $cdir/bin"
+	expect_out "Installed rhythm 0.7.0 to $cdir/bin"
 	grep -qx "rhythm install tuner --dir $cdir/bin --quiet" "$cdir/argv.log" || fail "rhythm wasn't given the absolute folder"
 }
 
@@ -321,7 +367,7 @@ case_path_hint_macos() {
 	# shellcheck disable=SC2016 # $1 belongs to the stand-in
 	printf '#!/bin/sh\ncase $1 in -s) echo Darwin ;; *) echo arm64 ;; esac\n' >"$work/darwin/uname"
 	chmod 0755 "$work/darwin/uname"
-	path=$work/darwin:/usr/local/bin:/usr/bin:/bin
+	path=$work/darwin:$syspath
 	# busybox sh runs its own uname applet whatever PATH says.
 	# shellcheck disable=SC2086 # split on purpose
 	if [ "$(env -i PATH="$path" $shell -c 'uname -s')" != Darwin ]; then
@@ -336,7 +382,7 @@ case_path_hint_macos() {
 }
 
 case_path_ok() {
-	path=$cdir/bin:/usr/local/bin:/usr/bin:/bin
+	path=$cdir/bin:$syspath
 	install SHELL=/bin/zsh
 	path=
 	expect_code 0
@@ -346,11 +392,138 @@ case_path_ok() {
 	mkdir -p "$cdir/old"
 	printf '#!/bin/sh\necho rhythm 0.1.0\n' >"$cdir/old/rhythm"
 	chmod 0755 "$cdir/old/rhythm"
-	path=$cdir/old:$cdir/bin:/usr/local/bin:/usr/bin:/bin
+	path=$cdir/old:$cdir/bin:$syspath
 	install SHELL=/bin/zsh
 	path=
 	expect_code 0
 	expect_path_hint "Note: $cdir/old/rhythm comes first on your PATH; remove it to use this install."
+}
+
+# expect_no_install checks that nothing landed in the install folder.
+expect_no_install() {
+	[ ! -e "$cdir/bin" ] || [ -z "$(ls -A "$cdir/bin")" ] || fail "$1 installed $(ls "$cdir/bin")"
+}
+
+case_signature_cosign() {
+	path=$work/cosignbin:$syspath
+	install
+	expect_code 0
+	expect_out "Signature ok  RhythmShahriar/rhythm @ refs/tags/v0.7.0 (cosign)"
+	expect_no_out "signature not checked"
+	expect_tools tuner soundcheck echo
+	# The same check README tells people to run, flag for flag.
+	sed -n '/^cosign verify-blob/,/^  checksums.txt$/p' "$here/../../README.md" | grep -o -- '--[a-z-]* [^ ]*' |
+		sed 's|v<version>|v0.7.0|' >"$cdir/readme.flags"
+	[ "$(wc -l <"$cdir/readme.flags")" = 5 ] || fail "README's cosign command has $(wc -l <"$cdir/readme.flags") flags, want 5"
+	while read -r flag; do
+		case $flag in
+		--bundle*) flag="--bundle $cdir/tmp/" ;;
+		esac
+		grep -qF -- "$flag" "$cdir/sig.log" || fail "cosign wasn't given $flag"
+	done <"$cdir/readme.flags"
+	grep -q ' --certificate-github-workflow-repository RhythmShahriar/rhythm ' "$cdir/sig.log" || fail "the repository isn't pinned"
+	grep -q ' --certificate-github-workflow-ref refs/tags/v0.7.0 ' "$cdir/sig.log" || fail "the tag isn't pinned"
+	grep -q '/checksums.txt$' "$cdir/sig.log" || fail "cosign didn't check checksums.txt"
+
+	# A pinned version is the tag the signature must name.
+	rm -f "$cdir/sig.log"
+	install RHYTHM_VERSION=0.6.0
+	path=
+	expect_code 0
+	grep -q ' --certificate-github-workflow-ref refs/tags/v0.6.0 ' "$cdir/sig.log" || fail "the pinned tag isn't checked"
+}
+
+case_signature_cosign_fails() {
+	path=$work/cosignbin:$syspath
+	install FAKE_COSIGN_EXIT=1
+	path=
+	expect_code 1
+	expect_out "Error: none of the expected identities matched"
+	expect_out "rhythm install: cosign says checksums.txt wasn't signed for RhythmShahriar/rhythm v0.7.0; nothing was installed"
+	expect_no_install "a failed signature"
+}
+
+case_signature_gh() {
+	path=$work/ghbin:$syspath
+	install
+	expect_code 0
+	expect_out "Signature ok  RhythmShahriar/rhythm @ refs/tags/v0.7.0 (gh attestation)"
+	grep -q "^gh attestation verify $cdir/tmp/.*/checksums.txt --repo RhythmShahriar/rhythm --signer-workflow RhythmShahriar/.github/.github/workflows/release-go.yml --source-ref refs/tags/v0.7.0\$" "$cdir/sig.log" ||
+		fail "gh wasn't asked to verify checksums.txt for the repository and tag"
+
+	rm -rf "${cdir:?}/bin"
+	install FAKE_GH_EXIT=1
+	expect_code 1
+	expect_out "rhythm install: gh found no attestation that RhythmShahriar/rhythm v0.7.0 made this checksums.txt; nothing was installed."
+	expect_no_install "a failed attestation"
+
+	# gh without a login can't ask for attestations.
+	rm -f "$cdir/sig.log"
+	install FAKE_GH_AUTH=1
+	path=
+	expect_code 0
+	expect_out "signature not checked here (no cosign or gh); rhythm will verify itself and every tool it installs"
+	[ ! -e "$cdir/sig.log" ] || fail "gh ran without a login"
+}
+
+case_signature_none() {
+	install
+	expect_code 0
+	expect_out "signature not checked here (no cosign or gh); rhythm will verify itself and every tool it installs"
+	expect_tools tuner soundcheck echo
+
+	# cosign can't check a release without a bundle; gh isn't there.
+	path=$work/cosignbin:$syspath
+	install RHYTHM_VERSION=9.0.4
+	path=
+	expect_code 0
+	expect_out "signature not checked here (the release has no checksums.txt.sigstore.json); rhythm will verify itself"
+	[ ! -e "$cdir/sig.log" ] || fail "cosign ran without a bundle"
+}
+
+case_skip_signature() {
+	path=$work/cosignbin:$syspath
+	install RHYTHM_SKIP_SIGNATURE=1 FAKE_COSIGN_EXIT=1
+	expect_code 0
+	expect_out "warning: RHYTHM_SKIP_SIGNATURE is set: nothing checks that this release was signed by RhythmShahriar/rhythm. Use it only with a mirror you trust."
+	[ ! -e "$cdir/sig.log" ] || fail "cosign ran with RHYTHM_SKIP_SIGNATURE=1"
+	! grep -q '^rhythm verify' "$cdir/argv.log" || fail "rhythm verify ran with RHYTHM_SKIP_SIGNATURE=1"
+	expect_tools tuner soundcheck echo
+
+	install RHYTHM_SKIP_SIGNATURE=0
+	path=
+	expect_code 0
+	expect_no_out RHYTHM_SKIP_SIGNATURE
+	[ -s "$cdir/sig.log" ] || fail "RHYTHM_SKIP_SIGNATURE=0 skipped cosign"
+}
+
+case_router_verify() {
+	install
+	expect_code 0
+	grep -qx 'rhythm verify rhythm' "$cdir/argv.log" || fail "rhythm didn't verify itself"
+	expect_out "Signature ok  RhythmShahriar/rhythm @ refs/tags/v0.7.0 (release-go.yml)"
+
+	# A rhythm without the command isn't asked.
+	rm -rf "${cdir:?}/bin" "$cdir/argv.log"
+	install RHYTHM_VERSION=0.6.0
+	expect_code 0
+	! grep -q '^rhythm verify' "$cdir/argv.log" || fail "a rhythm without verify was asked to verify"
+
+	# A failed self-check puts the previous rhythm back and installs no tool.
+	rm -rf "${cdir:?}/bin"/rhythm-*
+	install RHYTHM_TEST_VERIFY=fail
+	expect_code 1
+	expect_out "signature not valid: RhythmShahriar/rhythm 0.7.0"
+	expect_out "rhythm install: the new rhythm failed its own check (rhythm verify rhythm), so the previous one was put back; nothing was installed"
+	[ "$("$cdir/bin/rhythm" --version)" = "rhythm 0.6.0" ] || fail "the previous rhythm wasn't put back"
+	expect_tools
+
+	# Without a previous one, the new one is removed.
+	rm -rf "${cdir:?}/bin"
+	install RHYTHM_TEST_VERIFY=fail
+	expect_code 1
+	expect_out "so it was removed; nothing was installed"
+	expect_no_install "a failed self-check"
 }
 
 # truncate writes the first $1 percent of install.sh to $2.
@@ -483,7 +656,7 @@ case_unknown_tool() {
 	install RHYTHM_TOOLS='tuner bogus'
 	expect_code 1
 	expect_out 'rhythm: unknown tool "bogus"'
-	expect_out "rhythm install: rhythm 0.6.0 doesn't know bogus"
+	expect_out "rhythm install: rhythm 0.7.0 doesn't know bogus"
 	expect_file rhythm
 	expect_tools
 }
@@ -590,7 +763,8 @@ case_readme_links() {
 	check_links "$cdir/README.md" || fail "a good README failed"
 }
 
-cases=${*:-default none some commas typo tool_fails path_hint path_hint_macos path_ok bad_checksum no_checksums missing_dir relative_dir unwritable_dir truncated proto http_refused http_download_refused github_token
+cases=${*:-default none some commas typo tool_fails path_hint path_hint_macos path_ok
+signature_cosign signature_cosign_fails signature_gh signature_none skip_signature router_verify bad_checksum no_checksums missing_dir relative_dir unwritable_dir truncated proto http_refused http_download_refused github_token
 rhythm_token rate_limit old_router old_router_named router_without_dry_run
 router_without_tools_block unknown_tool readme readme_commands readme_links}
 script='' path=''

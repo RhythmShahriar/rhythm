@@ -23,6 +23,11 @@ main() {
 
 	REPO=RhythmShahriar/rhythm
 	DEFAULT_TOOLS="tuner soundcheck echo"
+	# The shared workflow that signs every release. Its identity alone would
+	# accept any repository that calls it, so the repository and tag are
+	# pinned as well (see "Verify a release" in README).
+	WORKFLOW=RhythmShahriar/.github/.github/workflows/release-go.yml
+	ISSUER=https://token.actions.githubusercontent.com
 
 	say() { printf '%s\n' "$*" >&2; }
 	warn() { say "warning: $*"; }
@@ -167,6 +172,42 @@ main() {
 		printf '%s' "$_c"
 	}
 
+	# verify_signature checks that checksums.txt was signed by rhythm's
+	# release workflow for tag $tag, with cosign or else gh, whichever is
+	# installed. Without either it says so and goes on: once installed,
+	# rhythm checks itself and every tool it installs.
+	verify_signature() {
+		why="no cosign or gh"
+		if command -v cosign >/dev/null 2>&1; then
+			if [ -s "$tmp/checksums.txt.sigstore.json" ]; then
+				if cosign verify-blob --bundle "$tmp/checksums.txt.sigstore.json" \
+					--certificate-oidc-issuer "$ISSUER" \
+					--certificate-identity "https://github.com/$WORKFLOW@refs/heads/master" \
+					--certificate-github-workflow-repository "$REPO" \
+					--certificate-github-workflow-ref "refs/tags/$tag" \
+					"$tmp/checksums.txt" >"$tmp/verify.out" 2>&1; then
+					say "Signature ok  $REPO @ refs/tags/$tag (cosign)"
+					return
+				fi
+				cat "$tmp/verify.out" >&2
+				die "cosign says checksums.txt wasn't signed for $REPO $tag; nothing was installed"
+			fi
+			why="the release has no checksums.txt.sigstore.json"
+		fi
+		# gh needs a login to ask for attestations, and --source-ref to pin the tag.
+		if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1 &&
+			gh attestation verify --help 2>&1 | grep -q -- --source-ref; then
+			if gh attestation verify "$tmp/checksums.txt" --repo "$REPO" \
+				--signer-workflow "$WORKFLOW" --source-ref "refs/tags/$tag" >"$tmp/verify.out" 2>&1; then
+				say "Signature ok  $REPO @ refs/tags/$tag (gh attestation)"
+				return
+			fi
+			cat "$tmp/verify.out" >&2
+			die "gh found no attestation that $REPO $tag made this checksums.txt; nothing was installed. Releases from before attestations have none: install cosign to check those"
+		fi
+		say "signature not checked here ($why); rhythm will verify itself and every tool it installs"
+	}
+
 	# first_step prints a first command to try with tool $1, by its name or
 	# alias. The targets are local, since the tools are for sites you own.
 	first_step() {
@@ -266,14 +307,41 @@ main() {
 	*) die "couldn't fetch the release from GitHub ($release_url): HTTP $status" ;;
 	esac
 
+	# The tag the signature must name. A pinned version is what the user
+	# asked for, so a mirror can't answer with another one.
+	if [ -n "${RHYTHM_VERSION:-}" ]; then
+		tag=v${RHYTHM_VERSION#v}
+	else
+		tag=$(tr ',' '\n' <"$tmp/release.json" | sed -n 's/.*"tag_name"[^"]*"\([^"]*\)".*/\1/p' | head -n 1)
+	fi
+	case $tag in
+	v[0-9]*[!0-9A-Za-z.+-]* | v) die "the release has an odd tag: '$tag'" ;;
+	v[0-9]*) ;;
+	*) die "the release has an odd tag: '$tag'" ;;
+	esac
+
 	name="rhythm_${os}_${arch}.tar.gz"
 	archive_url=$(asset "$name")
 	sums_url=$(asset checksums.txt)
+	bundle_url=$(asset checksums.txt.sigstore.json)
 	[ -n "$archive_url" ] || die "the release has no build for $os/$arch"
 	[ -n "$sums_url" ] || die "the release has no checksums.txt; refusing to install unverified binaries"
 
 	fetch "$archive_url" "$tmp/$name" || die "download failed: $archive_url"
 	fetch "$sums_url" "$tmp/checksums.txt" || die "download failed: $sums_url"
+	if [ -n "$bundle_url" ]; then
+		fetch "$bundle_url" "$tmp/checksums.txt.sigstore.json" || die "download failed: $bundle_url"
+	fi
+	# RHYTHM_SKIP_SIGNATURE is for a mirror that re-signs nothing; any value
+	# but empty or 0 turns it on.
+	skip_sig=
+	case ${RHYTHM_SKIP_SIGNATURE:-0} in
+	0) verify_signature ;;
+	*)
+		skip_sig=yes
+		warn "RHYTHM_SKIP_SIGNATURE is set: nothing checks that this release was signed by $REPO. Use it only with a mirror you trust."
+		;;
+	esac
 
 	want=$(grep " \*\{0,1\}$name\$" "$tmp/checksums.txt" | cut -d' ' -f1)
 	got=$(sha256 "$tmp/$name")
@@ -292,10 +360,27 @@ main() {
 	mkdir -p "$dir" || die "can't create $dir"
 	# A relative folder would be wrong in a PATH hint and in what rhythm is told.
 	dir=$(CDPATH='' cd -- "$dir" && pwd) || die "can't open $dir"
+	# The old rhythm is kept until the new one has checked itself.
+	old=
+	if [ -f "$dir/rhythm" ] && cp -p "$dir/rhythm" "$tmp/rhythm.old" 2>/dev/null; then
+		old=$tmp/rhythm.old
+	fi
 	if ! { cp "$tmp/rhythm" "$dir/.rhythm.new" && chmod 0755 "$dir/.rhythm.new" && mv -f "$dir/.rhythm.new" "$dir/rhythm"; }; then
 		die "can't write to $dir; set RHYTHM_INSTALL_DIR or rerun with sudo"
 	fi
 	installed=$("$dir/rhythm" --version) || die "the installed $dir/rhythm doesn't run"
+	# A rhythm with the verify command checks its own release and bytes.
+	if [ -z "$skip_sig" ] && "$dir/rhythm" help 2>/dev/null | grep -q '^ *rhythm verify'; then
+		if ! "$dir/rhythm" verify rhythm >"$tmp/verify.out" 2>&1; then
+			cat "$tmp/verify.out" >&2
+			if [ -n "$old" ] && mv -f "$old" "$dir/rhythm"; then
+				die "the new rhythm failed its own check (rhythm verify rhythm), so the previous one was put back; nothing was installed"
+			fi
+			rm -f "$dir/rhythm"
+			die "the new rhythm failed its own check (rhythm verify rhythm), so it was removed; nothing was installed"
+		fi
+		cat "$tmp/verify.out" >&2
+	fi
 	say "Installed $installed to $dir"
 
 	# An unset RHYTHM_TOOLS means the defaults. Names are separated by spaces

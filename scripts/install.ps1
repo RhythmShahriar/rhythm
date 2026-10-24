@@ -24,6 +24,14 @@
 
     $Repo = 'RhythmShahriar/rhythm'
     $DefaultTools = 'tuner soundcheck echo'
+    # The shared workflow that signs every release. Its identity alone would
+    # accept any repository that calls it, so the repository and tag are
+    # pinned as well (see "Verify a release" in README).
+    $Workflow = 'RhythmShahriar/.github/.github/workflows/release-go.yml'
+    $Issuer = 'https://token.actions.githubusercontent.com'
+    # RHYTHM_SKIP_SIGNATURE is for a mirror that re-signs nothing; any value
+    # but empty or 0 turns it on.
+    $SkipSignature = $env:RHYTHM_SKIP_SIGNATURE -and $env:RHYTHM_SKIP_SIGNATURE -ne '0'
     $Api = if ($env:RHYTHM_GITHUB_API) { $env:RHYTHM_GITHUB_API.TrimEnd('/') } else { 'https://api.github.com' }
     $Dir = if ($env:RHYTHM_INSTALL_DIR) { $env:RHYTHM_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'Programs\rhythm' }
     # Windows PowerShell 5.1 has no $IsWindows; it only runs on Windows.
@@ -82,13 +90,67 @@
         throw "rhythm install: couldn't reach $($ApiUri.Host) ($ReleaseUrl): $($_.Exception.Message)"
     }
 
+    # The tag the signature must name. A pinned version is what the user
+    # asked for, so a mirror can't answer with another one.
+    $Tag = if ($env:RHYTHM_VERSION) { "v$($env:RHYTHM_VERSION.TrimStart('v'))" } else { "$($Release.tag_name)" }
+    if ($Tag -notmatch '^v[0-9][0-9A-Za-z.+-]*$') { throw "rhythm install: the release has an odd tag: '$Tag'" }
+
     $Name = "rhythm_windows_$Arch.zip"
     $Archive = $Release.assets | Where-Object { $_.name -eq $Name }
     $Sums = $Release.assets | Where-Object { $_.name -eq 'checksums.txt' }
+    $Bundle = $Release.assets | Where-Object { $_.name -eq 'checksums.txt.sigstore.json' }
     if (-not $Archive) { throw "rhythm install: the release has no build for windows/$Arch" }
     if (-not $Sums) { throw 'rhythm install: the release has no checksums.txt; refusing to install unverified binaries' }
     Assert-Https $Archive.browser_download_url
     Assert-Https $Sums.browser_download_url
+    if ($Bundle) { Assert-Https $Bundle.browser_download_url }
+
+    # Invoke-Exe runs a program and returns its exit code and its output,
+    # stderr included. Windows PowerShell 5.1 turns redirected stderr into
+    # errors, which 'Stop' would throw, so this lowers the preference first.
+    function Invoke-Exe([string]$Exe, [string[]]$Arguments) {
+        $Prev = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try {
+            $Out = & $Exe @Arguments 2>&1 | ForEach-Object { "$_" }
+            @{ Code = $LASTEXITCODE; Out = ($Out -join "`n") }
+        }
+        finally {
+            $ErrorActionPreference = $Prev
+        }
+    }
+
+    # Test-Signature checks that checksums.txt was signed by rhythm's release
+    # workflow for $Tag, with cosign or else gh, whichever is installed.
+    # Without either it says so and goes on: once installed, rhythm checks
+    # itself and every tool it installs.
+    function Test-Signature([string]$SumsFile, [string]$BundleFile) {
+        $Why = 'no cosign or gh'
+        if (Get-Command cosign -CommandType Application -ErrorAction SilentlyContinue) {
+            if ($BundleFile) {
+                $R = Invoke-Exe 'cosign' @('verify-blob', '--bundle', $BundleFile,
+                    '--certificate-oidc-issuer', $Issuer,
+                    '--certificate-identity', "https://github.com/$Workflow@refs/heads/master",
+                    '--certificate-github-workflow-repository', $Repo,
+                    '--certificate-github-workflow-ref', "refs/tags/$Tag",
+                    $SumsFile)
+                if ($R.Code -eq 0) { Write-Host "Signature ok  $Repo @ refs/tags/$Tag (cosign)"; return }
+                if ($R.Out) { Write-Host $R.Out }
+                throw "rhythm install: cosign says checksums.txt wasn't signed for $Repo $Tag; nothing was installed"
+            }
+            $Why = 'the release has no checksums.txt.sigstore.json'
+        }
+        # gh needs a login to ask for attestations, and --source-ref to pin the tag.
+        if ((Get-Command gh -CommandType Application -ErrorAction SilentlyContinue) -and
+            (Invoke-Exe 'gh' @('auth', 'status')).Code -eq 0 -and
+            (Invoke-Exe 'gh' @('attestation', 'verify', '--help')).Out -match '--source-ref') {
+            $R = Invoke-Exe 'gh' @('attestation', 'verify', $SumsFile, '--repo', $Repo, '--signer-workflow', $Workflow, '--source-ref', "refs/tags/$Tag")
+            if ($R.Code -eq 0) { Write-Host "Signature ok  $Repo @ refs/tags/$Tag (gh attestation)"; return }
+            if ($R.Out) { Write-Host $R.Out }
+            throw "rhythm install: gh found no attestation that $Repo $Tag made this checksums.txt; nothing was installed. Releases from before attestations have none: install cosign to check those"
+        }
+        Write-Host "signature not checked here ($Why); rhythm will verify itself and every tool it installs"
+    }
 
     # Install-Rhythm puts the new rhythm.exe in place without a moment where
     # there is none. It copies to a temp name in the same folder and moves that
@@ -154,6 +216,17 @@
         $SumsFile = Join-Path $Tmp 'checksums.txt'
         Invoke-WebRequest -Uri $Archive.browser_download_url -OutFile $Zip -UseBasicParsing
         Invoke-WebRequest -Uri $Sums.browser_download_url -OutFile $SumsFile -UseBasicParsing
+        $BundleFile = ''
+        if ($Bundle) {
+            $BundleFile = Join-Path $Tmp 'checksums.txt.sigstore.json'
+            Invoke-WebRequest -Uri $Bundle.browser_download_url -OutFile $BundleFile -UseBasicParsing
+        }
+        if ($SkipSignature) {
+            Write-Host "warning: RHYTHM_SKIP_SIGNATURE is set: nothing checks that this release was signed by $Repo. Use it only with a mirror you trust."
+        }
+        else {
+            Test-Signature $SumsFile $BundleFile
+        }
 
         $Line = Get-Content $SumsFile | Where-Object { $_ -match ('^[0-9a-f]{64}\s+\*?' + [regex]::Escape($Name) + '$') } | Select-Object -First 1
         $Want = if ($Line) { ($Line -split '\s+')[0].ToLower() } else { '' }
@@ -164,26 +237,23 @@
         New-Item -ItemType Directory -Force -Path $Dir | Out-Null
         # A relative folder would be wrong in PATH and in what rhythm is told.
         $Dir = (Resolve-Path -LiteralPath $Dir).ProviderPath
-        Install-Rhythm (Join-Path $Tmp 'rhythm.exe') (Join-Path $Dir 'rhythm.exe')
+        # The old rhythm.exe is kept until the new one has checked itself.
+        $Dest = Join-Path $Dir 'rhythm.exe'
+        $Keep = Join-Path ([IO.Path]::GetTempPath()) ([Guid]::NewGuid().ToString())
+        $OldCopy = ''
+        if (Test-Path -LiteralPath $Dest -PathType Leaf) {
+            New-Item -ItemType Directory -Path $Keep | Out-Null
+            $OldCopy = Join-Path $Keep 'rhythm.exe'
+            try { Copy-Item -LiteralPath $Dest -Destination $OldCopy } catch { $OldCopy = '' }
+        }
+        Install-Rhythm (Join-Path $Tmp 'rhythm.exe') $Dest
     }
     finally {
         Remove-Item -Recurse -Force $Tmp -ErrorAction SilentlyContinue
     }
 
-    # Invoke-Native runs rhythm.exe and returns its exit code and its output,
-    # stderr included. Windows PowerShell 5.1 turns redirected stderr into
-    # errors, which 'Stop' would throw, so this lowers the preference first.
-    function Invoke-Native([string[]]$Arguments) {
-        $Prev = $ErrorActionPreference
-        $ErrorActionPreference = 'Continue'
-        try {
-            $Out = & $Rhythm @Arguments 2>&1 | ForEach-Object { "$_" }
-            @{ Code = $LASTEXITCODE; Out = ($Out -join "`n") }
-        }
-        finally {
-            $ErrorActionPreference = $Prev
-        }
-    }
+    # Invoke-Native runs rhythm.exe through Invoke-Exe.
+    function Invoke-Native([string[]]$Arguments) { Invoke-Exe $Rhythm $Arguments }
 
     # Get-KnownTools returns the names in $Tools that the installed rhythm
     # knows, checking every one before any tool is downloaded. Newer routers
@@ -241,8 +311,27 @@
         if ($LASTEXITCODE -ne 0) { $Installed = $null }
     }
     if (-not $Installed) {
+        Remove-Item -Recurse -Force $Keep -ErrorAction SilentlyContinue
         Write-Host "Installed rhythm.exe to $Dir"
         return
+    }
+    # A rhythm with the verify command checks its own release and bytes.
+    try {
+        if (-not $SkipSignature -and (Invoke-Native @('help')).Out -match '(?m)^\s*rhythm verify') {
+            $R = Invoke-Native @('verify', 'rhythm')
+            if ($R.Out) { Write-Host $R.Out }
+            if ($R.Code -ne 0) {
+                if ($OldCopy) {
+                    Install-Rhythm $OldCopy $Rhythm
+                    throw 'rhythm install: the new rhythm failed its own check (rhythm verify rhythm), so the previous one was put back; nothing was installed'
+                }
+                Remove-Item -LiteralPath $Rhythm -Force
+                throw 'rhythm install: the new rhythm failed its own check (rhythm verify rhythm), so it was removed; nothing was installed'
+            }
+        }
+    }
+    finally {
+        Remove-Item -Recurse -Force $Keep -ErrorAction SilentlyContinue
     }
     Write-Host "Installed $Installed to $Dir"
 
