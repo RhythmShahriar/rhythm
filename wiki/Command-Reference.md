@@ -232,7 +232,7 @@ One row for rhythm, one for each installed tool and one for every other `rhythm-
 | SIGNED | `yes` for a binary that passed a signature check (at install, update or `rhythm verify`) and hasn't changed since; `no` otherwise; `-` for a third-party program. Extensions installed with `rhythm ext install` show `yes` or `no` too. No network is needed: rhythm compares the file's sha256 with what it recorded in `verified.json`. |
 | PATH | where it runs from, with the package manager after it when one installed it: `/opt/homebrew/bin/rhythm-tuner (Homebrew)` |
 
-`--offline` (or `RHYTHM_OFFLINE`) leaves out the LATEST column and makes no request. `--json` prints [`rhythm-list/v1`](#json-output). `rhythm list tuner` exits 2 with `rhythm: list takes no names (got "tuner")`. A failed lookup doesn't change the exit code: the list was shown, so it exits 0.
+`--offline` (or `RHYTHM_OFFLINE`) leaves out the LATEST column and makes no request. `--json` prints [`rhythm-list/v1`](#json-output). `rhythm list tuner` exits 2 with `rhythm: list takes no names (got "tuner")`. A failed lookup doesn't change the exit code: the list was shown, so it exits 0. A config folder rhythm can't read, such as a relative `RHYTHM_CONFIG_DIR`, exits 1 before anything is listed, as `rhythm ext list` and `rhythm update` do: `rhythm: RHYTHM_CONFIG_DIR must be an absolute path, got "rel"`.
 
 ## verify
 
