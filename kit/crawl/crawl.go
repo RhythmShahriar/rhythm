@@ -3,9 +3,12 @@
 
 // Package crawl discovers the pages of a website the way a careful
 // visitor would: from its sitemaps and by following its own links. It
-// stays on the site, honors robots.txt, skips URLs with side effects
-// (logout, add to cart), de-duplicates, and groups pages that share a URL
-// template so a large catalog is checked through a few samples.
+// stays on the site (the same host, scheme and port, see SameSite) for
+// pages, sitemaps and redirects alike, honors robots.txt, skips URLs with
+// side effects (logout, add to cart), de-duplicates and groups pages that
+// share a URL template so a large catalog is checked through a few
+// samples. Its default client times out and won't connect to private
+// addresses unless the site itself is on one.
 package crawl
 
 import (
@@ -31,6 +34,7 @@ const (
 	maxBody         = 5 << 20
 	maxSitemapURLs  = 50_000
 	maxSitemapDepth = 3
+	maxSitemaps     = 1000
 )
 
 type Options struct {
@@ -48,7 +52,17 @@ type Options struct {
 	UserAgent   string
 	Rate        float64 // requests per second per host; 0 means unlimited
 	Concurrency int     // 0 means 4
-	HTTP        *http.Client
+	MaxSitemaps int     // most sitemap files fetched, from robots.txt and indexes together; 0 means 1000
+	// HTTP is the client to send requests with. The crawler uses a copy
+	// and adds the same-site redirect rule after the client's own. When
+	// nil, it uses a client with a 30 s timeout that won't connect to
+	// loopback, link-local or private addresses (see AllowPrivate).
+	HTTP *http.Client
+	// AllowPrivate lets the default client connect to loopback,
+	// link-local (169.254.0.0/16, fe80::/10) and private (RFC 1918, ULA)
+	// addresses. Without it they are refused unless the start host
+	// resolves to the same kind of address, so local sites still work.
+	AllowPrivate bool
 }
 
 // Page is one discovered page.
@@ -143,7 +157,15 @@ func (f *Frontier) Pages() []Page {
 	return append([]Page(nil), f.pages...)
 }
 
-// Skipped counts URLs left out, by reason ("grouped", "robots.txt"…).
+// skip counts one URL left out for reason.
+func (f *Frontier) skip(reason string) {
+	f.mu.Lock()
+	f.skipped[reason]++
+	f.mu.Unlock()
+}
+
+// Skipped counts URLs left out, by reason ("grouped", "robots.txt",
+// "offsite-sitemap", "offsite-redirect"…).
 func (f *Frontier) Skipped() map[string]int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -168,15 +190,17 @@ type Crawler struct {
 	hosts *ratelimit.Hosts
 }
 
+// New returns a crawler for opts. It never changes opts.HTTP.
 func New(opts Options) *Crawler {
 	if opts.Concurrency <= 0 {
 		opts.Concurrency = 4
 	}
-	c := opts.HTTP
-	if c == nil {
-		c = &http.Client{}
+	if opts.MaxSitemaps <= 0 {
+		opts.MaxSitemaps = maxSitemaps
 	}
-	return &Crawler{opts: opts, http: c, hosts: ratelimit.NewHosts(opts.Rate)}
+	c := &Crawler{opts: opts, hosts: ratelimit.NewHosts(opts.Rate)}
+	c.http = c.newClient(opts)
+	return c
 }
 
 // Crawl discovers pages starting at start: robots.txt, then sitemaps, then
@@ -184,6 +208,11 @@ func New(opts Options) *Crawler {
 // callers can keep adding pages they find some other way.
 func (c *Crawler) Crawl(ctx context.Context, start *url.URL) (*Frontier, error) {
 	f := NewFrontier(start, c.opts)
+	st := &crawlState{start: start, front: f}
+	if c.opts.HTTP == nil && !c.opts.AllowPrivate {
+		st.startIPs = resolve(ctx, start.Hostname())
+	}
+	ctx = context.WithValue(ctx, stateKey{}, st)
 	if !c.opts.IgnoreRobots || !c.opts.NoSitemaps {
 		f.robots = c.robots(ctx, start)
 	}
@@ -304,19 +333,31 @@ func (c *Crawler) sitemaps(ctx context.Context, f *Frontier, start *url.URL) {
 		locs = []string{root + "/sitemap.xml", root + "/wp-sitemap.xml", root + "/sitemap_index.xml"}
 	}
 	seen := map[string]bool{}
-	n := 0
+	n, fetched := 0, 0
 	var read func(loc string, depth int)
 	read = func(loc string, depth int) {
 		if seen[loc] || depth > maxSitemapDepth || n >= maxSitemapURLs || ctx.Err() != nil {
 			return
 		}
 		seen[loc] = true
+		// robots.txt and sitemap indexes are written by the site, so a
+		// hostile one could name any host; only the site's own are read.
+		u, err := start.Parse(loc)
+		if err != nil || !SameSite(start, u) {
+			f.skip("offsite-sitemap")
+			return
+		}
+		if fetched >= c.opts.MaxSitemaps {
+			f.skip("sitemap limit")
+			return
+		}
+		fetched++
 		var doc struct {
 			XMLName  xml.Name
 			URLs     []string `xml:"url>loc"`
 			Sitemaps []string `xml:"sitemap>loc"`
 		}
-		if err := c.xml(ctx, loc, &doc); err != nil {
+		if err := c.xml(ctx, u.String(), &doc); err != nil {
 			return
 		}
 		for _, u := range doc.URLs {
