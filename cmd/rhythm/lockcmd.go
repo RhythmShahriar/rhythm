@@ -139,7 +139,7 @@ func (f *lockFile) validate() error {
 		if !exactSpec.MatchString(e.Version) || strings.HasPrefix(e.Version, "v") {
 			errs = append(errs, fmt.Errorf("%s: version %q isn't an exact version such as 1.2.3", where, e.Version))
 		}
-		if !strings.Contains(e.Repo, "/") {
+		if !validRepo(e.Repo) {
 			errs = append(errs, fmt.Errorf("%s: repo %q isn't owner/name", where, e.Repo))
 		}
 		if len(e.Platforms) == 0 {
@@ -165,13 +165,21 @@ func (f *lockFile) validate() error {
 			packs[d.Name] = true
 		}
 	}
+	// Names pick the registry repo a lock's repo is checked against, so
+	// rhythm's entry must be called rhythm and a tool can't be.
 	if f.Rhythm != nil {
+		if f.Rhythm.Name != selfName {
+			errs = append(errs, fmt.Errorf("rhythm: name %q isn't %q", f.Rhythm.Name, selfName))
+		}
 		check("rhythm", f.Rhythm)
 	}
 	seen := map[string]bool{}
 	for i := range f.Tools {
 		e := &f.Tools[i]
 		where := fmt.Sprintf("tools[%d] (%s)", i, e.Name)
+		if e.Name == selfName || !extensionName.MatchString(e.Name) {
+			errs = append(errs, fmt.Errorf("%s: %q isn't a tool name", where, e.Name))
+		}
 		if seen[e.Name] {
 			errs = append(errs, fmt.Errorf("%s: listed twice", where))
 		}

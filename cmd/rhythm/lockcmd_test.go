@@ -774,6 +774,19 @@ func TestReadLockRejects(t *testing.T) {
 			`tools[0] (tuner): version "v1.0.0" isn't an exact version such as 1.2.3`},
 		{`{"schema":"rhythm-lock/v1","tools":[{"name":"tuner","repo":"a/b","version":"1.0.0","platforms":{"linux_amd64":"abc"}}]}`,
 			`tools[0] (tuner): platforms["linux_amd64"]: sha256 "abc" isn't 64 lowercase hex digits`},
+		{`{"schema":"rhythm-lock/v1","rhythm":{"name":"rhythm2","repo":"a/b","version":"1.0.0","platforms":{"linux_amd64":"H"}},"tools":[]}`,
+			`rhythm: name "rhythm2" isn't "rhythm"`},
+		{`{"schema":"rhythm-lock/v1","tools":[{"name":"rhythm","repo":"a/b","version":"1.0.0","platforms":{"linux_amd64":"H"}}]}`,
+			`tools[0] (rhythm): "rhythm" isn't a tool name`},
+		{`{"schema":"rhythm-lock/v1","tools":[{"name":"Tuner","repo":"a/b","version":"1.0.0","platforms":{"linux_amd64":"H"}}]}`,
+			`tools[0] (Tuner): "Tuner" isn't a tool name`},
+		// The repo becomes part of the release API path.
+		{`{"schema":"rhythm-lock/v1","tools":[{"name":"tuner","repo":"a/b/../../../user","version":"1.0.0","platforms":{"linux_amd64":"H"}}]}`,
+			`tools[0] (tuner): repo "a/b/../../../user" isn't owner/name`},
+		{`{"schema":"rhythm-lock/v1","tools":[{"name":"tuner","repo":"a/..","version":"1.0.0","platforms":{"linux_amd64":"H"}}]}`,
+			`tools[0] (tuner): repo "a/.." isn't owner/name`},
+		{`{"schema":"rhythm-lock/v1","tools":[{"name":"tuner","repo":"a/b?x=1","version":"1.0.0","platforms":{"linux_amd64":"H"}}]}`,
+			`tools[0] (tuner): repo "a/b?x=1" isn't owner/name`},
 		// A "," or "=" would add pins to update --pin name=version,...
 		{`{"schema":"rhythm-lock/v1","tools":[{"name":"tuner","repo":"a/b","version":"1.0.0","platforms":{"linux_amd64":"H"},"data":[{"name":"checks","version":"1,vulns=0","sha256":"H"}]}]}`,
 			`tools[0] (tuner): data "checks" version "1,vulns=0" may only use letters, digits and . _ + -`},
@@ -1014,6 +1027,30 @@ func TestInstallLockedChecksTheRegistry(t *testing.T) {
 		if code != 1 || !strings.Contains(errs, want) {
 			t.Errorf("exit %d, stderr lacks %q:\n%s", code, want, errs)
 		}
+	}
+	if r := f.requests(); len(r) > 0 {
+		t.Errorf("asked the API: %v", r)
+	}
+}
+
+// TestUpdateLockChecksTheRegistry: update --lock looks nothing up for a
+// lock that moves rhythm or a registry tool to another repository.
+func TestUpdateLockChecksTheRegistry(t *testing.T) {
+	_, f := pinSandbox(t)
+	sha := strings.Repeat("a", 64)
+	lock := &lockFile{
+		Rhythm: &lockEntry{Name: selfName, Repo: "someone/rhythm", Version: "0.7.0", Platforms: map[string]string{thisPlatform(): sha}},
+		Tools: []lockEntry{
+			{Name: "tuner", Repo: "rhythmshahriar/TUNER", Version: "0.3.1", Platforms: map[string]string{thisPlatform(): sha}},
+		},
+	}
+	if err := lock.write(lockFileName); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errs := runCmd("update", "--lock", "--check")
+	want := "rhythm: rhythm.lock says rhythm comes from someone/rhythm; rhythm installs it from RhythmShahriar/rhythm\n"
+	if code != 1 || errs != want || out != "" {
+		t.Errorf("exit %d\n%s%s\nwant\n%s", code, out, errs, want)
 	}
 	if r := f.requests(); len(r) > 0 {
 		t.Errorf("asked the API: %v", r)

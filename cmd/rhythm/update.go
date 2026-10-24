@@ -553,6 +553,20 @@ func updateLock(want map[string]bool, checkOnly bool, age minAge, stdout, stderr
 			return 1
 		}
 	}
+	// A lock comes with the project, so anyone can write it. Its repo
+	// for rhythm or a registry tool must be the one rhythm installs from,
+	// or a cloned lock could point the release lookups (and the token
+	// sent with them) at a repository of its choosing.
+	moved := false
+	for _, e := range old.entries() {
+		if repo, ok := registryRepo(e.Name); ok && !strings.EqualFold(repo, e.Repo) {
+			fmt.Fprintf(stderr, "rhythm: %s says %s comes from %s; rhythm installs it from %s\n", lockFileName, e.Name, e.Repo, repo)
+			moved = true
+		}
+	}
+	if moved {
+		return 1
+	}
 	next, err := old.clone()
 	if err != nil {
 		fmt.Fprintln(stderr, "rhythm:", err)

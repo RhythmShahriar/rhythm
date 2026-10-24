@@ -201,6 +201,25 @@ var (
 	extensionRepo = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+$`)
 )
 
+// validRepo reports whether repo is a GitHub owner/name. Release API
+// paths are built from it, so "." and ".." (which the pattern allows,
+// as GitHub allows dots in names) are refused too.
+func validRepo(repo string) bool {
+	_, name, _ := strings.Cut(repo, "/")
+	return extensionRepo.MatchString(repo) && name != "." && name != ".."
+}
+
+// registryRepo returns the repository rhythm itself installs name from:
+// its own for rhythm, the registry's for a tool. ok is false for any
+// other name, such as an extension.
+func registryRepo(name string) (repo string, ok bool) {
+	if name == selfName {
+		return selfRepo, true
+	}
+	repo, ok = tools[name]
+	return repo, ok
+}
+
 // readExtensions returns the extensions in the Rhythm config folder
 // (RHYTHM_CONFIG_DIR when set), none when there is no file. A name the
 // registry already has is left out: the registry's repo wins.
@@ -238,7 +257,7 @@ func readExtensions() ([]extension, error) {
 		switch {
 		case !extensionName.MatchString(x.Name):
 			return nil, fmt.Errorf("%s: extension name %q isn't a tool name", path, x.Name)
-		case !extensionRepo.MatchString(x.Repo):
+		case !validRepo(x.Repo):
 			return nil, fmt.Errorf("%s: extension %q: repo %q isn't owner/name", path, x.Name, x.Repo)
 		}
 		if _, registry := tools[x.Name]; !registry && x.Name != selfName {
