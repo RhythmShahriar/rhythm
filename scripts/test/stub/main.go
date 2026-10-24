@@ -174,6 +174,9 @@ func install(args []string, stdout, stderr io.Writer) int {
 	}
 	if locked {
 		pins, err := readLock("rhythm.lock")
+		if err == nil && len(want) > 0 {
+			pins, err = lockedNames(want, pins)
+		}
 		if err != nil {
 			fmt.Fprintln(stderr, "rhythm:", err)
 			return 1
@@ -281,6 +284,32 @@ func readLock(path string) ([]string, error) {
 		pins = append(pins, t.Name+"@"+t.Version)
 	}
 	return pins, nil
+}
+
+// lockedNames narrows the lock's pins (name@version) to the tools named
+// with --locked, as rhythm does: a named tool must be locked and a
+// version named with it must be the locked one.
+func lockedNames(named, pins []string) ([]string, error) {
+	var out []string
+	for _, spec := range named {
+		name, v, _ := strings.Cut(spec, "@")
+		found := ""
+		for _, p := range pins {
+			if n, _, _ := strings.Cut(p, "@"); n == name {
+				found = p
+			}
+		}
+		_, locked, _ := strings.Cut(found, "@")
+		switch {
+		case found == "":
+			return nil, fmt.Errorf("rhythm.lock doesn't lock %s; add it with: rhythm install %s && rhythm lock", name, name)
+		case v != "" && strings.TrimPrefix(v, "v") != locked:
+			return nil, fmt.Errorf("rhythm.lock pins %s %s, not %s; drop the version, or move the lock with: rhythm update --lock %s",
+				name, locked, strings.TrimPrefix(v, "v"), name)
+		}
+		out = append(out, found)
+	}
+	return out, nil
 }
 
 // badFlag fails the way Go's flag package does for a flag it doesn't know.

@@ -113,6 +113,19 @@ func TestDefaultsPinsAndLock(t *testing.T) {
 		t.Fatalf("--locked = %d %q %q", code, out, errOut)
 	}
 
+	// Named tools narrow the lock; a named version must be the locked one.
+	code, out, errOut = call("install", "--locked", "tuner@0.3.1", "--dry-run")
+	if code != 0 || out != "tuner@0.3.1\n" {
+		t.Fatalf("--locked tuner@0.3.1 = %d %q %q", code, out, errOut)
+	}
+	code, _, errOut = call("install", "--locked", "tuner@0.3.2")
+	if code != 1 || errOut != "rhythm: rhythm.lock pins tuner 0.3.1, not 0.3.2; drop the version, or move the lock with: rhythm update --lock tuner\n" {
+		t.Fatalf("--locked mismatch = %d %q", code, errOut)
+	}
+	if code, _, errOut = call("install", "--locked", "soundcheck"); code != 1 || !strings.Contains(errOut, "rhythm.lock doesn't lock soundcheck") {
+		t.Fatalf("--locked unlocked tool = %d %q", code, errOut)
+	}
+
 	stubAs(t, "0.6.0", "tuner:t", "dry-run", "yes")
 	if code, _, errOut := call("install", "--defaults", "--dry-run"); code != 2 || !strings.Contains(errOut, "flag provided but not defined: -defaults") {
 		t.Fatalf("old --defaults = %d %q", code, errOut)
