@@ -87,6 +87,9 @@ func TestRedactShapes(t *testing.T) {
 		{"export db_password='lower secret'", []string{"wer secret"}, []string{"db_password="}},
 		{"SMTP_PW=pwsecret1\nMYSQL_PWD=pwdsecret2\nSTRIPEKEY=keysecret3\nGOOGLE_CREDENTIALS=credsecret4\nSENTRY_DSN=https://abc123@o1.ingest.example/1",
 			[]string{"secret1", "secret2", "secret3", "secret4", "c123@o1"}, []string{"SMTP_PW=", "MYSQL_PWD=", "STRIPEKEY=", "SENTRY_DSN="}},
+		// The shell's folder variables are context, not secrets.
+		{"PWD=/home/me/project\nOLDPWD=/tmp\nMYSQL_PWD=pwdsecret2\n", []string{"secret2"},
+			[]string{"PWD=/home/me/project\n", "OLDPWD=/tmp\n", "MYSQL_PWD="}},
 		// JSON with an escaped quote and a numeric secret.
 		{`{"password":"ab\"cdefgh"}`, []string{"cdefgh"}, []string{`{"password":"`}},
 		{`{"otp": 123456}`, []string{"3456"}, []string{`"otp"`}},

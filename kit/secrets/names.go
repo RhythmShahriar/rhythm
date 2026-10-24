@@ -30,6 +30,11 @@ var describesSecret = map[string]bool{
 	"hint": true, "mode": true, "method": true, "lifetime": true, "timeout": true,
 }
 
+// Shell variables whose names hold a secret word but whose values are
+// ordinary context: PWD and OLDPWD are folders. Only the upper-case
+// names count, so WordPress's pwd login field stays masked.
+var shellVars = map[string]bool{"PWD": true, "OLDPWD": true}
+
 // Words ending in "key" or "pass" that are not secrets.
 var notSecret = map[string]bool{"monkey": true, "turkey": true, "hockey": true, "jockey": true, "whiskey": true, "donkey": true, "bypass": true, "compass": true, "overpass": true}
 
@@ -47,6 +52,9 @@ var lookupKey = map[string]bool{
 // at _, -, ., brackets and camelCase boundaries. A bare "key" is not
 // enough on its own: it is too often an ordinary lookup key.
 func isSecretName(name string) bool {
+	if shellVars[name] {
+		return false
+	}
 	parts := nameParts(name)
 	if len(parts) == 0 || describesSecret[parts[len(parts)-1]] {
 		return false
