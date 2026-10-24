@@ -301,6 +301,14 @@ func TestDiff(t *testing.T) {
 		}), []string{"~ tuner 0.3.1-rc.2 → 0.3.2", "~ tuner data checks 2026.10.20 → (none)"}},
 		{"rehashed", sample(), edit(func(f *File) { f.Tools[2].Platforms["linux_amd64"] = hash('9') }),
 			[]string{"! soundcheck 0.4.2: archives changed for the same version"}},
+		{"rehashed beside a new platform", sample(), edit(func(f *File) {
+			f.Tools[2].Platforms["linux_amd64"] = hash('9')
+			f.Tools[2].Platforms["linux_arm64"] = hash('8')
+		}), []string{"! soundcheck 0.4.2: archives changed for the same version"}},
+		// Locking another machine's platform, or dropping one, leaves the
+		// archives already locked as they were.
+		{"platform added", sample(), edit(func(f *File) { f.Tools[2].Platforms["linux_arm64"] = hash('9') }), nil},
+		{"platform removed", sample(), edit(func(f *File) { delete(f.Tools[2].Platforms, "darwin_arm64") }), nil},
 		{"resigned", sample(), edit(func(f *File) { f.Tools[2].Signer = "release-bot" }),
 			[]string{"! soundcheck: signer (none) → release-bot for the same version"}},
 		{"rhythm dropped", sample(), edit(func(f *File) { f.Rhythm = nil }), []string{"- rhythm 0.7.0"}},

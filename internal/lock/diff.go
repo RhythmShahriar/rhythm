@@ -18,9 +18,9 @@ const (
 	Removed  Kind = "removed"  // in the old lock only
 	Bumped   Kind = "bumped"   // a different version
 	Resigned Kind = "resigned" // the same version from a different signer
-	// Rehashed is the same version with different archive hashes: the
-	// release was rebuilt or replaced after it was locked, which is worth
-	// a look before trusting it.
+	// Rehashed is the same version with a different archive hash for a
+	// platform both locks name: the release was rebuilt or replaced after
+	// it was locked, which is worth a look before trusting it.
 	Rehashed    Kind = "rehashed"
 	DataChanged Kind = "data" // a data pack was added, removed or moved to another version
 )
@@ -126,11 +126,24 @@ func diffEntry(name string, a, b *Entry) []Change {
 		if a.Signer != b.Signer {
 			changes = append(changes, Change{Kind: Resigned, Name: name, From: a.Signer, To: b.Signer})
 		}
-		if !maps.Equal(a.Platforms, b.Platforms) {
+		if rehashed(a.Platforms, b.Platforms) {
 			changes = append(changes, Change{Kind: Rehashed, Name: name, From: a.Version, To: b.Version})
 		}
 	}
 	return append(changes, diffData(name, a.Data, b.Data)...)
+}
+
+// rehashed reports whether a platform locked in both a and b has a
+// different hash. A platform locked in only one of them is not a
+// change to the release: locking darwin_arm64 for a second machine
+// must not look like a replaced archive, so it is not reported.
+func rehashed(a, b map[string]string) bool {
+	for platform, sum := range a {
+		if other, ok := b[platform]; ok && other != sum {
+			return true
+		}
+	}
+	return false
 }
 
 func diffData(name string, a, b []DataPack) []Change {
