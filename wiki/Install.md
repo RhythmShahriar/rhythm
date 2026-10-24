@@ -103,7 +103,7 @@ A failed check stops the install: `rhythm install: cosign says checksums.txt was
 warning: signature not checked (the release has no checksums.txt.sigstore.json); install cosign or gh to check it before anything runs
 ```
 
-Either way, once `rhythm` is in place it checks itself with `rhythm verify rhythm` and every tool it installs, signature included; that needs neither cosign nor gh. With `RHYTHM_SKIP_SIGNATURE=1` the installer skips both of its checks and says `warning: RHYTHM_SKIP_SIGNATURE is set: nothing checks that this release was signed by RhythmShahriar/rhythm. Use it only with a mirror you trust.` The tools are still installed with their signatures checked; see [Verifying releases](Verifying-Releases).
+Either way, once `rhythm` is in place it checks itself with `rhythm verify rhythm` and every tool it installs, signature included; that needs neither cosign nor gh. With `RHYTHM_SKIP_SIGNATURE=1` the installer skips both of its checks and says `warning: RHYTHM_SKIP_SIGNATURE is set: nothing checks that this release was signed by RhythmShahriar/rhythm. Use it only with a mirror you trust.` It passes the same choice on to the tools: each `rhythm install` it runs gets `--skip-signature`, which warns with `warning: --skip-signature: release signatures aren't checked, so a tampered release would install; use it only with a mirror you trust`. A `rhythm` older than 0.7.0 has no such flag and checks no tool signatures, so it isn't given one. See [Verifying releases](Verifying-Releases).
 
 ## Installer options
 
@@ -115,7 +115,7 @@ Set these environment variables to change what the installer does. Both scripts 
 | `RHYTHM_VERSION` | latest | Install a specific `rhythm` version, e.g. `0.5.0` (one leading `v` is fine). Anything that isn't a version is refused before a request. |
 | `RHYTHM_TOOLS` | the tools rhythm installs on a fresh setup (`tuner soundcheck echo` for a rhythm older than 0.7.0) | Tools to install alongside, separated by spaces or commas. `none` installs no tool. `tool@version` pins one: `tuner@0.3.1`, or `tuner@0.3` for the newest 0.3.x. |
 | `RHYTHM_LOCKED` | off | `1` installs the tools and versions in `rhythm.lock` in the current folder (`rhythm install --locked`) instead of `RHYTHM_TOOLS`. |
-| `RHYTHM_SKIP_SIGNATURE` | off | `1` skips the installer's signature checks of `rhythm`, with a warning. For a mirror you trust that can't serve the signatures. |
+| `RHYTHM_SKIP_SIGNATURE` | off | `1` skips the installer's signature checks of `rhythm` and passes `--skip-signature` to each `rhythm install` it runs for the tools, with a warning. For a mirror you trust that can't serve the signatures. |
 | `GITHUB_TOKEN` | none | Sent to `api.github.com` only, to lift GitHub's limit of 60 anonymous requests an hour (shared CI runners hit it). |
 | `RHYTHM_GITHUB_API` | `https://api.github.com` | A GitHub API mirror or GitHub Enterprise; see [Mirrors and tokens](#mirrors-and-tokens). |
 | `RHYTHM_GITHUB_TOKEN` | none | A token for that mirror; sent to the `RHYTHM_GITHUB_API` host and used instead of `GITHUB_TOKEN`. |

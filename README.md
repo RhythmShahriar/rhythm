@@ -51,7 +51,7 @@ This installs `rhythm`, Tuner, Soundcheck and Echo to `~/.local/bin` (`/usr/loca
 | `RHYTHM_GITHUB_TOKEN` | a token for that mirror; sent to the `RHYTHM_GITHUB_API` host and used instead of `GITHUB_TOKEN` |
 | `RHYTHM_INSTALL_TIMEOUT` | seconds to wait for a server that doesn't answer before the installer gives up (default `30`, at most `3600`). `install.sh` also gives up on a download that has stalled for that long |
 | `RHYTHM_LOCKED` | `1` installs the tools and versions in `rhythm.lock` in the current folder (`rhythm install --locked`) instead of `RHYTHM_TOOLS` |
-| `RHYTHM_SKIP_SIGNATURE` | `1` skips the signature checks, with a warning. Only for a mirror you trust that can't serve the signatures |
+| `RHYTHM_SKIP_SIGNATURE` | `1` skips the signature checks of rhythm and of the tools it installs, with a warning. Only for a mirror you trust that can't serve the signatures |
 
 ```sh
 curl -fsSL https://rythm.sh/install | RHYTHM_INSTALL_DIR=/opt/bin RHYTHM_TOOLS=none sh

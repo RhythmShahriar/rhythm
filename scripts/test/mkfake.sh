@@ -24,7 +24,8 @@
 #                   and --quiet; says once that --dir isn't on PATH; has
 #                   verify (which fails when RHYTHM_TEST_VERIFY=fail),
 #                   install --defaults (answering $RHYTHM_TEST_DEFAULTS when
-#                   set), tool@version and install --locked
+#                   set), tool@version, install --locked and install
+#                   --skip-signature
 #   0.6.0           the same without verify, --defaults, pins or --locked
 #   0.5.0           knows all three, no --dry-run or --quiet; says for each
 #                   tool that --dir isn't on PATH
@@ -68,7 +69,8 @@ EOF
 # and --quiet, which came together), "verify" (the verify command; it fails
 # when RHYTHM_TEST_VERIFY is "fail"), "defaults" (install --defaults, which
 # adds $RHYTHM_TEST_DEFAULTS or else echo, soundcheck and tuner), "pins"
-# (tool@version) and "locked" (install --locked, from ./rhythm.lock). The
+# (tool@version), "locked" (install --locked, from ./rhythm.lock) and
+# "skip-signature" (install --skip-signature, only logged). The
 # tools it writes are tool stand-ins that report the pinned version.
 router() {
 	cat >"$1" <<EOF
@@ -174,7 +176,13 @@ while [ $# -gt 0 ]; do
 		printf '  --dry-run        check the names and print the tools, one per line, without installing\n'
 		! has locked || printf '  --locked         install the versions in rhythm.lock\n'
 		printf '  --quiet          print only the Installed lines and errors\n'
+		! has skip-signature || printf '  --skip-signature install without checking release signatures\n'
 		exit 0
+		;;
+	--skip-signature)
+		# Logged with the rest of argv, which is all a test needs.
+		has skip-signature || bad_flag "$1"
+		shift
 		;;
 	--quiet | --dry-run)
 		has dry-run || bad_flag "$1"
@@ -318,7 +326,7 @@ release() {
 }
 
 all="tuner (t) soundcheck (sc) echo (e)"
-new="dry-run verify defaults pins locked"
+new="dry-run verify defaults pins locked skip-signature"
 for spec in "0.7.0|$all|$new|yes" "0.6.0|$all|dry-run|yes" "0.5.0|$all||yes" \
 	"0.4.0|tuner (t) soundcheck (sc)||yes" "0.3.5|$all||no" \
 	"9.0.1|$all|$new|yes" "9.0.2|$all|$new|yes" "9.0.3|$all|$new|yes" "9.0.4|$all|$new|yes" "9.0.5|$all|$new|yes" \

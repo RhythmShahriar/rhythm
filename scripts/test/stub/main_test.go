@@ -188,7 +188,7 @@ func TestInstallFetchesTheArchive(t *testing.T) {
 }
 
 func TestInstallCopiesItselfAndLogs(t *testing.T) {
-	stubAs(t, "0.6.0", "tuner:t", "dry-run", "yes")
+	stubAs(t, "0.7.0", "tuner:t", "dry-run,skip-signature", "yes")
 	dir := t.TempDir()
 	log := filepath.Join(dir, "argv.log")
 	t.Setenv("RHYTHM_TEST_LOG", log)
@@ -217,6 +217,19 @@ func TestInstallCopiesItselfAndLogs(t *testing.T) {
 	if got, err := os.ReadFile(log); err != nil || string(got) != "rhythm install --skip-signature tuner --dir "+dir+"\n" {
 		t.Fatalf("log = %q, %v", got, err)
 	}
+	// install --help lists it, which is how the installers know to pass
+	// it on; a release without the feature has neither.
+	if _, out, _ := call("install", "--help"); !strings.Contains(out, "--skip-signature") {
+		t.Errorf("install --help lacks --skip-signature:\n%s", out)
+	}
+	stubAs(t, "0.6.0", tools, "dry-run", toolsBlock)
+	if _, out, _ := call("install", "--help"); strings.Contains(out, "--skip-signature") {
+		t.Errorf("0.6.0 lists --skip-signature:\n%s", out)
+	}
+	if code, _, _ := call("install", "--skip-signature", "tuner", "--dir", dir); code != 2 {
+		t.Errorf("0.6.0 took --skip-signature: exit %d", code)
+	}
+	stubAs(t, "0.7.0", tools, "dry-run,skip-signature", toolsBlock)
 	// An alias installs the tool under its name.
 	if code, out, errOut := call("install", "t", "--dir", dir); code != 0 || !strings.Contains(out, "Installed rhythm-tuner ") {
 		t.Fatalf("install t = %d %q %q", code, out, errOut)

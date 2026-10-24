@@ -11,7 +11,7 @@
 #                        pins one (default: the tools rhythm installs on a fresh setup,
 #                        "tuner soundcheck echo" for an older rhythm; "none" for none)
 #   RHYTHM_LOCKED        1 installs the tools in .\rhythm.lock instead (rhythm install --locked)
-#   RHYTHM_SKIP_SIGNATURE  1 skips the signature checks, for a mirror you trust
+#   RHYTHM_SKIP_SIGNATURE  1 skips the signature checks, rhythm's and the tools', for a mirror you trust
 #   RHYTHM_GITHUB_API    GitHub API base, for mirrors (default https://api.github.com).
 #                        It must be https; plain http is accepted only for 127.0.0.1, ::1 and localhost.
 #                        It is a plain base URL: no user info, query or fragment.
@@ -469,10 +469,18 @@
     # leaves out its own PATH notes; an older one prints one per tool,
     # filtered here.
     $Quiet = @()
-    if (($Todo.Count -or $Locked) -and (Invoke-Native @('install', '--help')).Out -match '--quiet') { $Quiet = @('--quiet') }
+    # RHYTHM_SKIP_SIGNATURE covers the tools too: rhythm install is told
+    # --skip-signature when it has the flag. An older rhythm doesn't check
+    # the tools' signatures at all.
+    $Skip = @()
+    if ($Todo.Count -or $Locked) {
+        $InstallHelp = (Invoke-Native @('install', '--help')).Out
+        if ($InstallHelp -match '--quiet') { $Quiet = @('--quiet') }
+        if ($SkipSignature -and $InstallHelp -match '--skip-signature') { $Skip = @('--skip-signature') }
+    }
     if ($Locked) {
         # One call; the tools installed are the ones rhythm says it installed.
-        $R = Invoke-Native (@('install', '--locked', '--dir', $Dir) + $Quiet)
+        $R = Invoke-Native (@('install', '--locked', '--dir', $Dir) + $Quiet + $Skip)
         $Lines = @($R.Out -split "`n" | Where-Object { $_ -and $_ -notmatch "^Note: .* isn't on your PATH\.$" })
         if ($Lines.Count) { Write-Host ($Lines -join "`n") }
         # A tool already at the locked version counts as installed too.
@@ -484,7 +492,7 @@
         }
     }
     foreach ($Tool in $Todo) {
-        $R = Invoke-Native (@('install', $Tool, '--dir', $Dir) + $Quiet)
+        $R = Invoke-Native (@('install', $Tool, '--dir', $Dir) + $Quiet + $Skip)
         $Lines = @($R.Out -split "`n" | Where-Object { $_ -and $_ -notmatch "^Note: .* isn't on your PATH\.$" })
         if ($Lines.Count) { Write-Host ($Lines -join "`n") }
         if ($R.Code -eq 0) { $Done += Get-ToolName $Tool } else { $Failed += Get-ToolName $Tool }
