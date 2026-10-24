@@ -356,7 +356,9 @@ main() {
 	*) die "unsupported CPU '$(uname -m)'" ;;
 	esac
 
-	tmp=$(mktemp -d)
+	# A template, so TMPDIR is used everywhere: macOS's mktemp -d
+	# alone uses the per-user folder whatever TMPDIR says.
+	tmp=$(mktemp -d "${TMPDIR:-/tmp}/rhythm-install.XXXXXX")
 	trap 'rm -rf "$tmp"' EXIT
 	trap 'exit 130' INT
 	trap 'exit 143' TERM
