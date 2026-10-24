@@ -201,7 +201,7 @@ func TestUninstallAll(t *testing.T) {
 func TestUninstallUsage(t *testing.T) {
 	installed, latest := allTools()
 	s := newSandbox(t, installed, latest)
-	if code, _, errs := runCmd("uninstall"); code != 2 || !strings.Contains(errs, "name a tool, or use --all") {
+	if code, _, errs := runCmd("uninstall"); code != 2 || errs != "usage: rhythm uninstall <tool>... [--purge] [--all]; name a tool, or use --all\n" {
 		t.Errorf("no names: exit %d: %s", code, errs)
 	}
 	if code, _, errs := runCmd("uninstall", "tuner", "tunr", "nope"); code != 2 ||

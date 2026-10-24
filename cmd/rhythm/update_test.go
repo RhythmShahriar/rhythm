@@ -978,6 +978,22 @@ func TestInstallMinAge(t *testing.T) {
 	}
 }
 
+func TestMinAgeUndatedRelease(t *testing.T) {
+	s := newSandbox(t, map[string]string{"rhythm-tuner": "0.3.2"}, nil)
+	newReleaseAPI(t, s, map[string][]fakeRel{
+		repoOf("tuner"): {{version: "0.3.3", undated: true}, {version: "0.3.2", age: 10 * 24 * time.Hour}},
+	})
+	t.Setenv(minAgeEnv, "")
+	code, _, errs := runCmd("install", "tuner", "--dir", t.TempDir(), "--min-age", "20d")
+	if want := "no release of RhythmShahriar/tuner is old enough: the newest, 0.3.3, has no publish date (min age 20 days)"; code != 1 || !strings.Contains(errs, want) {
+		t.Errorf("exit %d, want %q in\n%s", code, want, errs)
+	}
+	code, out, errs := runCmd("update", "tuner", "--min-age", "3d", "--no-data")
+	if code != 0 || !strings.Contains(out, "rhythm-tuner 0.3.3 has no publish date; staying on 0.3.2 (min age 3d)\n") {
+		t.Errorf("exit %d\n%s%s", code, out, errs)
+	}
+}
+
 func TestMinAgeInvalid(t *testing.T) {
 	cooldownSandbox(t, nil)
 	for _, args := range [][]string{{"update", "--min-age", "3"}, {"install", "tuner", "--min-age", "soon"}} {

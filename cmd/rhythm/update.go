@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -364,16 +365,24 @@ func refreshData(ctx context.Context, t target, pins []dataPack, stdout, stderr 
 		return nil, dataFailure(ctx, stderr, t.binary, cmd.Run())
 	}
 	args := []string{"update", "--json"}
+	var out []byte
+	var err error
 	if len(pins) > 0 {
-		args = append(args, "--pin", pinArg(pins))
-	}
-	out, err := runDataJSON(ctx, t.path, args, stderr)
-	var ee *exec.ExitError
-	if len(pins) > 0 && errors.As(err, &ee) && ee.ExitCode() == exitUsage {
-		// A usage error: this version of the tool has no --pin yet.
-		fmt.Fprintf(stderr, "%s can't pin its data; refreshing it to the latest instead\n", t.binary)
-		pins = nil
-		out, err = runDataJSON(ctx, t.path, args[:2], stderr)
+		// The tool's messages wait until it is known to take --pin: a
+		// tool on a kit without it answers with a usage error and its
+		// whole usage, which would only bury the warning below.
+		var held bytes.Buffer
+		out, err = runDataJSON(ctx, t.path, append(args, "--pin", pinArg(pins)), &held)
+		var ee *exec.ExitError
+		if errors.As(err, &ee) && ee.ExitCode() == exitUsage {
+			fmt.Fprintf(stderr, "%s can't pin its data; refreshing it to the latest instead\n", t.binary)
+			pins = nil
+			out, err = runDataJSON(ctx, t.path, args, stderr)
+		} else {
+			_, _ = stderr.Write(held.Bytes())
+		}
+	} else {
+		out, err = runDataJSON(ctx, t.path, args, stderr)
 	}
 	if err := dataFailure(ctx, stderr, t.binary, err); err != nil {
 		return nil, err

@@ -114,7 +114,7 @@ func uninstallScope(names []string, all bool, stderr io.Writer) ([]string, int) 
 		list = append(list, selfName)
 	}
 	if len(list) == 0 {
-		fmt.Fprintln(stderr, "usage: rhythm uninstall <tool>... [--purge]; name a tool, or use --all")
+		fmt.Fprintln(stderr, "usage: rhythm uninstall <tool>... [--purge] [--all]; name a tool, or use --all")
 		return nil, exitUsage
 	}
 	return list, 0

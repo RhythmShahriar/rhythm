@@ -107,6 +107,20 @@ func updater(repo, binary, current string) *update.Updater {
 	}
 }
 
+// apiToken picks the token sent to the release API at api by the rule
+// kit/update's Updater follows: RHYTHM_GITHUB_TOKEN when it is set (it
+// then wins on GitHub too), otherwise GITHUB_TOKEN, to GitHub only. name
+// is the variable used, "" when no token goes to api.
+func apiToken(getenv func(string) string, api string) (name, value string) {
+	if tok := getenv("RHYTHM_GITHUB_TOKEN"); tok != "" {
+		return "RHYTHM_GITHUB_TOKEN", tok
+	}
+	if tok := getenv("GITHUB_TOKEN"); tok != "" && apiOrDefault(api) == defaultAPI {
+		return "GITHUB_TOKEN", tok
+	}
+	return "", ""
+}
+
 // apiOrDefault returns api, or defaultAPI when it is empty.
 func apiOrDefault(api string) string {
 	if api == "" {
@@ -822,7 +836,7 @@ func installScope(names []string, defaults, locked bool, stderr io.Writer) ([]in
 		}
 	}
 	if len(items) == 0 && !none && !defaults && !locked {
-		fmt.Fprintln(stderr, "usage: rhythm install <tool>... [--dir <dir>]; name a tool, or use --defaults")
+		fmt.Fprintln(stderr, "usage: rhythm install <tool>[@version]... [flags]; name a tool, or use --defaults")
 		return nil, exitUsage
 	}
 	return items, 0
@@ -1251,14 +1265,32 @@ func resolveSpec(ctx context.Context, u *update.Updater, spec string, minAge tim
 		if minAge <= 0 || (!c.published.IsZero() && now.Sub(c.published) >= minAge) {
 			if c != candidates[0] {
 				n := candidates[0]
-				c.skippedNewer = &skippedRelease{version: n.Version, published: n.published, age: now.Sub(n.published)}
+				c.skippedNewer = newSkipped(n, now)
 			}
 			return c, nil
 		}
 	}
 	n := candidates[0]
-	return nil, &tooNewError{repo: u.Repo, minAge: minAge,
-		skippedRelease: skippedRelease{version: n.Version, published: n.published, age: now.Sub(n.published)}}
+	return nil, &tooNewError{repo: u.Repo, minAge: minAge, skippedRelease: *newSkipped(n, now)}
+}
+
+// newSkipped describes r as passed over at now. Its age stays zero when
+// the API gave no publish time.
+func newSkipped(r *pickedRelease, now time.Time) *skippedRelease {
+	s := &skippedRelease{version: r.Version, published: r.published}
+	if !r.published.IsZero() {
+		s.age = now.Sub(r.published)
+	}
+	return s
+}
+
+// howOld is "is 3 days old", or "has no publish date" for a release the
+// API gave no publish time.
+func (s *skippedRelease) howOld() string {
+	if s.published.IsZero() {
+		return "has no publish date"
+	}
+	return "is " + formatAge(s.age) + " old"
 }
 
 // tooNewError says no release is old enough for the cooldown. It
@@ -1270,7 +1302,7 @@ type tooNewError struct {
 }
 
 func (e *tooNewError) Error() string {
-	return fmt.Sprintf("no release of %s is old enough: the newest, %s, is %s old (min age %s)", e.repo, e.version, formatAge(e.age), formatAge(e.minAge))
+	return fmt.Sprintf("no release of %s is old enough: the newest, %s, %s (min age %s)", e.repo, e.version, e.howOld(), formatAge(e.minAge))
 }
 
 // ghRelease is the part of a GitHub release rhythm reads.
@@ -1303,12 +1335,7 @@ func apiGet(ctx context.Context, u *update.Updater, path, want string, v any) er
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", u.UserAgent)
-	// GITHUB_TOKEN is for GitHub itself; a mirror gets RHYTHM_GITHUB_TOKEN.
-	tok := os.Getenv("RHYTHM_GITHUB_TOKEN")
-	if tok == "" && api == defaultAPI {
-		tok = os.Getenv("GITHUB_TOKEN")
-	}
-	if tok != "" {
+	if _, tok := apiToken(os.Getenv, api); tok != "" {
 		req.Header.Set("Authorization", "Bearer "+tok)
 	}
 	resp, err := u.HTTP.Do(req)
@@ -1543,7 +1570,7 @@ func readMinAge(flagValue string, stderr io.Writer) (minAge, bool) {
 // 0.3.3 is 1 day old; staying on 0.3.2 (min age 3d)". then is what
 // happens instead: "staying on 0.3.2" or "installing 0.3.2".
 func (m minAge) skipNote(binary string, s *skippedRelease, then string) string {
-	return fmt.Sprintf("%s %s is %s old; %s (min age %s)", binary, s.version, formatAge(s.age), then, m.text)
+	return fmt.Sprintf("%s %s %s; %s (min age %s)", binary, s.version, s.howOld(), then, m.text)
 }
 
 // Trust seams. Signature checks, offline bundles and the archive cache

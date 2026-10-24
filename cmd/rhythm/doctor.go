@@ -489,20 +489,28 @@ func chromePaths(env doctorEnv) []string {
 	return []string{"/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser", "/snap/bin/chromium"}
 }
 
-// checkToken says which GitHub token variables are set and which release
-// API rhythm asks. Token values are never shown.
+// checkToken says which token variable rhythm sends to the release API
+// it asks (by the same rule as the downloads) and names that API when it
+// isn't GitHub. Token values are never shown.
 func checkToken(env doctorEnv) check {
-	var set []string
-	for _, v := range []string{"GITHUB_TOKEN", "RHYTHM_GITHUB_TOKEN"} {
-		if env.getenv(v) != "" {
-			set = append(set, v)
+	api := env.getenv("RHYTHM_GITHUB_API")
+	github := apiOrDefault(api) == defaultAPI
+	name, _ := apiToken(env.getenv, api)
+	var msg string
+	switch {
+	case name != "":
+		msg = "token in use: " + name + " (value not shown)"
+		if name == "RHYTHM_GITHUB_TOKEN" && github && env.getenv("GITHUB_TOKEN") != "" {
+			msg += "; GITHUB_TOKEN is not used while RHYTHM_GITHUB_TOKEN is set"
 		}
+	case github:
+		msg = "no GitHub token set; GitHub allows 60 release lookups an hour without one"
+	case env.getenv("GITHUB_TOKEN") != "":
+		msg = "no token for the mirror; GITHUB_TOKEN goes to GitHub only (set RHYTHM_GITHUB_TOKEN for a mirror)"
+	default:
+		msg = "no token for the mirror"
 	}
-	msg := "no GitHub token set; GitHub allows 60 release lookups an hour without one"
-	if len(set) > 0 {
-		msg = "token in use: " + strings.Join(set, ", ") + " (value not shown)"
-	}
-	if api := env.getenv("RHYTHM_GITHUB_API"); api != "" {
+	if api != "" {
 		msg += "; release API " + redactURL(api) + " (from RHYTHM_GITHUB_API)"
 	}
 	return check{"token", statusOK, msg}
@@ -520,12 +528,7 @@ func checkAPI(ctx context.Context, env doctorEnv) check {
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", fmt.Sprintf("rhythm/%s (+https://rythm.sh)", version))
-	// GitHub's token goes to GitHub only; a mirror gets its own.
-	tokenVar := "RHYTHM_GITHUB_TOKEN" //nolint:gosec // a variable name, not a credential
-	if api == defaultAPI {
-		tokenVar = "GITHUB_TOKEN" //nolint:gosec // a variable name, not a credential
-	}
-	if tok := env.getenv(tokenVar); tok != "" {
+	if _, tok := apiToken(env.getenv, api); tok != "" {
 		req.Header.Set("Authorization", "Bearer "+tok)
 	}
 	resp, err := env.http.Do(req)

@@ -274,7 +274,7 @@ func TestInstallNoneAndNothing(t *testing.T) {
 	if code, out, _ := runCmd("install", "none", "--quiet"); code != 0 || out != "" {
 		t.Errorf("none --quiet: exit %d %q", code, out)
 	}
-	if code, _, errs := runCmd("install"); code != 2 || !strings.Contains(errs, "--defaults") {
+	if code, _, errs := runCmd("install"); code != 2 || errs != "usage: rhythm install <tool>[@version]... [flags]; name a tool, or use --defaults\n" {
 		t.Errorf("no names: exit %d %q", code, errs)
 	}
 	if code, _, errs := runCmd("install", "rhythm"); code != 2 || !strings.Contains(errs, "rhythm installs tools, not itself; update it with: rhythm update --self-only") {

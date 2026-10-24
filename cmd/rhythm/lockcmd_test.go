@@ -28,6 +28,7 @@ type fakeRel struct {
 	version    string
 	age        time.Duration // how long ago it was published
 	prerelease bool
+	undated    bool // served without published_at
 }
 
 // releaseAPI is a GitHub-style release API with several releases per
@@ -137,7 +138,7 @@ func (f *releaseAPI) find(repo, version string) (fakeRel, bool) {
 func (f *releaseAPI) releaseJSON(repo string, r fakeRel) map[string]any {
 	bin := binaryFor(repo)
 	name := fmt.Sprintf("%s_%s.tar.gz", bin, thisPlatform())
-	return map[string]any{
+	rel := map[string]any{
 		"tag_name":     "v" + r.version,
 		"prerelease":   r.prerelease,
 		"published_at": time.Now().Add(-r.age).UTC().Format(time.RFC3339),
@@ -146,6 +147,10 @@ func (f *releaseAPI) releaseJSON(repo string, r fakeRel) map[string]any {
 			{"name": "checksums.txt", "browser_download_url": fmt.Sprintf("%s/sums/%s/%s", f.URL, repo, r.version)},
 		},
 	}
+	if r.undated {
+		delete(rel, "published_at")
+	}
+	return rel
 }
 
 func (f *releaseAPI) serve(w http.ResponseWriter, r *http.Request) {
@@ -999,7 +1004,7 @@ func TestInstallLockedToolsWithoutPins(t *testing.T) {
 	t.Run("kit without --pin", func(t *testing.T) {
 		s := lockedWithData(t, true, `case "$*" in *--pin*) echo 'unknown flag: --pin' >&2; exit 2 ;; esac; echo '`+tunerData+`'`)
 		code, out, errs := runCmd("install", "--locked", "--dir", s.bin)
-		if code != 0 || !strings.HasSuffix(errs, warn) || !strings.Contains(out, "data: checks 2026.10.20, vulns 2026-10-24  ok") {
+		if code != 0 || errs != warn || !strings.Contains(out, "data: checks 2026.10.20, vulns 2026-10-24  ok") {
 			t.Errorf("exit %d\n%s%s", code, out, errs)
 		}
 		calls := s.calls("rhythm-tuner")

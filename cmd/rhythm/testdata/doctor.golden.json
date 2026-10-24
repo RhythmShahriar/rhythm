@@ -29,7 +29,7 @@
     {
       "id": "token",
       "status": "ok",
-      "message": "token in use: GITHUB_TOKEN (value not shown); release API $API (from RHYTHM_GITHUB_API)"
+      "message": "no token for the mirror; GITHUB_TOKEN goes to GitHub only (set RHYTHM_GITHUB_TOKEN for a mirror); release API $API (from RHYTHM_GITHUB_API)"
     },
     {
       "id": "api",

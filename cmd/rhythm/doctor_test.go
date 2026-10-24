@@ -293,10 +293,17 @@ func TestCheckTokenNeverShowsValues(t *testing.T) {
 	}{
 		{nil, "no GitHub token set; GitHub allows 60 release lookups an hour without one"},
 		{map[string]string{"GITHUB_TOKEN": "ghp_secret1"}, "token in use: GITHUB_TOKEN (value not shown)"},
+		{map[string]string{"RHYTHM_GITHUB_TOKEN": "secret2"}, "token in use: RHYTHM_GITHUB_TOKEN (value not shown)"},
+		{map[string]string{"GITHUB_TOKEN": "ghp_secret1", "RHYTHM_GITHUB_TOKEN": "secret2"},
+			"token in use: RHYTHM_GITHUB_TOKEN (value not shown); GITHUB_TOKEN is not used while RHYTHM_GITHUB_TOKEN is set"},
 		{map[string]string{"GITHUB_TOKEN": "ghp_secret1", "RHYTHM_GITHUB_TOKEN": "secret2", "RHYTHM_GITHUB_API": "https://bot:secret3@mirror.example/api/"},
-			"token in use: GITHUB_TOKEN, RHYTHM_GITHUB_TOKEN (value not shown); release API https://mirror.example/api (from RHYTHM_GITHUB_API)"},
+			"token in use: RHYTHM_GITHUB_TOKEN (value not shown); release API https://mirror.example/api (from RHYTHM_GITHUB_API)"},
+		{map[string]string{"GITHUB_TOKEN": "ghp_secret1", "RHYTHM_GITHUB_API": "http://127.0.0.1:21002"},
+			"no token for the mirror; GITHUB_TOKEN goes to GitHub only (set RHYTHM_GITHUB_TOKEN for a mirror); release API http://127.0.0.1:21002 (from RHYTHM_GITHUB_API)"},
 		{map[string]string{"RHYTHM_GITHUB_API": "https://mirror.example/api?access_token=secret4#secret5"},
-			"no GitHub token set; GitHub allows 60 release lookups an hour without one; release API https://mirror.example/api (from RHYTHM_GITHUB_API)"},
+			"no token for the mirror; release API https://mirror.example/api (from RHYTHM_GITHUB_API)"},
+		{map[string]string{"RHYTHM_GITHUB_API": "https://api.github.com/"},
+			"no GitHub token set; GitHub allows 60 release lookups an hour without one; release API https://api.github.com (from RHYTHM_GITHUB_API)"},
 	} {
 		c := checkToken(fakeDoctorEnv(t, tc.vars))
 		if c.Status != statusOK || c.Message != tc.want || strings.Contains(c.Message, "secret") {
@@ -350,9 +357,21 @@ func TestCheckAPI(t *testing.T) {
 		}
 	})
 	t.Run("github token to github", func(t *testing.T) {
-		env := fakeDoctorEnv(t, map[string]string{"GITHUB_TOKEN": "github-token", "RHYTHM_GITHUB_TOKEN": "mirror-token"})
+		env := fakeDoctorEnv(t, map[string]string{"GITHUB_TOKEN": "github-token"})
 		env.http = &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
 			if r.Header.Get("Authorization") != "Bearer github-token" {
+				t.Errorf("auth=%q", r.Header.Get("Authorization"))
+			}
+			return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("{}")), Request: r}, nil
+		})}
+		if c := checkAPI(context.Background(), env); c.Status != statusOK || c.Message != "api.github.com answers" {
+			t.Errorf("%+v", c)
+		}
+	})
+	t.Run("rhythm token wins on github, as in downloads", func(t *testing.T) {
+		env := fakeDoctorEnv(t, map[string]string{"GITHUB_TOKEN": "github-token", "RHYTHM_GITHUB_TOKEN": "rhythm-token"})
+		env.http = &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+			if r.Header.Get("Authorization") != "Bearer rhythm-token" {
 				t.Errorf("auth=%q", r.Header.Get("Authorization"))
 			}
 			return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("{}")), Request: r}, nil
@@ -410,7 +429,7 @@ func TestDoctorCommand(t *testing.T) {
 		"ok    every binary is a release build\n" +
 		"ok    no update checks saved yet\n" +
 		"ok    rhythm-tuner data: vulns 2026-10-24\n" +
-		"ok    no GitHub token set; GitHub allows 60 release lookups an hour without one; release API " + srv.URL + " (from RHYTHM_GITHUB_API)\n" +
+		"ok    no token for the mirror; release API " + srv.URL + " (from RHYTHM_GITHUB_API)\n" +
 		"ok    " + hostOf(srv.URL) + " answers\n" +
 		"No problems found.\n"
 	if code != 0 || out != want || errs != "" {

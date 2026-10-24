@@ -431,3 +431,13 @@ func TestCompleteRealCommands(t *testing.T) {
 		t.Errorf("list takes no names, got %q", got)
 	}
 }
+
+// TestCompletionHelpLines keeps the help paragraph wrapped like the
+// others: no prose line runs past 72 columns.
+func TestCompletionHelpLines(t *testing.T) {
+	for _, line := range strings.Split(completionSynopsis, "\n") {
+		if !strings.HasPrefix(line, "  ") && len(line) > 72 {
+			t.Errorf("line of %d columns: %q", len(line), line)
+		}
+	}
+}
