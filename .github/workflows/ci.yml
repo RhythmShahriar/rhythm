@@ -15,5 +15,37 @@ jobs:
   # move together with the verification docs and kit/sigverify.
   go:
     uses: RhythmShahriar/.github/.github/workflows/ci-go.yml@master
+    with:
+      os: '["ubuntu-latest", "windows-latest", "macos-latest"]'
+      bench: Crawl10k
+      bench-packages: ./kit/crawl
   commitlint:
     uses: RhythmShahriar/.github/.github/workflows/commitlint.yml@master
+
+  # The install scripts' own tests: POSIX sh on Linux (dash too, the
+  # strictest common sh) and macOS, PowerShell 7 and Windows PowerShell 5.1
+  # on Windows. Skipped until scripts/test/ exists.
+  installers:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: sh
+        if: runner.os != 'Windows' && hashFiles('scripts/test/run.sh') != ''
+        run: sh scripts/test/run.sh
+      - name: dash
+        if: runner.os == 'Linux' && hashFiles('scripts/test/run.sh') != ''
+        run: dash scripts/test/run.sh
+      - name: PowerShell 7
+        if: runner.os == 'Windows' && hashFiles('scripts/test/run.ps1') != ''
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/test/run.ps1
+      - name: Windows PowerShell 5.1
+        if: runner.os == 'Windows' && hashFiles('scripts/test/run.ps1') != ''
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test/run.ps1
