@@ -97,13 +97,14 @@ func TestCheckPath(t *testing.T) {
 }
 
 func TestCheckInstallDir(t *testing.T) {
-	self := []target{{tool: selfName, binary: selfName, real: "/home/me/.local/bin/rhythm"}}
+	dir := filepath.FromSlash("/home/me/.local/bin")
+	self := []target{{tool: selfName, binary: selfName, real: filepath.Join(dir, "rhythm")}}
 	env := fakeDoctorEnv(t, nil)
-	if c := checkInstallDir(env, self); c[0].Status != statusOK || c[0].Message != "/home/me/.local/bin is writable" {
+	if c := checkInstallDir(env, self); c[0].Status != statusOK || c[0].Message != dir+" is writable" {
 		t.Errorf("%+v", c)
 	}
 	env.writable = func(string) bool { return false }
-	if c := checkInstallDir(env, self); c[0].Status != statusWarn || !strings.HasPrefix(c[0].Message, "can't write to /home/me/.local/bin; rhythm install and rhythm update need sudo") {
+	if c := checkInstallDir(env, self); c[0].Status != statusWarn || !strings.HasPrefix(c[0].Message, "can't write to "+dir+"; rhythm install and rhythm update need sudo") {
 		t.Errorf("%+v", c)
 	}
 	self[0].managed = &manager{"Homebrew", "brew upgrade rhythm", "brew uninstall rhythm"}

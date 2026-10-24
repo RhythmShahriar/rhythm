@@ -642,10 +642,8 @@ func TestInstallCache(t *testing.T) {
 	_, latest := allTools()
 	s := newSandbox(t, nil, latest)
 	freshConfig(t)
-	cache := filepath.Join(os.Getenv("XDG_CACHE_HOME"), "rhythm", "rhythm", "downloads")
-	if runtime.GOOS == "darwin" {
-		cache = filepath.Join(os.Getenv("HOME"), "Library", "Caches", "rhythm", "rhythm", "downloads")
-	}
+	// freshConfig sets RHYTHM_CACHE_DIR, which kit/config uses on every OS.
+	cache := filepath.Join(os.Getenv("RHYTHM_CACHE_DIR"), "rhythm", "downloads")
 
 	if code, out, errs := runCmd("install", "tuner", "--dir", s.bin, "--cache"); code != 0 {
 		t.Fatalf("exit %d\n%s%s", code, out, errs)

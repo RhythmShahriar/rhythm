@@ -40,8 +40,8 @@ func TestCacheSkipsTheDownload(t *testing.T) {
 	if err != nil || first.Cached {
 		t.Fatalf("first install = %+v, %v", first, err)
 	}
-	if names := dirNames(t, cacheDir); len(names) != 1 || names[0] != first.SHA256+".tar.gz" {
-		t.Fatalf("cache = %v, want %s.tar.gz", names, first.SHA256)
+	if names := dirNames(t, cacheDir); len(names) != 1 || names[0] != first.SHA256+hostExt() {
+		t.Fatalf("cache = %v, want %s%s", names, first.SHA256, hostExt())
 	}
 	if api.archiveHits() != 1 {
 		t.Fatalf("%d archive downloads after the first install", api.archiveHits())
@@ -77,7 +77,7 @@ func TestCorruptCacheIsDownloadedAgain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(cacheDir, first.SHA256+".tar.gz")
+	path := filepath.Join(cacheDir, first.SHA256+hostExt())
 	if err := os.WriteFile(path, []byte("bit rot"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func newMemSource(t *testing.T, versions ...string) *memSource {
 	name := (&Updater{Binary: "rhythm-tuner"}).ArchiveName()
 	m := &memSource{files: map[string][]byte{}}
 	for i, v := range versions {
-		archive := tarGz(t, "rhythm-tuner", []byte("rhythm-tuner "+v))
+		archive := hostArchive(t, "rhythm-tuner", []byte("rhythm-tuner "+v))
 		sum := sha256.Sum256(archive)
 		m.files[v+"/"+name] = archive
 		m.files[v+"/checksums.txt"] = fmt.Appendf(nil, "%s  %s\n", hex.EncodeToString(sum[:]), name)
@@ -215,7 +215,7 @@ func TestInstallFromACustomSource(t *testing.T) {
 		t.Errorf("ByTag = %+v, %v", rel, err)
 	}
 	// Every check applies to a custom source too.
-	src.files["0.3.0/"+u.ArchiveName()] = tarGz(t, "rhythm-tuner", []byte("EVIL"))
+	src.files["0.3.0/"+u.ArchiveName()] = hostArchive(t, "rhythm-tuner", []byte("EVIL"))
 	var ce *ErrChecksum
 	if err := u.Install(context.Background(), rel, dest); !errors.As(err, &ce) {
 		t.Errorf("tampered bundle: err = %v, want ErrChecksum", err)

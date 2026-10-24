@@ -46,7 +46,7 @@ func (a *authLog) get(path string) (string, bool) {
 func mirror(t *testing.T, log *authLog) *httptest.Server {
 	t.Helper()
 	name := (&Updater{Binary: "rhythm-tuner"}).ArchiveName()
-	archive := tarGz(t, "rhythm-tuner", []byte("NEW BINARY"))
+	archive := hostArchive(t, "rhythm-tuner", []byte("NEW BINARY"))
 	sum := sha256.Sum256(archive)
 	var srv *httptest.Server
 	srv = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

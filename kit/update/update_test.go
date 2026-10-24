@@ -5,6 +5,7 @@ package update
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -15,6 +16,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -98,13 +100,52 @@ func tarGz(t *testing.T, name string, body []byte) []byte {
 	return buf.Bytes()
 }
 
+// zipOf is a zip of README.md and name, as the Windows releases are.
+func zipOf(t *testing.T, name string, body []byte) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for _, f := range []struct {
+		name string
+		body []byte
+	}{{"README.md", []byte("hi")}, {name, body}} {
+		w, err := zw.Create(f.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		w.Write(f.body)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+// hostArchive is the archive ArchiveName names on this platform: a
+// tar.gz holding binary, or on Windows a zip holding binary.exe.
+func hostArchive(t *testing.T, binary string, body []byte) []byte {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		return zipOf(t, binary+".exe", body)
+	}
+	return tarGz(t, binary, body)
+}
+
+// hostExt is the extension of this platform's archives.
+func hostExt() string {
+	if runtime.GOOS == "windows" {
+		return ".zip"
+	}
+	return ".tar.gz"
+}
+
 // fakeGitHub serves a release whose archive contains newBinary. If tamper
 // is set, checksums.txt doesn't match the archive.
 func fakeGitHub(t *testing.T, newBinary []byte, tamper bool) *httptest.Server {
 	t.Helper()
 	u := &Updater{Binary: "rhythm-tuner"}
 	name := u.ArchiveName()
-	archive := tarGz(t, "rhythm-tuner", newBinary)
+	archive := hostArchive(t, "rhythm-tuner", newBinary)
 	sum := sha256.Sum256(archive)
 	if tamper {
 		sum[0] ^= 0xff
@@ -143,7 +184,8 @@ func TestInstall(t *testing.T) {
 	if string(got) != "NEW BINARY" {
 		t.Errorf("binary = %q", got)
 	}
-	if fi, _ := os.Stat(dest); fi.Mode().Perm()&0o100 == 0 {
+	// Windows has no executable bit; Go reports 0666 there.
+	if fi, _ := os.Stat(dest); runtime.GOOS != "windows" && fi.Mode().Perm()&0o100 == 0 {
 		t.Errorf("not executable: %v", fi.Mode())
 	}
 	// Only the binary and the one it replaced, kept for Rollback.

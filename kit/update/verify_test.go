@@ -26,7 +26,7 @@ const testBundle = `{"mediaType":"application/vnd.dev.sigstore.bundle.v0.3+json"
 func signedRelease(t *testing.T, noBundle bool) (rel *Release, sums []byte, hits func(string) int) {
 	t.Helper()
 	name := (&Updater{Binary: "rhythm-tuner"}).ArchiveName()
-	archive := tarGz(t, "rhythm-tuner", []byte("NEW BINARY"))
+	archive := hostArchive(t, "rhythm-tuner", []byte("NEW BINARY"))
 	sum := sha256.Sum256(archive)
 	sums = fmt.Appendf(nil, "%s  other.tar.gz\n%s  %s\n", hex.EncodeToString(make([]byte, 32)), hex.EncodeToString(sum[:]), name)
 	var mu sync.Mutex
@@ -91,7 +91,7 @@ func TestVerifierGetsTheExactChecksums(t *testing.T) {
 	if !bytes.Equal(v.checksums, sums) || string(v.bundle) != testBundle {
 		t.Errorf("Verifier got checksums %q bundle %q", v.checksums, v.bundle)
 	}
-	archive := tarGz(t, "rhythm-tuner", []byte("NEW BINARY"))
+	archive := hostArchive(t, "rhythm-tuner", []byte("NEW BINARY"))
 	sum := sha256.Sum256(archive)
 	if want := (InstallResult{Version: "0.2.0", SHA256: hex.EncodeToString(sum[:]), Signer: workflow}); res != want {
 		t.Errorf("result = %+v, want %+v", res, want)
