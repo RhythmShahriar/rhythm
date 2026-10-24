@@ -15,6 +15,7 @@ import (
 	"archive/zip"
 	"bufio"
 	"bytes"
+	"cmp"
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
@@ -32,6 +33,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/RhythmShahriar/rhythm/kit/cache"
 	"github.com/RhythmShahriar/rhythm/kit/config"
 )
 
@@ -154,7 +156,93 @@ func Newer(current, latest string) bool {
 	case c.pre == "":
 		return false
 	}
-	return l.pre > c.pre
+	return comparePre(l.pre, c.pre) > 0
+}
+
+// comparePre orders two prerelease labels as SemVer 2.0.0 section 11
+// does: dot-separated identifiers compared left to right, numeric ones
+// numerically and below alphanumeric ones, and a label with fewer
+// identifiers lower when the rest are equal. One extension: digit runs
+// inside an alphanumeric identifier also compare numerically, so rc9
+// sorts before rc10 the way people tag releases. Identifiers without
+// digits keep plain ASCII order, as in the spec.
+func comparePre(a, b string) int {
+	as, bs := strings.Split(a, "."), strings.Split(b, ".")
+	for i := range min(len(as), len(bs)) {
+		x, y := as[i], bs[i]
+		xn, yn := isNumeric(x), isNumeric(y)
+		var c int
+		switch {
+		case xn && yn:
+			c = compareDigits(x, y)
+		case xn:
+			c = -1
+		case yn:
+			c = 1
+		default:
+			c = compareNatural(x, y)
+		}
+		if c != 0 {
+			return c
+		}
+	}
+	return cmp.Compare(len(as), len(bs))
+}
+
+func isNumeric(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := range len(s) {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// compareDigits compares two digit strings by value without parsing, so
+// no identifier is too long to compare.
+func compareDigits(a, b string) int {
+	a, b = strings.TrimLeft(a, "0"), strings.TrimLeft(b, "0")
+	if c := cmp.Compare(len(a), len(b)); c != 0 {
+		return c
+	}
+	return strings.Compare(a, b)
+}
+
+// compareNatural compares a and b run by run: digit runs by value, other
+// runs as text.
+func compareNatural(a, b string) int {
+	x, y := a, b
+	for x != "" && y != "" {
+		var rx, ry string
+		rx, x = nextRun(x)
+		ry, y = nextRun(y)
+		var c int
+		if isNumeric(rx) && isNumeric(ry) {
+			c = compareDigits(rx, ry)
+		} else {
+			c = strings.Compare(rx, ry)
+		}
+		if c != 0 {
+			return c
+		}
+	}
+	if c := cmp.Compare(len(x), len(y)); c != 0 {
+		return c
+	}
+	return strings.Compare(a, b) // equal by value, as with rc01 and rc1
+}
+
+// nextRun splits s after its leading run of digits or of non-digits.
+func nextRun(s string) (run, rest string) {
+	digit := s[0] >= '0' && s[0] <= '9'
+	i := 1
+	for i < len(s) && (s[i] >= '0' && s[i] <= '9') == digit {
+		i++
+	}
+	return s[:i], s[i:]
 }
 
 type semver struct {
@@ -418,7 +506,9 @@ type checkState struct {
 }
 
 // Check returns the latest version if it is newer than Current. It asks
-// GitHub at most once a day and remembers the answer in the config dir.
+// GitHub at most once a day and remembers the answer in the config dir;
+// a state file that is missing, corrupt or dated in the future counts as
+// stale.
 func (u *Updater) Check(ctx context.Context) (latest string, newer bool) {
 	if u.checkDisabled() {
 		return "", false
@@ -429,18 +519,22 @@ func (u *Updater) Check(ctx context.Context) (latest string, newer bool) {
 	}
 	statePath := filepath.Join(dir, "update-check", u.Binary+".json")
 	var st checkState
-	if data, err := os.ReadFile(statePath); err == nil { //nolint:gosec // path is built from the config dir
-		_ = json.Unmarshal(data, &st)
+	fresh := false
+	if err := cache.ReadJSON(statePath, &st); err == nil {
+		// A state from the future (a clock that was wrong, or a copied
+		// config dir) would otherwise silence checks until that date.
+		age := time.Since(st.Checked)
+		fresh = age >= 0 && age < 24*time.Hour
 	}
-	if time.Since(st.Checked) > 24*time.Hour {
+	if !fresh {
+		// A missing or corrupt state ends up here and is rewritten.
 		rel, err := u.Latest(ctx)
 		if err != nil {
 			return "", false
 		}
 		st = checkState{Checked: time.Now().UTC(), Latest: rel.Version}
-		if data, err := json.Marshal(st); err == nil && os.MkdirAll(filepath.Dir(statePath), 0o700) == nil {
-			_ = os.WriteFile(statePath, data, 0o600)
-		}
+		// Atomic, so tools starting together never leave a torn file.
+		_ = cache.WriteJSON(statePath, st)
 	}
 	return st.Latest, Newer(u.Current, st.Latest)
 }

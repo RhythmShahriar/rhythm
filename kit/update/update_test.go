@@ -16,7 +16,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
+
+	"github.com/RhythmShahriar/rhythm/kit/cache"
+	"github.com/RhythmShahriar/rhythm/kit/config"
 )
 
 func TestNewer(t *testing.T) {
@@ -32,10 +37,46 @@ func TestNewer(t *testing.T) {
 		{"1.0.0", "1.0.0-rc1", false},
 		{"dev", "9.9.9", false},
 		{"0.1.0", "garbage", false},
+		{"1.0.0-rc9", "1.0.0-rc10", true},
+		{"1.0.0-rc10", "1.0.0-rc9", false},
+		{"1.0.0-beta.2", "1.0.0-beta.10", true},
+		{"1.0.0-rc.1", "1.0.0-rc.1", false},
 	}
 	for _, c := range cases {
 		if got := Newer(c.cur, c.latest); got != c.want {
 			t.Errorf("Newer(%q, %q) = %v, want %v", c.cur, c.latest, got, c.want)
+		}
+	}
+}
+
+// The precedence example from SemVer 2.0.0 section 11, plus rc9 < rc10.
+func TestNewerFollowsSemVerPrecedence(t *testing.T) {
+	chain := []string{
+		"1.0.0-alpha", "1.0.0-alpha.1", "1.0.0-alpha.beta", "1.0.0-beta",
+		"1.0.0-beta.2", "1.0.0-beta.11", "1.0.0-rc.1", "1.0.0-rc9", "1.0.0-rc10", "1.0.0",
+	}
+	for i, lo := range chain {
+		for _, hi := range chain[i+1:] {
+			if !Newer(lo, hi) {
+				t.Errorf("Newer(%q, %q) = false, want true", lo, hi)
+			}
+			if Newer(hi, lo) {
+				t.Errorf("Newer(%q, %q) = true, want false", hi, lo)
+			}
+		}
+	}
+	for _, c := range []struct {
+		a, b string
+		want int
+	}{
+		{"1", "a", -1},
+		{"999999999999999999999999", "1000000000000000000000000", -1},
+		{"rc01", "rc1", -1}, // equal by value; ASCII breaks the tie
+		{"x.1", "x.1.0", -1},
+		{"beta", "alpha", 1},
+	} {
+		if got := comparePre(c.a, c.b); got != c.want {
+			t.Errorf("comparePre(%q, %q) = %d, want %d", c.a, c.b, got, c.want)
 		}
 	}
 }
@@ -126,9 +167,7 @@ func TestInstallRejectsBadChecksum(t *testing.T) {
 }
 
 func TestCheckCachesForADay(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("CI", "")
-	t.Setenv("RHYTHM_NO_UPDATE_CHECK", "")
+	isolate(t)
 	hits := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits++
@@ -147,5 +186,65 @@ func TestCheckCachesForADay(t *testing.T) {
 	u.Current = "dev"
 	if _, newer := u.Check(context.Background()); newer {
 		t.Error("dev builds must not get update notices")
+	}
+}
+
+// statePath is where Check keeps its state for rhythm-tuner.
+func statePath(t *testing.T) string {
+	t.Helper()
+	dir, err := config.Dir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(dir, "update-check", "rhythm-tuner.json")
+}
+
+func TestCheckRefetchesBadState(t *testing.T) {
+	for name, state := range map[string]string{
+		"future":  fmt.Sprintf(`{"checked":%q,"latest":"0.2.0"}`, time.Now().Add(48*time.Hour).UTC().Format(time.RFC3339)),
+		"corrupt": `{"checked":"yesterday`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			isolate(t)
+			path := statePath(t)
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(state), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			srv, hits := counting(t)
+			u := &Updater{Repo: "RhythmShahriar/tuner", Binary: "rhythm-tuner", Current: "0.2.0", API: srv.URL}
+			if latest, newer := u.Check(context.Background()); latest != "0.3.0" || !newer {
+				t.Errorf("Check = %q, %v", latest, newer)
+			}
+			if hits.Load() != 1 {
+				t.Errorf("%d requests, want 1", hits.Load())
+			}
+			var st checkState
+			if err := cache.ReadJSON(path, &st); err != nil || st.Latest != "0.3.0" || time.Since(st.Checked) < 0 {
+				t.Errorf("state not rewritten: %+v, %v", st, err)
+			}
+		})
+	}
+}
+
+func TestConcurrentChecksLeaveAParseableState(t *testing.T) {
+	isolate(t)
+	srv, _ := counting(t)
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			u := &Updater{Repo: "RhythmShahriar/tuner", Binary: "rhythm-tuner", Current: "0.2.0", API: srv.URL}
+			u.Check(context.Background())
+		})
+	}
+	wg.Wait()
+	var st checkState
+	if err := cache.ReadJSON(statePath(t), &st); err != nil || st.Latest != "0.3.0" {
+		t.Errorf("state = %+v, %v", st, err)
+	}
+	if entries, _ := os.ReadDir(filepath.Dir(statePath(t))); len(entries) != 1 {
+		t.Errorf("files left in the state dir: %v", entries)
 	}
 }
