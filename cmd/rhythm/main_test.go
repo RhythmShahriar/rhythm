@@ -4,118 +4,158 @@
 package main
 
 import (
-	"archive/tar"
 	"bytes"
-	"compress/gzip"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
 
-func fakeRelease(t *testing.T, binary, version string, body []byte) *httptest.Server {
+// stub writes a shell script named rhythm-<name> into dir that runs body.
+func stub(t *testing.T, dir, name, body string) string {
 	t.Helper()
-	var buf bytes.Buffer
-	zw := gzip.NewWriter(&buf)
-	tw := tar.NewWriter(zw)
-	tw.WriteHeader(&tar.Header{Name: binary, Mode: 0o755, Size: int64(len(body)), Typeflag: tar.TypeReg})
-	tw.Write(body)
-	tw.Close()
-	zw.Close()
-	archive := buf.Bytes()
-	sum := sha256.Sum256(archive)
-	name := fmt.Sprintf("%s_%s_%s.tar.gz", binary, runtime.GOOS, runtime.GOARCH)
-
-	var srv *httptest.Server
-	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case strings.HasSuffix(r.URL.Path, "/releases/latest"):
-			fmt.Fprintf(w, `{"tag_name":"v%s","assets":[{"name":%q,"browser_download_url":"%s/a"},{"name":"checksums.txt","browser_download_url":"%s/s"}]}`,
-				version, name, srv.URL, srv.URL)
-		case r.URL.Path == "/a":
-			w.Write(archive)
-		case r.URL.Path == "/s":
-			fmt.Fprintf(w, "%s  %s\n", hex.EncodeToString(sum[:]), name)
-		}
-	}))
-	t.Cleanup(srv.Close)
-	return srv
-}
-
-func TestInstall(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("archive naming differs on windows")
-	}
-	srv := fakeRelease(t, "rhythm-tuner", "0.2.0", []byte("#!/bin/sh\necho rhythm-tuner 0.2.0\n"))
-	t.Setenv("RHYTHM_GITHUB_API", srv.URL)
-	dir := t.TempDir()
-	var out, errb bytes.Buffer
-	if code := run([]string{"install", "t", "--dir", dir}, &out, &errb); code != 0 {
-		t.Fatalf("exit %d: %s", code, errb.String())
-	}
-	if !strings.Contains(out.String(), "Installed rhythm-tuner 0.2.0") {
-		t.Errorf("output: %s", out.String())
-	}
-	if _, err := os.Stat(filepath.Join(dir, "rhythm-tuner")); err != nil {
-		t.Error(err)
-	}
-}
-
-func TestUnknownTool(t *testing.T) {
-	var out, errb bytes.Buffer
-	if code := run([]string{"install", "nope", "--dir", t.TempDir()}, &out, &errb); code != 2 {
-		t.Errorf("exit %d", code)
-	}
-	t.Setenv("PATH", t.TempDir())
-	if code := run([]string{"tuner"}, &out, &errb); code != 1 || !strings.Contains(errb.String(), "rhythm install tuner") {
-		t.Errorf("exit %d: %s", code, errb.String())
-	}
-}
-
-func TestUpdateToolOnPath(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell script stand-in for the tool")
 	}
-	srv := fakeRelease(t, "rhythm-tuner", "0.2.0", []byte("#!/bin/sh\necho rhythm-tuner 0.2.0\n"))
-	t.Setenv("RHYTHM_GITHUB_API", srv.URL)
+	p := filepath.Join(dir, "rhythm-"+name)
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestExitCodes(t *testing.T) {
+	cases := []struct {
+		name     string
+		setup    func(t *testing.T, dir string) // fills the fake PATH
+		args     []string
+		code     int
+		inStderr string
+	}{
+		{"known tool missing", func(*testing.T, string) {}, []string{"tuner"}, 3, "install it with: rhythm install tuner"},
+		{"alias of a missing tool", func(*testing.T, string) {}, []string{"t"}, 3, "install it with: rhythm install tuner"},
+		{"unknown tool", func(*testing.T, string) {}, []string{"nope"}, 2, `unknown tool "nope"`},
+		{"tool file not executable", func(t *testing.T, dir string) {
+			os.WriteFile(filepath.Join(dir, "rhythm-tuner"), []byte("#!/bin/sh\nexit 0\n"), 0o644)
+		}, []string{"tuner"}, 3, "install it with: rhythm install tuner"},
+		{"tool file can't start", func(t *testing.T, dir string) {
+			os.WriteFile(filepath.Join(dir, "rhythm-tuner"), []byte{0x7f, 'E', 'L', 'F', 0, 0, 0, 0}, 0o755)
+		}, []string{"tuner"}, 3, "can't start tuner"},
+		{"findings pass through", func(t *testing.T, dir string) { stub(t, dir, "tuner", "exit 1") }, []string{"tuner"}, 1, ""},
+		{"any code passes through", func(t *testing.T, dir string) { stub(t, dir, "tuner", "exit 42") }, []string{"tuner"}, 42, ""},
+		{"success", func(t *testing.T, dir string) { stub(t, dir, "tuner", "exit 0") }, []string{"tuner"}, 0, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if runtime.GOOS == "windows" {
+				t.Skip("unix file modes and shell stubs")
+			}
+			dir := t.TempDir()
+			t.Setenv("PATH", dir)
+			c.setup(t, dir)
+			var out, errb bytes.Buffer
+			code := run(c.args, &out, &errb)
+			if code != c.code || !strings.Contains(errb.String(), c.inStderr) {
+				t.Errorf("exit %d (want %d): %s", code, c.code, errb.String())
+			}
+		})
+	}
+}
+
+func TestUsageListsExitCodes(t *testing.T) {
+	var out bytes.Buffer
+	usage(&out)
+	for _, line := range []string{"Exit codes:", "  2     usage error or unknown tool", "  3     tool not installed or can't start", "  130   interrupted"} {
+		if !strings.Contains(out.String(), line) {
+			t.Errorf("usage lacks %q", line)
+		}
+	}
+}
+
+func TestInvalidToolName(t *testing.T) {
+	cwd := t.TempDir()
+	t.Chdir(cwd)
+	t.Setenv("PATH", cwd)
+	marker := filepath.Join(t.TempDir(), "ran")
+	// A planted file at each path an unchecked lookup would reach.
+	for _, p := range []string{"/x", "../x", "a/b"} {
+		stub(t, cwd, p, ": >"+marker) // a builtin, as PATH has no touch
+	}
+	for _, name := range []string{"/x", "../x", "a/b", "-x", "", "UPPER", strings.Repeat("a", 5000), "日本"} {
+		var out, errb bytes.Buffer
+		code := run([]string{name}, &out, &errb)
+		if code != 2 || errb.String() != fmt.Sprintf("rhythm: invalid tool name %q\n", name) {
+			t.Errorf("%.20q: exit %d: %.80s", name, code, errb.String())
+		}
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Error("a planted file ran")
+	}
+}
+
+func TestValidToolNamesRun(t *testing.T) {
 	dir := t.TempDir()
-	tool := filepath.Join(dir, "rhythm-tuner")
-	// An installed 0.1.0 that also answers "update" (its data refresh).
-	os.WriteFile(tool, []byte("#!/bin/sh\n[ \"$1\" = update ] && echo data refreshed && exit 0\necho rhythm-tuner 0.1.0\n"), 0o755)
 	t.Setenv("PATH", dir)
-
-	var out, errb bytes.Buffer
-	run([]string{"update", "--check"}, &out, &errb)
-	if !strings.Contains(out.String(), "rhythm-tuner       0.1.0 → 0.2.0 available") {
-		t.Errorf("--check output:\n%s%s", out.String(), errb.String())
-	}
-	if got, _ := os.ReadFile(tool); !strings.Contains(string(got), "0.1.0") {
-		t.Error("--check changed the binary")
-	}
-
-	out.Reset()
-	run([]string{"update"}, &out, &errb)
-	if got, _ := os.ReadFile(tool); !strings.Contains(string(got), "0.2.0") {
-		t.Errorf("tool not updated:\n%s%s", out.String(), errb.String())
-	}
-	if !strings.Contains(out.String(), "0.1.0 → 0.2.0 ✔") {
-		t.Errorf("output:\n%s", out.String())
+	stub(t, dir, "tuner", `echo tuner "$@"`)
+	stub(t, dir, "my-tool2", `echo my-tool2 "$@"`)
+	for _, args := range [][]string{{"tuner", "scan"}, {"t", "scan"}, {"my-tool2", "scan"}} {
+		var out, errb bytes.Buffer
+		if code := run(args, &out, &errb); code != 0 || !strings.HasSuffix(out.String(), " scan\n") {
+			t.Errorf("%v: exit %d: %s%s", args, code, out.String(), errb.String())
+		}
 	}
 }
 
 func TestSoundcheckRegistered(t *testing.T) {
-	if tools["soundcheck"] != "RhythmShahriar/soundcheck" || aliases["sc"] != "soundcheck" {
-		t.Errorf("soundcheck isn't registered: %v %v", tools, aliases)
+	sc, ok := lookupTool("sc")
+	if !ok || sc.Name != "soundcheck" || sc.Repo != "RhythmShahriar/soundcheck" {
+		t.Errorf("soundcheck isn't registered: %+v", sc)
 	}
 	var out bytes.Buffer
 	usage(&out)
 	if !strings.Contains(out.String(), "soundcheck (sc)") {
 		t.Error("usage doesn't list soundcheck")
+	}
+}
+
+func TestExitCodeMapping(t *testing.T) {
+	cases := []struct{ code, sig, want int }{
+		{0, -1, 0},
+		{1, -1, 1},
+		{42, -1, 42},
+		{-1, 2, 130},  // SIGINT
+		{-1, 15, 143}, // SIGTERM
+		{-1, 9, 137},  // SIGKILL
+		{0xC000013A, -1, 130},
+	}
+	for _, c := range cases {
+		if got := exitCode(c.code, c.sig); got != c.want {
+			t.Errorf("exitCode(%#x, %d) = %d, want %d", c.code, c.sig, got, c.want)
+		}
+	}
+}
+
+func TestToolSeesInvokedAs(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("PATH", dir)
+	t.Setenv("RHYTHM_INVOKED_AS", "stale")
+	stub(t, dir, "soundcheck", `echo "$RHYTHM_INVOKED_AS"`)
+	var out, errb bytes.Buffer
+	if code := run([]string{"sc"}, &out, &errb); code != 0 || out.String() != "rhythm sc\n" {
+		t.Errorf("exit %d: %q %s", code, out.String(), errb.String())
+	}
+}
+
+func TestToolEnvReplacesInheritedValue(t *testing.T) {
+	got := toolEnv([]string{"A=1", "RHYTHM_INVOKED_AS=old", "RHYTHM_INVOKED_ASX=keep"}, "rhythm tuner")
+	want := []string{"A=1", "RHYTHM_INVOKED_ASX=keep", "RHYTHM_INVOKED_AS=rhythm tuner"}
+	if !slices.Equal(got, want) {
+		t.Errorf("toolEnv = %q", got)
 	}
 }

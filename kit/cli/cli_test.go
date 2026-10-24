@@ -31,3 +31,12 @@ func TestUsageError(t *testing.T) {
 		t.Error("a buffer isn't a terminal")
 	}
 }
+
+func TestExitCodes(t *testing.T) {
+	// These values are a public contract with scripts and CI; changing one
+	// breaks every pipeline that checks it.
+	got := []int{ExitOK, ExitFindings, ExitUsage, ExitUnavailable, ExitInterrupted}
+	if !slices.Equal(got, []int{0, 1, 2, 3, 130}) {
+		t.Errorf("exit codes changed: %v", got)
+	}
+}

@@ -6,275 +6,190 @@
 package main
 
 import (
-	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"os/signal"
-	"path/filepath"
-	"runtime"
+	"slices"
 	"sort"
 	"strings"
+	"syscall"
 
-	"github.com/RhythmShahriar/rhythm/kit"
-	"github.com/RhythmShahriar/rhythm/kit/update"
+	"github.com/RhythmShahriar/rhythm/kit/cli"
 )
 
 var version = "dev"
 
-// tools maps each tool to its GitHub repository.
-var tools = map[string]string{
-	"tuner":      "RhythmShahriar/tuner",
-	"soundcheck": "RhythmShahriar/soundcheck",
-	"echo":       "RhythmShahriar/echo",
+// command is one of rhythm's own subcommands, as opposed to a tool.
+type command struct {
+	name    string // what the user types: `rhythm <name>`
+	args    string // argument synopsis for help, e.g. "<tool> [--dir <dir>]"
+	summary string // one line for help
+	run     func(args []string, stdout, stderr io.Writer) int
+	hidden  bool // left out of help, still runs
 }
 
-// aliases are short names for tools.
-var aliases = map[string]string{"t": "tuner", "sc": "soundcheck", "e": "echo"}
+// commands holds every registered subcommand by name.
+var commands = map[string]command{}
+
+// register adds a subcommand. Each command file calls it from init(), so
+// adding a command never means editing main.go and help lists it.
+func register(c command) {
+	if _, dup := commands[c.name]; dup {
+		panic("rhythm: command registered twice: " + c.name)
+	}
+	commands[c.name] = c
+}
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
 func run(args []string, stdout, stderr io.Writer) int {
-	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
+	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
 		usage(stdout)
 		return 0
 	}
-	switch args[0] {
-	case "--version", "version":
-		fmt.Fprintln(stdout, "rhythm", version)
-		return 0
-	case "update":
-		return cmdUpdate(args[1:], stdout, stderr)
-	case "install":
-		return cmdInstall(args[1:], stdout, stderr)
+	if slices.Contains(versionFlags, args[0]) {
+		args = append([]string{"version"}, args[1:]...)
+	}
+	if c, ok := commands[args[0]]; ok {
+		return c.run(args[1:], stdout, stderr)
 	}
 
 	tool := args[0]
-	if full, ok := aliases[tool]; ok {
-		tool = full
+	if !validToolName(tool) {
+		fmt.Fprintf(stderr, "rhythm: invalid tool name %q\n", tool)
+		return cli.ExitUsage
+	}
+	info, known := lookupTool(tool)
+	if known {
+		tool = info.Name
 	}
 	bin, err := exec.LookPath("rhythm-" + tool)
 	if err != nil {
-		if _, known := tools[tool]; known {
+		if known {
 			fmt.Fprintf(stderr, "rhythm: %s isn't installed\n  install it with: rhythm install %s\n", tool, tool)
-		} else {
-			fmt.Fprintf(stderr, "rhythm: unknown tool %q\n  run 'rhythm help' to see the tools\n", tool)
+			return cli.ExitUnavailable
 		}
-		return 1
+		return unknownTool(stderr, tool)
 	}
 
-	cmd := exec.Command(bin, args[1:]...) //nolint:gosec // running rhythm-<tool> from PATH is the extension model
+	env := toolEnv(os.Environ(), "rhythm "+args[0])
+	// rhythm can only become the tool when the tool would write to
+	// rhythm's own streams; tests pass buffers and take the child path.
+	if stdout == os.Stdout && stderr == os.Stderr {
+		execTool(bin, args[1:], env) // returns only if the exec failed
+	}
+	code, err := runChild(bin, args[1:], env, stdout, stderr)
+	if err != nil {
+		return startFailed(stderr, tool, known, err)
+	}
+	return code
+}
+
+// toolEnv returns environ with RHYTHM_INVOKED_AS set to invokedAs, so
+// the tool's usage lines and hints name the command the user typed
+// ("rhythm sc") rather than its binary. An inherited value is dropped,
+// not shadowed, because C programs read the first match in the
+// environment and Go reads the last.
+func toolEnv(environ []string, invokedAs string) []string {
+	env := make([]string, 0, len(environ)+1)
+	for _, kv := range environ {
+		if !strings.HasPrefix(kv, cli.InvokedAsEnv+"=") {
+			env = append(env, kv)
+		}
+	}
+	return append(env, cli.InvokedAsEnv+"="+invokedAs)
+}
+
+// runChild runs a tool as a child process, for Windows (which has no
+// exec) and for when exec fails. It returns the tool's exit code mapped
+// the way a shell reports it and an error only when the tool could not
+// start.
+func runChild(bin string, args, env []string, stdout, stderr io.Writer) (int, error) {
+	cmd := exec.Command(bin, args...) //nolint:gosec // running rhythm-<tool> from PATH is the extension model
+	cmd.Env = env
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, stdout, stderr
-	if err := cmd.Run(); err != nil {
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
-			return ee.ExitCode()
-		}
-		fmt.Fprintln(stderr, "rhythm:", err)
-		return 1
-	}
-	return 0
-}
 
-func usage(w io.Writer) {
-	fmt.Fprintln(w, kit.Banner("rhythm", version))
-	fmt.Fprint(w, `Usage:
-  rhythm <tool> [args]
+	// Catch signals while the child runs, so rhythm waits for the tool to
+	// clean up instead of exiting under it. Ctrl-C already reaches the
+	// child (the terminal or console signals the whole group), so it is
+	// only swallowed here; forwarding it would look like a second Ctrl-C.
+	// Signals sent to rhythm alone, like SIGTERM from docker stop, are
+	// passed on. signal.Ignore would be simpler but an ignored signal
+	// stays ignored in every process rhythm starts.
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, append([]os.Signal{os.Interrupt}, forwardSignals...)...)
+	defer signal.Stop(sigs)
 
-Tools:
-  tuner (t)        WordPress & PHP security scanner
-  soundcheck (sc)  did my change break anything? whole-site before/after checks
-  echo (e)         is my site still saying what it should? every email, SMS and webhook
-
-Commands:
-  rhythm install <tool> [--dir <dir>]   download a tool
-  rhythm update [--check]               update rhythm, installed tools and their data
-  rhythm version
-`)
-}
-
-func updater(repo, binary, current string) *update.Updater {
-	return &update.Updater{
-		Repo:      repo,
-		Binary:    binary,
-		Current:   current,
-		UserAgent: fmt.Sprintf("rhythm/%s (+https://rythm.sh)", version),
-		API:       os.Getenv("RHYTHM_GITHUB_API"), // a mirror or GitHub Enterprise; default api.github.com
+	if err := cmd.Start(); err != nil {
+		return 0, err
 	}
-}
-
-func exe(name string) string {
-	if runtime.GOOS == "windows" {
-		return name + ".exe"
-	}
-	return name
-}
-
-func cmdInstall(args []string, stdout, stderr io.Writer) int {
-	flags := flag.NewFlagSet("install", flag.ContinueOnError)
-	flags.SetOutput(stderr)
-	dir := flags.String("dir", "", "install directory (default: next to rhythm)")
-	pos, err := parseInterspersed(flags, args)
-	if err != nil || len(pos) != 1 {
-		fmt.Fprintln(stderr, "usage: rhythm install <tool> [--dir <dir>]")
-		return 2
-	}
-	tool := pos[0]
-	if full, ok := aliases[tool]; ok {
-		tool = full
-	}
-	repo, ok := tools[tool]
-	if !ok {
-		fmt.Fprintf(stderr, "rhythm: unknown tool %q; known tools: %s\n", tool, strings.Join(toolNames(), ", "))
-		return 2
-	}
-	if *dir == "" {
-		self, err := selfPath()
-		if err != nil {
-			fmt.Fprintln(stderr, "rhythm:", err)
-			return 1
-		}
-		*dir = filepath.Dir(self)
-	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
-	u := updater(repo, "rhythm-"+tool, "")
-	rel, err := u.Latest(ctx)
-	if err != nil {
-		fmt.Fprintln(stderr, "rhythm:", err)
-		return 1
-	}
-	dest := filepath.Join(*dir, exe("rhythm-"+tool))
-	if err := u.Install(ctx, rel, dest); err != nil {
-		fmt.Fprintln(stderr, "rhythm:", err)
-		return 1
-	}
-	fmt.Fprintf(stdout, "Installed rhythm-%s %s to %s\n", tool, rel.Version, dest)
-	switch found, err := exec.LookPath("rhythm-" + tool); {
-	case err != nil:
-		fmt.Fprintf(stdout, "Note: %s isn't on your PATH.\n", *dir)
-	case found != dest:
-		fmt.Fprintf(stdout, "Note: %s comes first on your PATH; remove it to use this install.\n", found)
-	}
-	return 0
-}
-
-// cmdUpdate updates rhythm itself, then each installed tool, then each
-// tool's data (e.g. Tuner's vulnerability database).
-func cmdUpdate(args []string, stdout, stderr io.Writer) int {
-	flags := flag.NewFlagSet("update", flag.ContinueOnError)
-	flags.SetOutput(stderr)
-	checkOnly := flags.Bool("check", false, "only report available updates")
-	if err := flags.Parse(args); err != nil {
-		return 2
-	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
-	status := 0
-
-	type target struct {
-		name, repo, binary, current, path string
-	}
-	var targets []target
-	if self, err := selfPath(); err == nil {
-		targets = append(targets, target{"rhythm", "RhythmShahriar/rhythm", "rhythm", version, self})
-	}
-	for _, tool := range toolNames() {
-		bin, err := exec.LookPath("rhythm-" + tool)
-		if err != nil {
-			continue
-		}
-		targets = append(targets, target{"rhythm-" + tool, tools[tool], "rhythm-" + tool, toolVersion(bin), bin})
-	}
-
-	for _, t := range targets {
-		if !update.IsRelease(t.current) {
-			fmt.Fprintf(stdout, "%-18s %s (development build, not updated)\n", t.name, t.current)
-			continue
-		}
-		u := updater(t.repo, t.binary, t.current)
-		rel, err := u.Latest(ctx)
-		if err != nil {
-			fmt.Fprintf(stderr, "%-18s %v\n", t.name, err)
-			status = 1
-			continue
-		}
-		if !update.Newer(t.current, rel.Version) {
-			fmt.Fprintf(stdout, "%-18s %s (up to date)\n", t.name, t.current)
-			continue
-		}
-		if *checkOnly {
-			fmt.Fprintf(stdout, "%-18s %s → %s available\n", t.name, t.current, rel.Version)
-			continue
-		}
-		if err := u.Install(ctx, rel, t.path); err != nil {
-			fmt.Fprintf(stderr, "%-18s %v\n", t.name, err)
-			status = 1
-			continue
-		}
-		fmt.Fprintf(stdout, "%-18s %s → %s ✔\n", t.name, t.current, rel.Version)
-	}
-
-	if !*checkOnly {
-		for _, t := range targets {
-			if t.name == "rhythm" {
-				continue // rhythm has no data of its own; tools refresh theirs
-			}
-			cmd := exec.CommandContext(ctx, t.path, "update") //nolint:gosec // our own tool binaries
-			cmd.Stdout, cmd.Stderr = stdout, stderr
-			if err := cmd.Run(); err != nil {
-				status = 1
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		for {
+			select {
+			case s := <-sigs:
+				if s != os.Interrupt {
+					_ = cmd.Process.Signal(s)
+				}
+			case <-done:
+				return
 			}
 		}
+	}()
+	err := cmd.Wait()
+	var ee *exec.ExitError
+	if err != nil && !errors.As(err, &ee) {
+		return 0, err
 	}
-	return status
+	sig := -1
+	if ws, ok := cmd.ProcessState.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+		sig = int(ws.Signal())
+	}
+	return exitCode(cmd.ProcessState.ExitCode(), sig), nil
 }
 
-// toolVersion asks a tool binary for its version ("rhythm-tuner 0.2.0").
-func toolVersion(bin string) string {
-	out, err := exec.Command(bin, "--version").Output() //nolint:gosec // our own tool binaries
-	if err != nil {
-		return "unknown"
+// statusControlCExit is the exit status Windows gives a console process
+// that Ctrl-C or Ctrl-Break ended (STATUS_CONTROL_C_EXIT).
+const statusControlCExit = 0xC000013A
+
+// exitCode maps how a tool ended to rhythm's exit code. code is the
+// tool's exit status and sig the signal that killed it, or -1. A tool
+// killed by signal n gives 128+n, as in a shell, rather than Go's -1
+// (which os.Exit would turn into 255); a Windows Ctrl-C exit gives 130 so
+// scripts see the same code on every platform.
+func exitCode(code, sig int) int {
+	switch {
+	case sig > 0:
+		return 128 + sig
+	case uint32(code) == statusControlCExit: //nolint:gosec // exit statuses are 32-bit on Windows
+		return cli.ExitInterrupted
 	}
-	f := strings.Fields(string(out))
-	if len(f) == 0 {
-		return "unknown"
-	}
-	return f[len(f)-1]
+	return code
 }
 
-// parseInterspersed lets flags come before or after positional arguments.
-func parseInterspersed(fs *flag.FlagSet, args []string) ([]string, error) {
-	var pos []string
-	for {
-		if err := fs.Parse(args); err != nil {
-			return nil, err
+// startFailed reports a tool binary that was found but could not be
+// started (a broken download, the wrong architecture) and returns
+// ExitUnavailable, so CI never mistakes it for the tool's findings.
+func startFailed(stderr io.Writer, tool string, known bool, err error) int {
+	fmt.Fprintf(stderr, "rhythm: can't start %s: %v\n", tool, err)
+	if known {
+		fmt.Fprintf(stderr, "  reinstall it with: rhythm install %s\n", tool)
+	}
+	return cli.ExitUnavailable
+}
+
+// visibleCommands returns the commands help lists, sorted by name.
+func visibleCommands() []command {
+	var cs []command
+	for _, c := range commands {
+		if !c.hidden {
+			cs = append(cs, c)
 		}
-		if fs.NArg() == 0 {
-			return pos, nil
-		}
-		pos = append(pos, fs.Arg(0))
-		args = fs.Args()[1:]
 	}
-}
-
-func selfPath() (string, error) {
-	p, err := os.Executable()
-	if err != nil {
-		return "", err
-	}
-	return filepath.EvalSymlinks(p)
-}
-
-func toolNames() []string {
-	var names []string
-	for t := range tools {
-		names = append(names, t)
-	}
-	sort.Strings(names)
-	return names
+	sort.Slice(cs, func(i, j int) bool { return cs[i].name < cs[j].name })
+	return cs
 }

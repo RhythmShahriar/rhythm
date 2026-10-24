@@ -1,0 +1,26 @@
+[
+  {
+    "name": "tuner",
+    "repo": "RhythmShahriar/tuner",
+    "aliases": ["t"],
+    "description": "WordPress & PHP security scanner",
+    "default_install": true,
+    "min_rhythm": ""
+  },
+  {
+    "name": "soundcheck",
+    "repo": "RhythmShahriar/soundcheck",
+    "aliases": ["sc"],
+    "description": "did my change break anything? whole-site before/after checks",
+    "default_install": true,
+    "min_rhythm": ""
+  },
+  {
+    "name": "echo",
+    "repo": "RhythmShahriar/echo",
+    "aliases": ["e"],
+    "description": "is my site still saying what it should? every email, SMS and webhook",
+    "default_install": true,
+    "min_rhythm": ""
+  }
+]
