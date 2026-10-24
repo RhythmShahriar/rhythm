@@ -511,7 +511,8 @@ over releases younger than the age given, except a version named exactly.
 
 --locked installs the versions rhythm.lock pins (see rhythm lock),
 checking each archive against its locked sha256; it installs nothing
-unless every tool matches. Data versions in the lock are passed to each
+unless every tool matches. A version named with --locked must be the
+locked one. Data versions in the lock are passed to each
 tool as update --json --pin.
 
 Each archive is checked against the release's checksums.txt. When this
@@ -814,8 +815,9 @@ func installScope(names []string, defaults, locked bool, stderr io.Writer) ([]in
 		case !ok:
 			fmt.Fprintf(stderr, "rhythm: unknown tool %q%s\n", name, suggest(name))
 			bad, badName = true, true
-		case pinned && locked:
-			fmt.Fprintf(stderr, "rhythm: --locked installs the versions in %s; drop the version from %s\n", lockFileName, n)
+		case pinned && locked && !exactSpec.MatchString(spec):
+			// An exact version is checked against the lock; a range can't be.
+			fmt.Fprintf(stderr, "rhythm: --locked installs the versions in %s; name an exact version or none in %s\n", lockFileName, n)
 			bad = true
 		case pinned && (spec == "" || checkSpec(spec) != nil):
 			fmt.Fprintf(stderr, "rhythm: %s: %v\n", tool, specError(spec))
@@ -974,6 +976,12 @@ func lockedScope(named []installItem, stdout, stderr io.Writer) (*lockFile, stri
 	}
 	for _, it := range named {
 		if e := lock.Entry(it.tool); e != nil && e.Name != selfName {
+			if v := strings.TrimPrefix(it.spec, "v"); v != "" && v != e.Version {
+				fmt.Fprintf(stderr, "rhythm: %s pins %s %s, not %s; drop the version, or move the lock with: rhythm update --lock %s\n",
+					lockFileName, e.Name, e.Version, v, e.Name)
+				bad = true
+				continue
+			}
 			pin(e)
 			continue
 		}

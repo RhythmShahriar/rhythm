@@ -68,6 +68,17 @@ On Windows, `RHYTHM_TOOLS = 'none'` is the way to install no tools: Windows Powe
 
 </details>
 
+**GitHub Actions**
+
+```yaml
+- uses: RhythmShahriar/rhythm/setup@v0.7.0
+  with:
+    tools: tuner@0.3.2 soundcheck   # or locked: true to install what rhythm.lock pins
+- run: rhythm tuner scan .
+```
+
+The action installs rhythm with the installer from the same tag, then the tools with `rhythm install`, signatures checked, and puts them on `PATH` on Linux, macOS and Windows runners. It caches the verified archives (keyed on the runner OS, architecture, `rhythm.lock` and the inputs), so a pipeline downloads each release once. Inputs: `tools`, `version` (of rhythm, default the latest), `locked`, `skip-signature`, `token` (default `github.token`, sent to `api.github.com` only), `install-dir` and `working-directory`. Outputs: `rhythm-version`, `tool-versions` (`tuner@0.3.2 soundcheck@0.4.1`), `install-dir`, `cache-dir` and `cache-hit`. With `locked`, a version in `tools` that `rhythm.lock` doesn't pin fails the step.
+
 ## Tools
 
 Three questions, one for each tool: is my site safe, did my change break anything and is it still saying what it should?
@@ -162,7 +173,7 @@ rhythm: unknown tool "tunr"
 
 ### Pin versions with rhythm.lock
 
-`rhythm lock` writes `rhythm.lock` in the current folder: each installed tool's version, repository and the sha256 of every platform's archive. Commit it so every laptop and pipeline gets the same versions with `rhythm install --locked`, which refuses an archive whose hash differs. `rhythm update --lock` moves the lock to the latest releases and prints what changed (`~ tuner 0.3.1 → 0.3.2`); with `--check` it only prints the changes and exits 10 when the lock is behind. rhythm looks for `rhythm.lock` in the current folder and its parents, up to the root of the git repository. The installers take `RHYTHM_LOCKED=1` to do the same on a fresh machine or CI runner, from the folder that holds the lock.
+`rhythm lock` writes `rhythm.lock` in the current folder: each installed tool's version, repository and the sha256 of every platform's archive. Commit it so every laptop and pipeline gets the same versions with `rhythm install --locked`, which refuses an archive whose hash differs and a version named with it that the lock doesn't pin. `rhythm update --lock` moves the lock to the latest releases and prints what changed (`~ tuner 0.3.1 → 0.3.2`); with `--check` it only prints the changes and exits 10 when the lock is behind. rhythm looks for `rhythm.lock` in the current folder and its parents, up to the root of the git repository. The installers take `RHYTHM_LOCKED=1` to do the same on a fresh machine or CI runner, from the folder that holds the lock.
 
 ### Shell completion
 

@@ -1,0 +1,148 @@
+# Copyright (c) 2026 Rhythm Shahriar <me@rhy.io>
+# SPDX-License-Identifier: AGPL-3.0-only
+
+# Runs the setup-rhythm action (setup/) on Linux, macOS and Windows
+# against a fake release API on 127.0.0.1, so nothing reaches GitHub's
+# releases. The rhythm it installs is the stand-in from scripts/test/stub
+# that the installer tests use. It checks that the tools land on PATH,
+# that a second job restores the download cache and that a version
+# rhythm.lock doesn't pin fails the step.
+name: setup-rhythm
+
+on:
+  push:
+    branches: [master]
+    paths: [setup/**, scripts/**, .github/workflows/setup-rhythm-test.yml]
+  pull_request:
+    paths: [setup/**, scripts/**, .github/workflows/setup-rhythm-test.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  RHYTHM_GITHUB_API: http://127.0.0.1:23000
+  GOWORK: "off"
+
+jobs:
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Start the fake release API
+        shell: bash
+        run: bash setup/test/start-fake-api.sh
+      - id: setup
+        uses: ./setup
+        with:
+          tools: tuner@0.3.2 soundcheck
+          version: 0.7.0
+          token: "" # the fake API is no place for a token; gh stays logged out
+      - name: Check the tools are on PATH and the outputs
+        shell: bash
+        env:
+          RHYTHM_VERSION_OUT: ${{ steps.setup.outputs.rhythm-version }}
+          TOOLS_OUT: ${{ steps.setup.outputs.tool-versions }}
+          CACHE_DIR: ${{ steps.setup.outputs.cache-dir }}
+        run: |
+          set -eu
+          command -v rhythm
+          command -v rhythm-tuner
+          command -v rhythm-soundcheck
+          rhythm --version
+          [ "$RHYTHM_VERSION_OUT" = 0.7.0 ] || { echo "rhythm-version is '$RHYTHM_VERSION_OUT'"; exit 1; }
+          [ "$TOOLS_OUT" = "tuner@0.3.2 soundcheck@0.0.0-test" ] || { echo "tool-versions is '$TOOLS_OUT'"; exit 1; }
+          # The stand-in caches nothing, so leave a file for the next job to find.
+          mkdir -p "$CACHE_DIR"
+          echo "${{ github.run_id }}" >"$CACHE_DIR/marker"
+
+  cached:
+    needs: install
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Start the fake release API
+        shell: bash
+        run: bash setup/test/start-fake-api.sh
+      - id: setup
+        uses: ./setup
+        with:
+          tools: tuner@0.3.2 soundcheck
+          version: 0.7.0
+          token: ""
+      - name: Check the download cache was restored
+        shell: bash
+        env:
+          HIT: ${{ steps.setup.outputs.cache-hit }}
+          CACHE_DIR: ${{ steps.setup.outputs.cache-dir }}
+        run: |
+          set -eu
+          [ "$HIT" = true ] || { echo "cache-hit is '$HIT'"; exit 1; }
+          [ "$(cat "$CACHE_DIR/marker")" = "${{ github.run_id }}" ] || { echo "the cached marker is missing"; exit 1; }
+
+  locked:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Start the fake release API and write a lock
+        shell: bash
+        run: |
+          bash setup/test/start-fake-api.sh
+          mkdir -p "$RUNNER_TEMP/project"
+          printf '%s\n' '{"schema":"rhythm-lock/v1","tools":[{"name":"tuner","version":"0.3.1"}]}' >"$RUNNER_TEMP/project/rhythm.lock"
+      - id: match
+        uses: ./setup
+        with:
+          tools: tuner@0.3.1
+          version: 0.7.0
+          locked: true
+          token: ""
+          working-directory: ${{ runner.temp }}/project
+      - id: mismatch
+        continue-on-error: true
+        uses: ./setup
+        with:
+          tools: tuner@0.3.2
+          version: 0.7.0
+          locked: true
+          token: ""
+          working-directory: ${{ runner.temp }}/project
+      - name: Check a version the lock doesn't pin failed
+        shell: bash
+        env:
+          MATCH: ${{ steps.match.outputs.tool-versions }}
+          OUTCOME: ${{ steps.mismatch.outcome }}
+        run: |
+          set -eu
+          [ "$MATCH" = tuner@0.3.1 ] || { echo "locked tool-versions is '$MATCH'"; exit 1; }
+          [ "$OUTCOME" = failure ] || { echo "a locked mismatch ended in '$OUTCOME'"; exit 1; }

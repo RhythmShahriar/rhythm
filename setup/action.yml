@@ -1,0 +1,120 @@
+# Copyright (c) 2026 Rhythm Shahriar <me@rhy.io>
+# SPDX-License-Identifier: AGPL-3.0-only
+
+name: setup-rhythm
+description: Install rhythm and Rhythm tools (Tuner, Soundcheck, Echo), signature checked, with the downloads cached
+author: Rhythm Shahriar
+branding:
+  icon: shield
+  color: purple
+
+# Use it as RhythmShahriar/rhythm/setup@<tag>, for example:
+#
+#   - uses: RhythmShahriar/rhythm/setup@v0.7.0
+#     with:
+#       tools: tuner@0.3.2 soundcheck
+#   - run: rhythm tuner scan .
+#
+# Every release is checked the way rhythm install checks it: the Sigstore
+# signature over checksums.txt, then the archive against checksums.txt.
+# A failed check fails the step.
+
+inputs:
+  tools:
+    description: Tools to install, separated by spaces or commas; tool@version pins one (tuner@0.3.2). With locked, names narrow rhythm.lock and a version must be the locked one.
+    required: false
+    default: ""
+  version:
+    description: The rhythm version to install, such as 0.7.0 (default the latest release).
+    required: false
+    default: ""
+  locked:
+    description: Install the versions rhythm.lock pins (rhythm install --locked). The lock file is also part of the cache key.
+    required: false
+    default: "false"
+  skip-signature:
+    description: Skip the signature checks, for a mirror you trust. Checksums are still checked.
+    required: false
+    default: "false"
+  token:
+    description: Sent as GITHUB_TOKEN, which rhythm and the installer send to api.github.com only, to lift the rate limit.
+    required: false
+    default: ${{ github.token }}
+  install-dir:
+    description: Where rhythm and the tools go; it is added to PATH (default a folder under the runner's temp folder).
+    required: false
+    default: ""
+  working-directory:
+    description: Where to run, and so where rhythm.lock is looked for.
+    required: false
+    default: "."
+
+outputs:
+  rhythm-version:
+    description: The rhythm version installed, such as 0.7.0.
+    value: ${{ steps.tools.outputs.rhythm-version }}
+  tool-versions:
+    description: The tools installed, as tool@version separated by spaces, such as "tuner@0.3.2 soundcheck@0.4.1".
+    value: ${{ steps.tools.outputs.tool-versions }}
+  install-dir:
+    description: The folder rhythm and the tools are in.
+    value: ${{ steps.prepare.outputs.install-dir }}
+  cache-dir:
+    description: The download cache folder the action restores and saves.
+    value: ${{ steps.prepare.outputs.cache-dir }}
+  cache-hit:
+    description: true when the download cache was restored for exactly this key.
+    value: ${{ steps.cache.outputs.cache-hit }}
+
+runs:
+  using: composite
+  steps:
+    - id: prepare
+      shell: bash
+      env:
+        INPUT_TOOLS: ${{ inputs.tools }}
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_INSTALL_DIR: ${{ inputs.install-dir }}
+        INPUT_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+      run: bash "$GITHUB_ACTION_PATH/setup.sh" prepare
+
+    - id: cache
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.prepare.outputs.cache-dir }}
+        key: ${{ steps.prepare.outputs.cache-key }}
+        restore-keys: ${{ steps.prepare.outputs.cache-prefix }}
+
+    - if: runner.os != 'Windows'
+      shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_SKIP_SIGNATURE: ${{ inputs.skip-signature }}
+        INPUT_INSTALL_DIR: ${{ inputs.install-dir }}
+        INPUT_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        GITHUB_TOKEN: ${{ inputs.token }}
+      run: bash "$GITHUB_ACTION_PATH/setup.sh" rhythm
+
+    - if: runner.os == 'Windows'
+      shell: pwsh
+      env:
+        RHYTHM_INSTALL_DIR: ${{ steps.prepare.outputs.install-dir }}
+        RHYTHM_VERSION: ${{ inputs.version }}
+        RHYTHM_TOOLS: none
+        RHYTHM_SKIP_SIGNATURE: ${{ inputs.skip-signature == 'true' && '1' || '' }}
+        GITHUB_TOKEN: ${{ inputs.token }}
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        $ErrorActionPreference = 'Stop'
+        & (Join-Path $env:GITHUB_ACTION_PATH '../scripts/install.ps1')
+
+    - id: tools
+      shell: bash
+      env:
+        INPUT_TOOLS: ${{ inputs.tools }}
+        INPUT_LOCKED: ${{ inputs.locked }}
+        INPUT_SKIP_SIGNATURE: ${{ inputs.skip-signature }}
+        INPUT_INSTALL_DIR: ${{ inputs.install-dir }}
+        INPUT_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        GITHUB_TOKEN: ${{ inputs.token }}
+      run: bash "$GITHUB_ACTION_PATH/setup.sh" tools

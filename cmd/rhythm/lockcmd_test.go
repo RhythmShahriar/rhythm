@@ -371,7 +371,7 @@ func TestInstallBadSpecs(t *testing.T) {
 		{"tuner@01.2", `invalid version "01.2"`},
 		{"tuner@0.3 t@0.4", "rhythm: tuner is named twice with different versions: tuner@0.3 and tuner@0.4"},
 		{"tunr@0.3", `rhythm: unknown tool "tunr" (did you mean tuner?)`},
-		{"tuner@0.3 --locked", "rhythm: --locked installs the versions in rhythm.lock; drop the version from tuner@0.3"},
+		{"tuner@0.3 --locked", "rhythm: --locked installs the versions in rhythm.lock; name an exact version or none in tuner@0.3"},
 		{"--locked --defaults", "rhythm: --locked installs the tools in rhythm.lock; drop --defaults"},
 	} {
 		code, out, errs := runCmd(append([]string{"install", "--dir", s.bin}, strings.Fields(c.args)...)...)
@@ -540,6 +540,15 @@ func TestInstallLocked(t *testing.T) {
 	code, out, _ = runCmd("install", "--locked", "tuner", "--dry-run")
 	if code != 0 || out != "tuner@0.3.1\n" {
 		t.Errorf("dry run: exit %d %q", code, out)
+	}
+	// A version named with --locked must be the locked one.
+	code, out, _ = runCmd("install", "--locked", "tuner@0.3.1", "--dry-run")
+	if code != 0 || out != "tuner@0.3.1\n" {
+		t.Errorf("matching version: exit %d %q", code, out)
+	}
+	code, _, errs = runCmd("install", "--locked", "tuner@0.4.0", "soundcheck", "--dir", s.bin)
+	if code != 1 || !strings.Contains(errs, "rhythm: rhythm.lock pins tuner 0.3.1, not 0.4.0; drop the version, or move the lock with: rhythm update --lock tuner") {
+		t.Errorf("other version: exit %d\n%s", code, errs)
 	}
 }
 
