@@ -7,7 +7,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -114,9 +116,28 @@ func TestUpdateHungToolTimesOut(t *testing.T) {
 	}
 	installed, latest := allTools()
 	s := newSandbox(t, installed, latest)
-	// No exec: the shell is killed at the timeout and sleep keeps its
-	// stdout open, which must not keep rhythm waiting.
-	script(t, s.bin, "rhythm-soundcheck", `echo "$*" >> '`+s.log("rhythm-soundcheck")+`'; `+sleep+` 1000`)
+	// No exec: sleep is the shell's child and holds its stdout open,
+	// which must not keep rhythm waiting. The timeout kills sleep too, as
+	// it would the real tool behind an asdf or mise shim.
+	pids := filepath.Join(s.dir, "sleep.pids")
+	script(t, s.bin, "rhythm-soundcheck", `echo "$*" >> '`+s.log("rhythm-soundcheck")+`'; `+sleep+` 1000 & echo $! >> '`+pids+`'; wait`)
+	alive := func() (left []int) {
+		data, _ := os.ReadFile(pids)
+		for _, f := range strings.Fields(string(data)) {
+			pid, _ := strconv.Atoi(f)
+			if p, err := os.FindProcess(pid); pid > 0 && err == nil && p.Signal(syscall.Signal(0)) == nil {
+				left = append(left, pid)
+			}
+		}
+		return left
+	}
+	t.Cleanup(func() {
+		for _, pid := range alive() {
+			if p, err := os.FindProcess(pid); err == nil {
+				_ = p.Kill()
+			}
+		}
+	})
 
 	start := time.Now()
 	code, out, errs := runCmd("update")
@@ -128,6 +149,13 @@ func TestUpdateHungToolTimesOut(t *testing.T) {
 	}
 	if s.ranUpdate("rhythm-soundcheck") {
 		t.Error("the hung tool's data refresh ran")
+	}
+	// The kill is asynchronous; give it a moment to land.
+	for deadline := time.Now().Add(2 * time.Second); len(alive()) > 0 && time.Now().Before(deadline); {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if left := alive(); len(left) > 0 {
+		t.Errorf("the hung tool's child still runs: pids %v", left)
 	}
 	if !strings.Contains(s.content("rhythm-tuner"), "0.2.0") || !s.ranUpdate("rhythm-tuner") {
 		t.Error("the other tools weren't updated")

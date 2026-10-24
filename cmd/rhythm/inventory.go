@@ -451,6 +451,7 @@ func probeOutput(ctx context.Context, bin string, args ...string) ([]byte, error
 	// A killed shell script can leave a child holding stdout open;
 	// WaitDelay stops waiting for it shortly after the kill.
 	cmd.WaitDelay = 500 * time.Millisecond
+	probeInGroup(cmd)
 	err := cmd.Run()
 	return out.buf.Bytes(), err
 }
