@@ -21,6 +21,7 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -44,7 +45,7 @@ type Options struct {
 	FanOut       int      // children before a path segment becomes a template; 0 means 10
 	Include      []string // if set, only paths matching one of these globs
 	Exclude      []string // added to DefaultExcludes
-	IgnoreRobots bool     // for your own site, when robots.txt blocks pages you want checked
+	IgnoreRobots bool     // for your own site, when robots.txt blocks pages you want checked or is unavailable
 	NoSitemaps   bool
 	// NoFollow stops after robots.txt, sitemaps and the start page: the
 	// caller follows links itself, e.g. from pages it renders in a browser,
@@ -150,6 +151,8 @@ func (f *Frontier) add(raw, source string, depth int) (Page, bool) {
 		reason = "excluded"
 	case len(f.opts.Include) > 0 && !Excluded(u, f.opts.Include) && !start && !listed:
 		reason = "not included"
+	case !f.opts.IgnoreRobots && !listed && f.robots.unavailableOrEmpty() != "" && !start:
+		reason = "robots-unavailable"
 	case !f.opts.IgnoreRobots && !listed && !f.robots.Allowed(pathQuery(u)):
 		reason = "robots.txt"
 	case len(f.pages) >= f.opts.Limit:
@@ -186,6 +189,19 @@ func (f *Frontier) snapshot() []Page {
 	return append([]Page(nil), f.pages...)
 }
 
+// RobotsUnavailable says why robots.txt couldn't be read, such as
+// "HTTP 503" or a network error, or returns "" when it was read, was
+// missing (4xx) or was ignored. While it's unavailable only the start page
+// and pages the caller listed are admitted; the rest are counted in
+// Skipped under "robots-unavailable". Tools can suggest IgnoreRobots for
+// the user's own site.
+func (f *Frontier) RobotsUnavailable() string {
+	if f.opts.IgnoreRobots {
+		return ""
+	}
+	return f.robots.unavailableOrEmpty()
+}
+
 // skip counts one URL left out for reason.
 func (f *Frontier) skip(reason string) {
 	f.mu.Lock()
@@ -194,7 +210,7 @@ func (f *Frontier) skip(reason string) {
 }
 
 // Skipped counts URLs left out, by reason ("grouped", "robots.txt",
-// "offsite-sitemap", "offsite-redirect"…).
+// "robots-unavailable", "offsite-sitemap", "offsite-redirect"…).
 func (f *Frontier) Skipped() map[string]int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -249,7 +265,9 @@ func (c *Crawler) Crawl(ctx context.Context, start *url.URL) (*Frontier, error) 
 		f.robots = &robots{sitemaps: f.robots.sitemapsOrNil()}
 	}
 	f.Add(start.String(), "start", 0)
-	if !c.opts.NoSitemaps {
+	// With robots.txt unavailable no sitemap page would be admitted, so
+	// the sitemaps aren't fetched at all.
+	if !c.opts.NoSitemaps && f.RobotsUnavailable() == "" {
 		c.sitemaps(ctx, f, start)
 	}
 	if c.opts.NoFollow {
@@ -323,6 +341,13 @@ func (c *Crawler) Crawl(ctx context.Context, start *url.URL) (*Frontier, error) 
 	return f, ctx.Err()
 }
 
+func (r *robots) unavailableOrEmpty() string {
+	if r == nil {
+		return ""
+	}
+	return r.unavailable
+}
+
 func (r *robots) sitemapsOrNil() []string {
 	if r == nil {
 		return nil
@@ -348,16 +373,35 @@ func (c *Crawler) get(ctx context.Context, raw string) (*http.Response, error) {
 	return c.http.Do(req)
 }
 
+// robots fetches and parses robots.txt, following RFC 9309 2.3.1: a
+// missing file (4xx) allows everything, while a server error, 429, a
+// timeout or a network error disallows everything, because the site may
+// be up but unable to say what it wants left alone.
 func (c *Crawler) robots(ctx context.Context, start *url.URL) *robots {
 	resp, err := c.get(ctx, start.Scheme+"://"+start.Host+"/robots.txt")
 	if err != nil {
-		return nil
+		return unavailableRobots(robotsErr(err))
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return nil
+	switch {
+	case resp.StatusCode == http.StatusOK:
+		return parseRobots(io.LimitReader(resp.Body, maxRobotsLine), c.opts.UserAgent)
+	case resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests:
+		return unavailableRobots("HTTP " + strconv.Itoa(resp.StatusCode))
 	}
-	return parseRobots(io.LimitReader(resp.Body, 512<<10), c.opts.UserAgent)
+	return nil
+}
+
+// robotsErr describes a failed robots.txt request without the URL, which
+// the caller already knows.
+func robotsErr(err error) string {
+	if ue, ok := errors.AsType[*url.Error](err); ok {
+		if ue.Timeout() {
+			return "timeout"
+		}
+		err = ue.Err
+	}
+	return err.Error()
 }
 
 // sitemaps reads sitemaps named in robots.txt, or the usual locations.
