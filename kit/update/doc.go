@@ -26,7 +26,9 @@
 // # Environment
 //
 //   - RHYTHM_GITHUB_API: a mirror or GitHub Enterprise API base. Callers
-//     read it and set Updater.API; it must be https.
+//     read it and set Updater.API. It must be https (plain http only
+//     to a loopback host) and a plain base URL, without user info, query
+//     or fragment (see CheckAPI).
 //   - GITHUB_TOKEN: sent only when the API is api.github.com and then
 //     only to api.github.com, github.com and objects.githubusercontent.com.
 //   - RHYTHM_GITHUB_TOKEN: sent to the host named by the API base, for a

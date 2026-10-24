@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -524,6 +523,10 @@ func checkToken(env doctorEnv) check {
 func checkAPI(ctx context.Context, env doctorEnv) check {
 	api := apiOrDefault(env.getenv("RHYTHM_GITHUB_API"))
 	host := hostOf(api)
+	if !plainAPIURL(api) {
+		// The redacted URL would hide exactly what broke the rule.
+		return check{"api", statusFail, apiPlainRule}
+	}
 	if !safeAPIURL(api) {
 		return check{"api", statusFail, apiURLRule + "; got " + redactURL(api)}
 	}
@@ -565,34 +568,32 @@ func checkAPI(ctx context.Context, env doctorEnv) check {
 // apiURLRule is the rule RHYTHM_GITHUB_API must meet, as doctor states it.
 const apiURLRule = "RHYTHM_GITHUB_API must be https (plain http only for 127.0.0.1, ::1 or localhost)"
 
+// apiPlainRule is doctor's message for a RHYTHM_GITHUB_API with user
+// info, a query or a fragment.
+const apiPlainRule = "RHYTHM_GITHUB_API must be a plain base URL, without user info, query or fragment"
+
+// plainAPIURL reports whether raw has no user info, query or fragment.
+// A URL that doesn't parse counts as plain here; safeAPIURL fails it.
+func plainAPIURL(raw string) bool {
+	u, err := url.Parse(raw)
+	return err != nil || u.Host == "" || u.User == nil && u.RawQuery == "" && !u.ForceQuery && u.Fragment == "" && u.RawFragment == ""
+}
+
 // errUnsafeRedirect stops a redirect that would leave https.
 var errUnsafeRedirect = errors.New("redirect to a URL that isn't https")
 
-// safeAPIURL applies the rule install, update and list use for the
-// release API: https, or plain http to a loopback host, with no user
-// info, query or fragment. Anything else could send the token in
-// cleartext or to a place the user didn't name.
+// safeAPIURL applies update.CheckAPI, the rule install, update, list
+// and lock use for the release API: https, or plain http to a loopback
+// host, with no user info, query or fragment. Anything else could send
+// the token in cleartext or to a place the user didn't name.
 func safeAPIURL(raw string) bool {
-	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.RawFragment != "" {
-		return false
-	}
-	switch u.Scheme {
-	case "https":
-		return true
-	case "http":
-		h := u.Hostname()
-		if strings.EqualFold(h, "localhost") {
-			return true
-		}
-		ip := net.ParseIP(h)
-		return ip != nil && ip.IsLoopback()
-	}
-	return false
+	return update.CheckAPI(raw) == nil
 }
 
 // apiClient returns a copy of c whose redirects must meet safeAPIURL's
 // scheme rule too, so a mirror can't bounce the token onto plain http.
+// A redirect to another host (another port included, which Go's own
+// rule allows) drops the token.
 func apiClient(c *http.Client) *http.Client {
 	cp := *c
 	next := c.CheckRedirect
@@ -601,6 +602,9 @@ func apiClient(c *http.Client) *http.Client {
 		r.RawQuery, r.ForceQuery, r.Fragment, r.RawFragment = "", false, "", ""
 		if !safeAPIURL(r.String()) {
 			return errUnsafeRedirect
+		}
+		if !strings.EqualFold(req.URL.Host, via[0].URL.Host) {
+			req.Header.Del("Authorization")
 		}
 		if next != nil {
 			return next(req, via)

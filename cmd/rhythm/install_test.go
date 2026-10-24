@@ -702,7 +702,7 @@ func TestMirrorCredentialsHidden(t *testing.T) {
 	for _, api := range []string{"http://user:sekret@" + host, s.api.URL + "?token=sekret", s.api.URL + "#sekret"} {
 		t.Setenv("RHYTHM_GITHUB_API", api)
 		_, out, errs := runCmd("install", "tuner@9.9.9", "--dir", t.TempDir())
-		if strings.Contains(out+errs, "sekret") || !strings.Contains(errs, host) {
+		if strings.Contains(out+errs, "sekret") || !strings.Contains(errs, host) || !strings.Contains(errs, "plain base URL") {
 			t.Errorf("install with %s:\n%s%s", api, out, errs)
 		}
 		_, out, errs = runCmd("update", "tuner", "--check", "--json")
@@ -710,11 +710,19 @@ func TestMirrorCredentialsHidden(t *testing.T) {
 			t.Errorf("update --check --json with %s:\n%s%s", api, out, errs)
 		}
 	}
-	srv, _ := rateLimited(t)
+	// Such a URL is refused before anything is sent: user info would go
+	// out as Basic auth.
+	srv, n := rateLimited(t)
 	t.Setenv("RHYTHM_GITHUB_API", strings.Replace(srv.URL, "http://", "http://user:sekret@", 1)+"?token=sekret")
-	_, out, errs := runCmd("install", "tuner", "--dir", t.TempDir())
-	if strings.Contains(out+errs, "sekret") || !strings.Contains(errs, "rate limit reached at") {
-		t.Errorf("rate limited:\n%s%s", out, errs)
+	dir := t.TempDir()
+	for _, args := range [][]string{{"install", "tuner", "--dir", dir}, {"install", "tuner@0.1.0", "--dir", dir}, {"update", "--check", "--min-age", "1d"}} {
+		_, out, errs := runCmd(args...)
+		if strings.Contains(out+errs, "sekret") || !strings.Contains(errs, "release API: must be a plain base URL, without user info, query or fragment: "+srv.URL) {
+			t.Errorf("%v:\n%s%s", args, out, errs)
+		}
+	}
+	if got := n.Load(); got != 0 {
+		t.Errorf("%d requests reached the API", got)
 	}
 }
 
@@ -829,5 +837,118 @@ func TestInstallRefusesAnotherReleaseForATag(t *testing.T) {
 	}
 	if len(files(t, s.bin)) != 0 {
 		t.Errorf("installed %v", files(t, s.bin))
+	}
+}
+
+// hostLog is an http.DefaultTransport stand-in that records the host and
+// Authorization header of every request before passing it on to base.
+type hostLog struct {
+	base http.RoundTripper
+	mu   sync.Mutex
+	seen []string // "host auth"
+}
+
+func (h *hostLog) RoundTrip(r *http.Request) (*http.Response, error) {
+	h.mu.Lock()
+	h.seen = append(h.seen, r.URL.Host+" "+r.Header.Get("Authorization"))
+	h.mu.Unlock()
+	return h.base.RoundTrip(r)
+}
+
+func (h *hostLog) to(host string) []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var out []string
+	for _, s := range h.seen {
+		if strings.HasPrefix(s, host+" ") {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// useHostLog puts a hostLog over base in place of http.DefaultTransport,
+// which updater builds on.
+func useHostLog(t *testing.T, base http.RoundTripper) *hostLog {
+	t.Helper()
+	h := &hostLog{base: base}
+	old := http.DefaultTransport
+	http.DefaultTransport = h
+	t.Cleanup(func() { http.DefaultTransport = old })
+	return h
+}
+
+// TestRouterLookupRefusesCleartextAPI: the router's own release lookups
+// (an exact version, a range, --min-age and update --to) refuse a plain
+// http API that isn't loopback before anything is sent, as kit/update
+// does for the plain latest lookup, so RHYTHM_GITHUB_TOKEN never goes
+// out in cleartext.
+func TestRouterLookupRefusesCleartextAPI(t *testing.T) {
+	s := newSandbox(t, map[string]string{"rhythm-tuner": "0.2.0"}, map[string]string{repoOf("tuner"): "0.2.0"})
+	t.Setenv("RHYTHM_GITHUB_API", "http://mirror.invalid")
+	t.Setenv("RHYTHM_GITHUB_TOKEN", "mirrortok")
+	h := useHostLog(t, http.DefaultTransport)
+	for _, args := range [][]string{
+		{"install", "tuner@0.1.0", "--dir", s.bin, "--force"},
+		{"install", "tuner@0.1", "--dir", s.bin, "--force"},
+		{"update", "tuner", "--check", "--min-age", "1d"},
+		{"update", "tuner", "--to", "0.1.0"},
+	} {
+		code, out, errs := runCmd(args...)
+		if code == 0 || !strings.Contains(errs, "release API: refusing to download over http: http://mirror.invalid") {
+			t.Errorf("%v: exit %d\n%s%s", args, code, out, errs)
+		}
+	}
+	if got := h.to("mirror.invalid"); len(got) != 0 {
+		t.Errorf("requests sent over plain http: %v", got)
+	}
+}
+
+// TestRouterLookupRedirects: an https mirror that redirects the lookup
+// to plain http is not followed and one that redirects to another port
+// on the same host name loses the token there.
+func TestRouterLookupRedirects(t *testing.T) {
+	s := newSandbox(t, nil, nil)
+	t.Setenv("RHYTHM_GITHUB_TOKEN", "mirrortok")
+	other := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(other.Close)
+	front := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/tags/v0.1.0") {
+			http.Redirect(w, r, "http://mirror.invalid"+r.URL.Path, http.StatusFound)
+			return
+		}
+		http.Redirect(w, r, other.URL+r.URL.Path, http.StatusFound)
+	}))
+	t.Cleanup(front.Close)
+	// httptest TLS servers share one certificate, so either client trusts both.
+	h := useHostLog(t, front.Client().Transport)
+	t.Setenv("RHYTHM_GITHUB_API", front.URL)
+
+	code, out, errs := runCmd("install", "tuner@0.1.0", "--dir", s.bin)
+	want := "release API " + front.URL + " redirected to a URL that isn't https; nothing was sent there"
+	if code == 0 || !strings.Contains(errs, want) {
+		t.Errorf("redirect to http: exit %d\n%s%s", code, out, errs)
+	}
+	if got := h.to("mirror.invalid"); len(got) != 0 {
+		t.Errorf("redirect to http followed: %v", got)
+	}
+
+	if code, out, errs := runCmd("install", "tuner@0.2.0", "--dir", s.bin); code == 0 {
+		t.Errorf("redirect to another port: exit %d\n%s%s", code, out, errs)
+	}
+	otherHost := strings.TrimPrefix(other.URL, "https://")
+	got := h.to(otherHost)
+	if len(got) == 0 {
+		t.Fatal("the redirect to another port was not followed")
+	}
+	for _, g := range got {
+		if strings.Contains(g, "mirrortok") {
+			t.Errorf("another port got the token: %q", g)
+		}
+	}
+	if got := h.to(strings.TrimPrefix(front.URL, "https://")); len(got) == 0 || !strings.HasSuffix(got[0], "Bearer mirrortok") {
+		t.Errorf("the mirror itself: %v, want its token", got)
 	}
 }

@@ -1327,8 +1327,13 @@ func (r ghRelease) picked() *pickedRelease {
 
 // apiGet decodes the release API's answer for path under the repository
 // into v. want names the version asked for, for the not-found error.
+// The API base must meet update.CheckAPI's rule and redirects must stay
+// on it (see apiClient), so the token never goes out in cleartext.
 func apiGet(ctx context.Context, u *update.Updater, path, want string, v any) error {
 	api := apiOrDefault(u.API)
+	if err := update.CheckAPI(api); err != nil {
+		return fmt.Errorf("release API: %w", err)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, api+"/repos/"+u.Repo+path, nil)
 	if err != nil {
 		return err
@@ -1338,7 +1343,10 @@ func apiGet(ctx context.Context, u *update.Updater, path, want string, v any) er
 	if _, tok := apiToken(os.Getenv, api); tok != "" {
 		req.Header.Set("Authorization", "Bearer "+tok)
 	}
-	resp, err := u.HTTP.Do(req)
+	resp, err := apiClient(u.HTTP).Do(req)
+	if errors.Is(err, errUnsafeRedirect) {
+		return fmt.Errorf("release API %s redirected to a URL that isn't https; nothing was sent there", redactURL(api))
+	}
 	if err != nil {
 		return err
 	}

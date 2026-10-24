@@ -426,20 +426,25 @@ func TestCheckAPIRefusesCleartext(t *testing.T) {
 		env.http = &http.Client{Transport: &http.Transport{Proxy: viaProxy}}
 		return env
 	}
-	for _, api := range []string{
-		"http://mirror.invalid",
-		"ftp://mirror.invalid",
-		"https://user:pw@mirror.invalid",
-		"https://mirror.invalid?token=x",
-		"https://mirror.invalid#frag",
-		"mirror.invalid",
+	for api, plain := range map[string]bool{
+		"http://mirror.invalid":          true,
+		"ftp://mirror.invalid":           true,
+		"https://user:pw@mirror.invalid": false,
+		"https://mirror.invalid?token=x": false,
+		"https://mirror.invalid#frag":    false,
+		"mirror.invalid":                 true,
+		// Meets the https rule, so the message must name the user info.
+		"http://u:secretpw@127.0.0.1:22001": false,
 	} {
 		t.Run(api, func(t *testing.T) {
 			c := checkAPI(context.Background(), newEnv(t, api))
-			if c.Status != statusFail || !strings.HasPrefix(c.Message, apiURLRule+"; got ") {
+			if plain && (c.Status != statusFail || !strings.HasPrefix(c.Message, apiURLRule+"; got ")) {
 				t.Errorf("%+v", c)
 			}
-			if strings.Contains(c.Message, "pw") || strings.Contains(c.Message, "token=") || strings.Contains(c.Message, "cleartexttok") {
+			if !plain && (c.Status != statusFail || c.Message != apiPlainRule) {
+				t.Errorf("%+v, want %q", c, apiPlainRule)
+			}
+			if strings.Contains(c.Message, "pw") || strings.Contains(c.Message, "secretpw") || strings.Contains(c.Message, "token=") || strings.Contains(c.Message, "cleartexttok") {
 				t.Errorf("message shows a secret: %q", c.Message)
 			}
 		})

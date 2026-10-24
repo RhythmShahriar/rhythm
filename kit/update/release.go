@@ -49,7 +49,7 @@ func (u *Updater) getJSON(ctx context.Context, path, want string, v any) error {
 		return ErrOffline
 	}
 	api := u.apiBase()
-	if err := checkURL(api); err != nil {
+	if err := CheckAPI(api); err != nil {
 		return fmt.Errorf("release API: %w", err)
 	}
 	req, err := u.newRequest(ctx, api+"/repos/"+u.Repo+path)

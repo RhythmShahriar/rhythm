@@ -196,6 +196,36 @@ func TestPlainHTTPIsRefusedBeforeAnyRequest(t *testing.T) {
 	}
 }
 
+// TestAPIMustBeAPlainBaseURL: user info, a query or a fragment in the
+// API base is refused before any request, as the installers refuse it.
+func TestAPIMustBeAPlainBaseURL(t *testing.T) {
+	for _, api := range []string{
+		"https://user:sekret@mirror.example",
+		"http://user:sekret@127.0.0.1:20020",
+		"https://mirror.example?token=sekret",
+		"https://mirror.example?",
+		"https://mirror.example#sekret",
+	} {
+		ft := &fakeTransport{body: `{"tag_name":"v1.0.0","assets":[]}`}
+		u := &Updater{Repo: "RhythmShahriar/tuner", Binary: "rhythm-tuner", API: api, HTTP: &http.Client{Transport: ft}}
+		_, err := u.Latest(context.Background())
+		if err == nil || !strings.Contains(err.Error(), "release API: must be a plain base URL, without user info, query or fragment") || strings.Contains(err.Error(), "sekret") {
+			t.Errorf("%s: err = %v", api, err)
+		}
+		if n := ft.count(); n != 0 {
+			t.Errorf("%s: %d requests sent", api, n)
+		}
+	}
+	for _, ok := range []string{"https://mirror.example/api/v3", "http://127.0.0.1:20020", "https://api.github.com"} {
+		if err := CheckAPI(ok); err != nil {
+			t.Errorf("CheckAPI(%s) = %v, want allowed", ok, err)
+		}
+	}
+	if err := CheckAPI("http://mirror.example"); err == nil || !strings.Contains(err.Error(), "refusing to download over http") {
+		t.Errorf("CheckAPI(http) = %v", err)
+	}
+}
+
 func TestHTTPDownloadURLIsRefused(t *testing.T) {
 	name := (&Updater{Binary: "rhythm-tuner"}).ArchiveName()
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -53,6 +53,19 @@ func checkURL(raw string) error {
 	return fmt.Errorf("refusing to download over %s: %s", p.Scheme, redactURL(raw))
 }
 
+// CheckAPI is the rule for a release API base such as RHYTHM_GITHUB_API,
+// the one the installers apply too: checkURL's scheme rule and a plain
+// base URL, with no user info, query or fragment. User info would go out
+// as Basic auth and a query or fragment could carry a token to a place
+// the user didn't mean to name.
+func CheckAPI(raw string) error {
+	p, err := url.Parse(raw)
+	if err == nil && p.Host != "" && (p.User != nil || p.RawQuery != "" || p.ForceQuery || p.Fragment != "" || p.RawFragment != "") {
+		return fmt.Errorf("must be a plain base URL, without user info, query or fragment: %s", redactURL(raw))
+	}
+	return checkURL(raw)
+}
+
 func isLoopback(host string) bool {
 	if strings.EqualFold(host, "localhost") {
 		return true
