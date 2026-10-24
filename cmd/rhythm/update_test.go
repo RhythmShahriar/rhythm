@@ -1442,3 +1442,19 @@ func fileSHA256(p string) (string, error) {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:]), nil
 }
+
+// TestRollbackWithoutSidecar: a .prev whose .prev.json is gone still
+// rolls back through kit/update, with the versions unknown.
+func TestRollbackWithoutSidecar(t *testing.T) {
+	s := twoVersions(t)
+	if err := os.Remove(filepath.Join(s.bin, "rhythm-tuner.prev.json")); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errs := runCmd("update", "--rollback", "tuner")
+	if code != 0 || out != "Rolled back rhythm-tuner to the binary its last update replaced\n" {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	if !strings.Contains(s.content("rhythm-tuner"), "rhythm-tuner 0.3.0") {
+		t.Error("the binaries weren't swapped")
+	}
+}
