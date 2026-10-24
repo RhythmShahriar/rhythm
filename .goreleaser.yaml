@@ -25,6 +25,15 @@ archives:
         formats: [zip]
     files: [README.md, LICENSE*]
 
+# One SPDX JSON SBOM per archive, written by syft (release-go installs a
+# pinned version), named <archive>.sbom.json. GoReleaser lists SBOMs in
+# checksums.txt, so the signature over it covers them too.
+sboms:
+  - artifacts: archive
+    documents: ["{{ .ArtifactName }}.sbom.json"]
+    cmd: syft
+    args: ["$artifact", "--output", "spdx-json=$document"]
+
 checksum:
   name_template: checksums.txt
 
