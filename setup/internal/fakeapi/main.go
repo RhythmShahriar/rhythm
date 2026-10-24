@@ -98,7 +98,7 @@ func newRelease(version, goos, goarch string, bin []byte) (*release, error) {
 	sum := sha256.Sum256(archive)
 	r.files[r.archive] = archive
 	r.files["checksums.txt"] = fmt.Appendf(nil, "%s  %s\n", hex.EncodeToString(sum[:]), r.archive)
-	// Only a real signature check reads the bundle, and the stand-in has none.
+	// Only a real signature check reads the bundle. The stand-in has none.
 	r.files["checksums.txt.sigstore.json"] = []byte(`{"mediaType":"application/vnd.dev.sigstore.bundle.v0.3+json"}`)
 	return r, nil
 }

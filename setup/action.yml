@@ -45,7 +45,7 @@ inputs:
     required: false
     default: ""
   working-directory:
-    description: Where to run, and so where rhythm.lock is looked for.
+    description: Where to run, which is where rhythm.lock is looked for.
     required: false
     default: "."
 

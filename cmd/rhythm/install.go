@@ -153,7 +153,7 @@ type explainTransport struct {
 	signer string // the signer an extension's releases must carry; "" for any
 
 	// verifiedBy is who signed the checksums.txt last checked through
-	// this transport, and verifiedSums those checksums; both stay empty
+	// this transport and verifiedSums those checksums; both stay empty
 	// when no signature was checked.
 	verifiedBy   string
 	verifiedSums []byte

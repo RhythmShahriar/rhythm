@@ -21,8 +21,8 @@ const (
 )
 
 // extSandbox is signedSandbox plus an extension, someone/rhythm-zap,
-// whose releases 1.0.0 and 1.1.0 its own release workflow signs, and a
-// config folder of the test's own for extensions.json.
+// whose releases 1.0.0 and 1.1.0 its own release workflow signs. The
+// test gets a config folder of its own for extensions.json.
 func extSandbox(t *testing.T) (*sandbox, *releaseAPI) {
 	t.Helper()
 	freshConfig(t)
@@ -71,7 +71,7 @@ func TestExtInstallRecordsTheSigner(t *testing.T) {
 	if len(got) != 1 || got[0] != (lock.Extension{Name: "zap", Repo: zapRepo, Signer: zapSigner}) {
 		t.Errorf("extensions.json: %+v", got)
 	}
-	// rhythm runs it, and ext list shows it.
+	// rhythm runs it and ext list shows it.
 	if code, _, _ := runCmd("zap", "hello"); code != 0 || !strings.Contains(strings.Join(s.calls("rhythm-zap"), "\n"), "hello") {
 		t.Errorf("rhythm zap: exit %d", code)
 	}
@@ -273,7 +273,7 @@ func TestExtUsage(t *testing.T) {
 	}
 }
 
-// rhythm lock pins extensions too, with their signer, and install
+// rhythm lock pins extensions too (with their signer) and install
 // --locked brings them back on a fresh machine.
 func TestLockedExtension(t *testing.T) {
 	s, _ := extSandbox(t)

@@ -157,7 +157,7 @@ func (w *Writer) Add(name string, data []byte) (File, error) {
 }
 
 // Close writes m as manifest.json and finishes the bundle. Every file m
-// names must have been added, and every file added must be named.
+// names must have been added. Every file added must be named.
 func (w *Writer) Close(m Manifest) error {
 	m.Schema = Schema
 	if m.Created.IsZero() {
