@@ -104,6 +104,7 @@ usage error and 130 when interrupted.`
 func cmdInstall(args []string, stdout, stderr io.Writer) int {
 	flags := newFlagSet("install", installSynopsis)
 	dir := flags.String("dir", "", "install into `dir` (default: next to rhythm)")
+	quiet := flags.Bool("quiet", false, "print only the Installed line and errors")
 	pos, code, ok := parseArgs(flags, args, stdout, stderr)
 	if !ok {
 		return code
@@ -126,6 +127,14 @@ func cmdInstall(args []string, stdout, stderr io.Writer) int {
 		}
 		*dir = filepath.Dir(self)
 	}
+	// An absolute path, so the PATH note below compares like with like:
+	// LookPath answers with absolute paths.
+	abs, err := filepath.Abs(*dir)
+	if err != nil {
+		fmt.Fprintln(stderr, "rhythm:", err)
+		return 1
+	}
+	*dir = abs
 
 	// An existing symlink is followed, so a link into a tool folder stays
 	// a link; a package manager's install is left to the manager.
@@ -134,6 +143,12 @@ func cmdInstall(args []string, stdout, stderr io.Writer) int {
 	writeTo := resolve(dest)
 	if m := managedBy(writeTo, binary); m != nil {
 		fmt.Fprintf(stderr, "%s is managed by %s; update it with: %s\n", binary, m.name, m.upgrade)
+		return 1
+	}
+	// A folder that can't take the binary should fail now, not after a
+	// 30 MB download.
+	if err := prepareDir(*dir, filepath.Dir(writeTo)); err != nil {
+		fmt.Fprintln(stderr, "rhythm:", err)
 		return 1
 	}
 
@@ -148,13 +163,53 @@ func cmdInstall(args []string, stdout, stderr io.Writer) int {
 		return installFailed(ctx, stderr, err)
 	}
 	fmt.Fprintf(stdout, "Installed %s %s to %s\n", binary, rel.Version, dest)
-	switch found, err := exec.LookPath(binary); {
-	case err != nil:
-		fmt.Fprintf(stdout, "Note: %s isn't on your PATH.\n", *dir)
-	case found != dest && resolve(found) != writeTo:
-		fmt.Fprintf(stdout, "Note: %s comes first on your PATH; remove it to use this install.\n", found)
+	if !*quiet {
+		if note := pathNote(binary, dest); note != "" {
+			fmt.Fprintln(stdout, note)
+		}
 	}
 	return 0
+}
+
+// prepareDir makes sure the install folder exists and that the binary
+// can be written into target, the folder it really lands in (they differ
+// when the destination is a symlink). A missing folder is created.
+func prepareDir(dir, target string) error {
+	if fi, err := os.Stat(dir); err == nil && !fi.IsDir() {
+		return fmt.Errorf("%s is a file, not a folder; pick a folder with --dir", dir)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // a bin folder others may run from
+		return fmt.Errorf("can't create %s: %w", dir, err)
+	}
+	// Creating a file is the only check that holds everywhere: mode bits
+	// say nothing about ACLs, read-only mounts or Windows.
+	f, err := os.CreateTemp(target, ".rhythm-write-test-*")
+	if err != nil {
+		return fmt.Errorf("can't write to %s; rerun with sudo, or install to a folder you own with --dir", target)
+	}
+	_ = f.Close()
+	_ = os.Remove(f.Name()) //nolint:gosec // the probe file CreateTemp just made
+	return nil
+}
+
+// pathNote explains why running binary may not reach the copy just
+// installed at dest, or returns "" when it will. Both sides have their
+// symlinks resolved, so a link on PATH that points at dest counts as dest.
+func pathNote(binary, dest string) string {
+	found, err := exec.LookPath(binary)
+	if errors.Is(err, exec.ErrDot) {
+		err = nil // found in the current folder through "." on PATH; still a real shadow
+	}
+	if err != nil {
+		return fmt.Sprintf("Note: %s isn't on your PATH.", filepath.Dir(dest))
+	}
+	if abs, aerr := filepath.Abs(found); aerr == nil {
+		found = abs
+	}
+	if found == dest || resolve(found) == resolve(dest) {
+		return ""
+	}
+	return fmt.Sprintf("Note: %s comes first on your PATH; remove it to use this install.", found)
 }
 
 // installFailed reports err and returns the exit code: exitInterrupted

@@ -79,3 +79,86 @@ func TestInstallFollowsSymlinkAndRefusesManaged(t *testing.T) {
 		t.Error("the managed binary was overwritten")
 	}
 }
+
+func TestInstallRelativeDirOnPathHasNoNote(t *testing.T) {
+	_, latest := allTools()
+	s := newSandbox(t, nil, latest)
+	t.Chdir(s.bin)
+	code, out, errs := runCmd("install", "tuner", "--dir", ".")
+	if code != 0 {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	if want := "Installed rhythm-tuner 0.2.0 to " + filepath.Join(s.bin, "rhythm-tuner") + "\n"; out != want {
+		t.Errorf("got %q, want %q", out, want)
+	}
+}
+
+func TestInstallNotesARealShadow(t *testing.T) {
+	_, latest := allTools()
+	s := newSandbox(t, nil, latest)
+	other := filepath.Join(s.dir, "other")
+	os.Mkdir(other, 0o755)
+	shadow := filepath.Join(other, "rhythm-tuner")
+	os.WriteFile(shadow, []byte("#!/bin/sh\n"), 0o755)
+	t.Setenv("PATH", other+string(os.PathListSeparator)+s.bin)
+
+	code, out, errs := runCmd("install", "tuner", "--dir", s.bin)
+	if code != 0 || !strings.Contains(out, "Note: "+shadow+" comes first on your PATH; remove it to use this install.\n") {
+		t.Errorf("exit %d\n%s%s", code, out, errs)
+	}
+	// A link on PATH that points at the new install is not a shadow.
+	os.Remove(shadow)
+	os.Symlink(filepath.Join(s.bin, "rhythm-tuner"), shadow)
+	if code, out, _ := runCmd("install", "tuner", "--dir", s.bin); code != 0 || strings.Contains(out, "Note:") {
+		t.Errorf("exit %d\n%s", code, out)
+	}
+}
+
+func TestInstallCreatesMissingDir(t *testing.T) {
+	_, latest := allTools()
+	s := newSandbox(t, nil, latest)
+	dir := filepath.Join(s.dir, "a", "b", "c")
+	code, out, errs := runCmd("install", "tuner", "--dir", dir)
+	if code != 0 {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "rhythm-tuner")); err != nil {
+		t.Error(err)
+	}
+	if !strings.Contains(out, "Note: "+dir+" isn't on your PATH.\n") {
+		t.Errorf("no PATH note:\n%s", out)
+	}
+}
+
+func TestInstallBadDirFailsBeforeDownload(t *testing.T) {
+	_, latest := allTools()
+	s := newSandbox(t, nil, latest)
+	file := filepath.Join(s.dir, "file")
+	os.WriteFile(file, nil, 0o644)
+	code, _, errs := runCmd("install", "tuner", "--dir", file)
+	if code != 1 || errs != "rhythm: "+file+" is a file, not a folder; pick a folder with --dir\n" {
+		t.Errorf("exit %d: %q", code, errs)
+	}
+
+	if os.Geteuid() != 0 { // root can write anywhere
+		ro := filepath.Join(s.dir, "ro")
+		os.Mkdir(ro, 0o555)
+		code, _, errs = runCmd("install", "tuner", "--dir", ro)
+		if code != 1 || !strings.Contains(errs, "can't write to "+ro+"; rerun with sudo, or install to a folder you own with --dir") {
+			t.Errorf("exit %d: %q", code, errs)
+		}
+	}
+	if r := s.api.requests(); len(r) != 0 {
+		t.Errorf("requests before the folder was checked: %v", r)
+	}
+}
+
+func TestInstallQuiet(t *testing.T) {
+	_, latest := allTools()
+	s := newSandbox(t, nil, latest)
+	dir := filepath.Join(s.dir, "off-path")
+	code, out, errs := runCmd("install", "tuner", "--dir", dir, "--quiet")
+	if want := "Installed rhythm-tuner 0.2.0 to " + filepath.Join(dir, "rhythm-tuner") + "\n"; code != 0 || out != want || errs != "" {
+		t.Errorf("exit %d: %q %q", code, out, errs)
+	}
+}
