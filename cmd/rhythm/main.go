@@ -12,11 +12,11 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"slices"
 	"sort"
 	"strings"
 	"syscall"
 
-	"github.com/RhythmShahriar/rhythm/kit"
 	"github.com/RhythmShahriar/rhythm/kit/cli"
 )
 
@@ -43,24 +43,6 @@ func register(c command) {
 	commands[c.name] = c
 }
 
-func init() {
-	register(command{
-		name: "version",
-		run: func(_ []string, stdout, _ io.Writer) int {
-			fmt.Fprintln(stdout, "rhythm", version)
-			return 0
-		},
-	})
-	register(command{
-		name:   "help",
-		hidden: true,
-		run: func(_ []string, stdout, _ io.Writer) int {
-			usage(stdout)
-			return 0
-		},
-	})
-}
-
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
 func run(args []string, stdout, stderr io.Writer) int {
@@ -68,8 +50,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		usage(stdout)
 		return 0
 	}
-	if args[0] == "--version" {
-		args[0] = "version"
+	if slices.Contains(versionFlags, args[0]) {
+		args = append([]string{"version"}, args[1:]...)
 	}
 	if c, ok := commands[args[0]]; ok {
 		return c.run(args[1:], stdout, stderr)
@@ -90,8 +72,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "rhythm: %s isn't installed\n  install it with: rhythm install %s\n", tool, tool)
 			return cli.ExitUnavailable
 		}
-		fmt.Fprintf(stderr, "rhythm: unknown tool %q\n  run 'rhythm help' to see the tools\n", tool)
-		return cli.ExitUsage
+		return unknownTool(stderr, tool)
 	}
 
 	env := toolEnv(os.Environ(), "rhythm "+args[0])
@@ -211,46 +192,4 @@ func visibleCommands() []command {
 	}
 	sort.Slice(cs, func(i, j int) bool { return cs[i].name < cs[j].name })
 	return cs
-}
-
-func usage(w io.Writer) {
-	fmt.Fprintln(w, kit.Banner("rhythm", version))
-	fmt.Fprint(w, "Usage:\n  rhythm <tool> [args]\n\nTools:\n")
-	labels := make([]string, len(registry))
-	width := 0
-	for i, t := range registry {
-		labels[i] = t.Name
-		if len(t.Aliases) > 0 {
-			labels[i] += " (" + strings.Join(t.Aliases, ", ") + ")"
-		}
-		width = max(width, len(labels[i]))
-	}
-	for i, t := range registry {
-		fmt.Fprintf(w, "  %-*s  %s\n", width, labels[i], t.Description)
-	}
-
-	fmt.Fprint(w, "\nCommands:\n")
-	cs := visibleCommands()
-	synopses := make([]string, len(cs))
-	width = 0
-	for i, c := range cs {
-		synopses[i] = strings.TrimSpace("rhythm " + c.name + " " + c.args)
-		width = max(width, len(synopses[i]))
-	}
-	for i, c := range cs {
-		if c.summary == "" {
-			fmt.Fprintf(w, "  %s\n", synopses[i])
-			continue
-		}
-		fmt.Fprintf(w, "  %-*s   %s\n", width, synopses[i], c.summary)
-	}
-
-	fmt.Fprint(w, `
-Exit codes:
-  0     success
-  1     findings (any other exit code from a tool also passes through)
-  2     usage error or unknown tool
-  3     tool not installed or can't start
-  130   interrupted
-`)
 }
