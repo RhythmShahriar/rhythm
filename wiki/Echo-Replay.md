@@ -1,4 +1,4 @@
-Many of a site's messages are triggered by a webhook coming **in**: Stripe says a payment succeeded, and the shop sends the order email, an SMS and a CRM update. `rhythm echo replay` sends a signed test webhook to your staging site and shows what the site sends in response. This page covers the event library, your own payloads, overriding fields, the signing schemes and their secrets, the safety rules, and why PayPal can't be replayed.
+Many of a site's messages are triggered by a webhook coming **in**: Stripe says a payment succeeded and the shop sends the order email, an SMS and a CRM update. `rhythm echo replay` sends a signed test webhook to your staging site and shows what the site sends in response. This page covers the event library, your own payloads, overriding fields, the signing schemes and their secrets, the safety rules and why PayPal can't be replayed.
 
 ```sh
 export ECHO_STRIPE_WEBHOOK_SECRET=whsec_…   # the staging endpoint's test signing secret
@@ -46,17 +46,17 @@ Name an event in full (`stripe/invoice.paid`) or by its type alone when that's u
 
 ## Your own payloads
 
-Any JSON file works too. Say how to sign it with `--scheme`, and give its event type with `--type` when the payload has no top-level `"type"`:
+Any JSON file works too. Say how to sign it with `--scheme`. Give its event type with `--type` when the payload has no top-level `"type"`:
 
 ```sh
 ECHO_WEBHOOK_SECRET=… rhythm echo replay lead.json --scheme hmac --to /hooks/lead -H "X-Source: crm"
 ```
 
-The scheme defaults to `hmac`. `-H "Name: value"` (repeatable) adds headers, but can't replace the signature headers.
+The scheme defaults to `hmac`. `-H "Name: value"` (repeatable) adds headers. It can't replace the signature headers.
 
 ## Overriding fields
 
-`--set path=value` changes one field before signing, and can be repeated; overrides apply in order:
+`--set path=value` changes one field before signing. It can be repeated; overrides apply in order:
 
 ```sh
 rhythm echo replay payment_intent.succeeded --to /?wc-api=wc_stripe \
@@ -64,21 +64,21 @@ rhythm echo replay payment_intent.succeeded --to /?wc-api=wc_stripe \
   --set data.object.metadata.order_id='"1042"'
 ```
 
-- Paths are dot-separated keys, with numbers indexing arrays: `line_items.0.quantity`. Missing objects are created, and an index one past the end appends.
-- The value is JSON when it parses as JSON (`2400`, `true`, `null`, `{"a":1}`), and a string otherwise, so `jamie@shop.test` needs no quotes and `'"1042"'` keeps a number-like value a string.
+- Paths are dot-separated keys, with numbers indexing arrays: `line_items.0.quantity`. Missing objects are created; an index one past the end appends.
+- The value is JSON when it parses as JSON (`2400`, `true`, `null`, `{"a":1}`). Otherwise it's a string, so `jamie@shop.test` needs no quotes and `'"1042"'` keeps a number-like value a string.
 
 ## Signing schemes
 
 | Scheme | Used for | Headers sent | Secret, from | Secret must be |
 |---|---|---|---|---|
 | `stripe` | Stripe | `Stripe-Signature: t=<time>,v1=<HMAC-SHA256 of "<time>.<body>">` | `ECHO_STRIPE_WEBHOOK_SECRET` | a `whsec_…` signing secret |
-| `standard` | [Standard Webhooks](https://www.standardwebhooks.com) and Svix senders: Resend, Clerk | `webhook-id`, `webhook-timestamp`, `webhook-signature: v1,<base64>`, and the same as `svix-*` | `ECHO_WEBHOOK_SECRET` | a `whsec_<base64>` key |
+| `standard` | [Standard Webhooks](https://www.standardwebhooks.com) and Svix senders: Resend, Clerk | `webhook-id`, `webhook-timestamp`, `webhook-signature: v1,<base64>` and the same as `svix-*` | `ECHO_WEBHOOK_SECRET` | a `whsec_<base64>` key |
 | `github` | GitHub | `X-Hub-Signature-256: sha256=…`, `X-GitHub-Event`, `X-GitHub-Delivery` | `ECHO_GITHUB_WEBHOOK_SECRET` | any |
 | `woocommerce` | WooCommerce webhooks, for receivers of them | `X-WC-Webhook-Signature` (base64 HMAC-SHA256 of the body), `X-WC-Webhook-Topic`, `-Resource`, `-Event`, `-ID`, `-Delivery-ID`, `-Source` | `ECHO_WC_WEBHOOK_SECRET` | any |
 | `hmac` | anything else | `X-Signature: <hex HMAC-SHA256 of the body>` | `ECHO_WEBHOOK_SECRET` | any |
 | `paypal` | | refused; see [PayPal](#paypal) | | |
 
-Every replay also sends `Content-Type: application/json`, a user agent like the provider's, and `X-Echo-Run`, which ties what the site sends to this replay. Library events are signed with their directory's scheme; `--scheme` is for your own files.
+Every replay also sends `Content-Type: application/json`, a user agent like the provider's and `X-Echo-Run`, which ties what the site sends to this replay. Library events are signed with their directory's scheme; `--scheme` is for your own files.
 
 The `hmac` scheme always sends `X-Signature` with a hex HMAC-SHA256 of the body; its header name, algorithm and encoding can't be changed from the command line or the config. For a receiver that verifies another way, write a small test of your own, or use the provider's own test tooling.
 
@@ -92,11 +92,11 @@ rhythm echo: no signing secret: set ECHO_STRIPE_WEBHOOK_SECRET to the endpoint's
 
 That's a usage error (exit `2`), printed after the replay's header and `Event:` line.
 
-Results show the secret only as `ECHO_STRIPE_WEBHOOK_SECRET=•••••`, and signatures by their first characters.
+Results show the secret only as `ECHO_STRIPE_WEBHOOK_SECRET=•••••`. Signatures show only their first characters.
 
 ## Safety rules
 
-Replay sends real requests, so it checks before it sends, and refuses with exit code `2`:
+Replay sends real requests, so it checks before it sends. It refuses with exit code `2`:
 
 | Rule | Refusal |
 |---|---|
@@ -106,7 +106,7 @@ Replay sends real requests, so it checks before it sends, and refuses with exit 
 | The payload must not say `"livemode": true` | `replay refused: the payload has "livemode": true; replays are for test-mode events only` |
 | The secret must not be a live key or an API key | `replay refused: ECHO_STRIPE_WEBHOOK_SECRET holds a Stripe API key, not a webhook signing secret (whsec_…)` |
 
-Redirects are never followed (a redirect could point anywhere, including production), and no proxy is used. A `staging:` entry matches on scheme, host and port, with the path at a segment boundary:
+Redirects are never followed (a redirect could point anywhere, including production). No proxy is used. A `staging:` entry matches on scheme, host and port, with the path at a segment boundary:
 
 ```yaml
 staging: ["https://staging.shop.test"]
@@ -118,11 +118,11 @@ staging: ["https://staging.shop.test"]
 rhythm echo: PayPal webhooks can't be replayed: receivers verify them by asking PayPal's API (POST /v1/notifications/verify-webhook-signature) or with PayPal's signing certificate, so no local secret can sign one. Use the PayPal sandbox instead: Developer Dashboard → Webhooks simulator, pointed at the staging URL, with sandbox credentials
 ```
 
-The library still has `paypal/PAYMENT.CAPTURE.COMPLETED` so you can see the payload's shape. To test a PayPal flow, use the sandbox's simulator with Echo running: the site's calls to PayPal's sandbox API are recorded, and faked unless you [allow](Echo-Sealing-Staging#the-allowlist) `*.sandbox.paypal.com`.
+The library still has `paypal/PAYMENT.CAPTURE.COMPLETED` so you can see the payload's shape. To test a PayPal flow, use the sandbox's simulator with Echo running: the site's calls to PayPal's sandbox API are recorded. They're faked unless you [allow](Echo-Sealing-Staging#the-allowlist) `*.sandbox.paypal.com`.
 
 ## Output and exit codes
 
-After the response, replay waits for what the site sends, until nothing new arrives for 1.5 s and at most `--wait` (default `5s`), and lists it. Async senders need more: raise `--wait`, or use a replay action with `flush:` commands.
+After the response, replay waits for what the site sends, until nothing new arrives for 1.5 s and at most `--wait` (default `5s`). Then it lists it. Async senders need more: raise `--wait`, or use a replay action with `flush:` commands.
 
 | Code | Meaning |
 |---|---|
@@ -153,7 +153,7 @@ actions:
       secret_env: ECHO_STRIPE_WEBHOOK_SECRET
 ```
 
-The same rules apply, and a non-2xx answer fails the action. See [Actions and compare](Echo-Actions-And-Compare#replay).
+The same rules apply. A non-2xx answer fails the action. See [Actions and compare](Echo-Actions-And-Compare#replay).
 
 ---
 <sub>← [With Soundcheck](Echo-With-Soundcheck) · [Home](Home) · [Deliverability](Echo-Deliverability) →</sub>

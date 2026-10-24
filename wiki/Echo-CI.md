@@ -1,6 +1,6 @@
-Run Echo on every pull request or deploy, and fail the pipeline when a message stops being sent. This page covers the GitHub Action with its modes, inputs and outputs, starting Echo for Soundcheck with `mode: up`, a snapshot and a compare in one job, the reports, and other CI systems.
+Run Echo on every pull request or deploy and fail the pipeline when a message stops being sent. This page covers the GitHub Action with its modes, inputs and outputs, starting Echo for Soundcheck with `mode: up`, a snapshot and a compare in one job, the reports and other CI systems.
 
-Echo has to run where the site's connector can reach it. In CI that usually means the site runs in the job too, with Docker Compose, `php artisan serve`, `next start` or similar, and its connector points at `http://127.0.0.1:8025`. To check a staging server, run `rhythm echo up` on that server and its actions from there.
+Echo has to run where the site's connector can reach it. In CI that usually means the site runs in the job too, with Docker Compose, `php artisan serve`, `next start` or similar. Its connector points at `http://127.0.0.1:8025`. To check a staging server, run `rhythm echo up` on that server and its actions from there.
 
 ## The GitHub Action
 
@@ -23,11 +23,11 @@ jobs:
           fail-on: error
 ```
 
-The action downloads the Echo release for the runner (Linux or macOS, `amd64` or `arm64`), checks it against the release's `checksums.txt`, and starts `rhythm-echo up` in the background, sealed. Unless the mode is `up`, it then runs the actions in your committed `.echo/config.yaml` with `--plain`, writes the reports, and stops Echo. It writes:
+The action downloads the Echo release for the runner (Linux or macOS, `amd64` or `arm64`), checks it against the release's `checksums.txt` and starts `rhythm-echo up` in the background, sealed. Unless the mode is `up`, it then runs the actions in your committed `.echo/config.yaml` with `--plain`, writes the reports and stops Echo. It writes:
 
 - the Markdown report into the **job summary**;
 - `echo-report.html` and `echo-junit.xml` into an artifact named **`echo-report`**;
-- an error annotation, and a failed job, when the result meets `fail-on`.
+- an error annotation and a failed job when the result meets `fail-on`.
 
 ### Modes
 
@@ -46,7 +46,7 @@ The action downloads the Echo release for the runner (Linux or macOS, `amd64` or
 | `name` | `ci` | Snapshot name, for mode `snapshot`. |
 | `fail-on` | `broke` for `compare`, `error` otherwise | Fail on changes at or above `broke`, `new` or `changed` (`compare`), or on issues at or above `error`, `warning` or `notice` (`run`, `snapshot`). `none` never fails. |
 | `seal` | `"true"` | `"true"` seals Echo: nothing leaves, Echo answers for every service. `"false"` observes: everything is recorded and sent for real. The older values `seal` and `observe` still work; anything else fails the step with `seal must be true or false, not …` (exit `2`). |
-| `listen` | `127.0.0.1:8025` | The API address. Use `0.0.0.0:8025` when the site runs in a service container; a token is then generated (the `token` output), and the `url` output is the runner's address. |
+| `listen` | `127.0.0.1:8025` | The API address. Use `0.0.0.0:8025` when the site runs in a service container; a token is then generated (the `token` output). The `url` output is the runner's address. |
 | `smtp` | `127.0.0.1:1025` | The SMTP sink address, or `off`. Use `0.0.0.0:1025` for a site in a service container; the sink then asks for the token as the SMTP password (any username). |
 | `args` | `""` | Extra flags for the command, split like a shell would (quotes group words) but never run through one, e.g. `--action 'Contact form' --verbose`. |
 | `version` | `latest` | Echo version to install, e.g. `1.0.0`. |
@@ -60,19 +60,19 @@ Echo reads its other settings (the proxy, the allowlist, the actions) from `.ech
 
 | Output | Description |
 |---|---|
-| `url` | Echo's API as the site under test reaches it, for its `RHYTHM_ECHO_URL`: `http://127.0.0.1:8025` by default, and the runner's own address (its first `hostname -I` address) when `listen` is `0.0.0.0`, so a service container can reach it. |
+| `url` | Echo's API as the site under test reaches it, for its `RHYTHM_ECHO_URL`: `http://127.0.0.1:8025` by default. It's the runner's own address (its first `hostname -I` address) when `listen` is `0.0.0.0`, so a service container can reach it. |
 | `smtp` | The SMTP sink as the site reaches it (`host:port`), the same way; empty when `smtp` is `off`. |
 | `token` | The token connectors must send when Echo listens beyond loopback; masked in logs. Empty on loopback. |
 | `exit-code` | The command's exit code: `0` ok, `1` `fail-on` hit, `2` usage error (flags or `.echo/config.yaml`), `3` couldn't run, `130` interrupted. |
 | `report` | Path of the standalone HTML report. |
 
-Later steps on the runner also get `RHYTHM_ECHO_URL`, always on loopback (`http://127.0.0.1:8025` even when `listen` is `0.0.0.0:8025`), and `RHYTHM_ECHO_TOKEN` when there's a token, in their environment.
+Later steps on the runner also get `RHYTHM_ECHO_URL`, always on loopback (`http://127.0.0.1:8025` even when `listen` is `0.0.0.0:8025`) in their environment. They get `RHYTHM_ECHO_TOKEN` too when there's a token.
 
-If Echo doesn't answer within about ten seconds of starting, the step prints Echo's log, reports `Echo didn't start at http://127.0.0.1:8025`, and fails with exit `3`. When the command exits `2` or higher, the step fails straight away and no reports are written. On `1`, the reports are written and uploaded first, then the job fails with `Echo found changes or issues at or above --fail-on broke. See the job summary and the echo-report artifact.` (with `its default` in place of the level when `fail-on` isn't set).
+If Echo doesn't answer within about ten seconds of starting, the step prints Echo's log, reports `Echo didn't start at http://127.0.0.1:8025` and fails with exit `3`. When the command exits `2` or higher, the step fails straight away and no reports are written. On `1`, the reports are written and uploaded first, then the job fails with `Echo found changes or issues at or above --fail-on broke. See the job summary and the echo-report artifact.` (with `its default` in place of the level when `fail-on` isn't set).
 
 ### A site in a container
 
-A site in a container can't reach the runner's loopback, so let Echo listen on every address, start Echo before the site, and give the site the `url`, `smtp` and `token` outputs:
+A site in a container can't reach the runner's loopback, so let Echo listen on every address, start Echo before the site and give the site the `url`, `smtp` and `token` outputs:
 
 ```yaml
       - uses: RhythmShahriar/echo@v1
@@ -144,7 +144,7 @@ To compare what forms send before and after a deploy in one job, take a Soundche
           fail-on: broke
 ```
 
-Each Echo step installs the release again, which takes a few seconds. Snapshots live in `.echo/` in the working directory, so both steps must run in the same job and directory, and the second checkout must keep it (`clean: false`, since `.echo/snapshots/` isn't committed).
+Each Echo step installs the release again, which takes a few seconds. Snapshots live in `.echo/` in the working directory, so both steps must run in the same job and directory. The second checkout must keep it (`clean: false`, since `.echo/snapshots/` isn't committed).
 
 ## Reports
 
@@ -201,7 +201,7 @@ To keep the whole `.echo/runs/` folder (each run's JSON and HTML), upload it you
 | Code | Meaning |
 |---|---|
 | `0` | Done; nothing at or above `--fail-on` (or no `--fail-on`) |
-| `1` | A change or issue at or above `--fail-on`; also `doctor` with a failed check, and `replay` when the site didn't answer 2xx |
+| `1` | A change or issue at or above `--fail-on`; also `doctor` with a failed check and `replay` when the site didn't answer 2xx |
 | `2` | Usage error: a bad flag or value, an unknown action, no actions or no snapshot to compare with, a refused replay |
 | `3` | Couldn't run: Echo isn't running, a command failed to start, a report couldn't be written |
 | `130` | Interrupted |

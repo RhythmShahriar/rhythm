@@ -1,4 +1,4 @@
-An **action** is something that makes your site send messages: a form post, a WP-CLI or artisan command, a replayed webhook. This page covers the actions you list in `.echo/config.yaml` and how each one runs, how messages are tied to the action that caused them, snapshots, and how `compare` matches messages, what it ignores, and what each class of change means.
+An **action** is something that makes your site send messages: a form post, a WP-CLI or artisan command, a replayed webhook. This page covers the actions you list in `.echo/config.yaml` and how each one runs, how messages are tied to the action that caused them and snapshots. It also covers how `compare` matches messages, what it ignores and what each class of change means.
 
 ```sh
 rhythm echo snapshot --name before-update   # run every action, save what each sent
@@ -25,7 +25,7 @@ actions:
     replay: {event: payment_intent.succeeded, to: /?wc-api=wc_stripe, secret_env: ECHO_STRIPE_WEBHOOK_SECRET}
 ```
 
-Each action has a `name`, unique in the file, and **exactly one** of `http`, `command` or `replay`. Mistakes stop the command before anything runs, with exit `2`:
+Each action has a `name` (unique in the file) and **exactly one** of `http`, `command` or `replay`. Mistakes stop the command before anything runs, with exit `2`:
 
 ```text
 rhythm echo: action "Contact form": set exactly one of http, command or replay
@@ -45,7 +45,7 @@ The second one is YAML, not Echo: a value containing `: ` (a command with `Subje
 | `body` | | A raw body. |
 | `headers` | | Extra headers. |
 
-The request carries the [run ID](#run-ids) as a header and a cookie, doesn't follow redirects, and times out after `timeout`. An answer of `400` or more fails the action (`POST https://staging.shop.test/contact returned 500 Internal Server Error`, `… returned 422 Unprocessable Entity`), so a form that rejects the test data doesn't pass as "sent nothing". Redirects (`3xx`) are fine. A URL that starts with one of the config's `production:` prefixes is refused: `refusing to run against https://shop.test/…: it's listed under production`.
+The request carries the [run ID](#run-ids) as a header and a cookie, doesn't follow redirects and times out after `timeout`. An answer of `400` or more fails the action (`POST https://staging.shop.test/contact returned 500 Internal Server Error`, `… returned 422 Unprocessable Entity`), so a form that rejects the test data doesn't pass as "sent nothing". Redirects (`3xx`) are fine. A URL that starts with one of the config's `production:` prefixes is refused: `refusing to run against https://shop.test/…: it's listed under production`.
 
 ### command
 
@@ -82,7 +82,7 @@ The action must send at least this many messages per channel; `email`, `sms`, `w
 
 ### Test data and environment values
 
-Values in an `http` action's URL, form, JSON, body and headers, and in a `command`, can use:
+Values in a `command` and in an `http` action's URL, form, JSON, body and headers can use:
 
 | Value | Becomes |
 |---|---|
@@ -107,7 +107,7 @@ A flush that fails is noted (`flush "…": exit status 1`) and doesn't fail the 
 
 ### Quiet and timeout
 
-After triggering an action and flushing, Echo waits until nothing new has arrived for `quiet` (default `2s`), and at most `timeout` (default `30s`), then records what came in. Raise `quiet` when messages trickle in slowly; lower it to speed up a long list of actions.
+After triggering an action and flushing, Echo waits until nothing new has arrived for `quiet` (default `2s`), up to at most `timeout` (default `30s`), then records what came in. Raise `quiet` when messages trickle in slowly; lower it to speed up a long list of actions.
 
 ### How an action runs
 
@@ -115,7 +115,7 @@ After triggering an action and flushing, Echo waits until nothing new has arrive
 2. It triggers the action, tagged with the run ID.
 3. It runs each `flush` command.
 4. It waits for quiet, as above.
-5. It closes the action, and checks each message it caught (see [Messages and checks](Echo-Messages-And-Checks#checks)).
+5. It closes the action and checks each message it caught (see [Messages and checks](Echo-Messages-And-Checks#checks)).
 
 Actions run one at a time, in the order of the file. `--action <name>` (repeatable, ignoring case) runs only some of them; a name that isn't in the config is a usage error, `no action named "nope"; the actions are: Contact form, Order shipped, Weekly digest`:
 
@@ -131,11 +131,11 @@ note: 1 action from the snapshot wasn't run this time
 
 Every action gets an ID of the form `<run>/<action>`, such as `2026-10-24T08-29-07-cd7ff3/action:contact-form`: the run's start time with a random suffix, then the action's name, lowercased, with runs of other characters turned into `-`. Renaming an action makes it a different action to `compare`.
 
-The ID reaches the site in several ways, and connectors look in this order:
+The ID reaches the site in several ways. Connectors look in this order:
 
 1. **The `X-Echo-Run` header** on the request that triggers the work. Echo's `http` actions and Soundcheck send it.
 2. **The `X-Echo-Run` cookie**, the same value URL-encoded, for handlers that read cookies but not headers.
-3. **Queued work** carries it on: the WordPress connector stores it with each WP-Cron event and Action Scheduler action scheduled during the request, Laravel keeps it in the job's Context, and the Node connector in `withEchoRun()` scopes.
+3. **Queued work** carries it on: the WordPress connector stores it with each WP-Cron event and Action Scheduler action scheduled during the request, Laravel keeps it in the job's Context and the Node connector in `withEchoRun()` scopes.
 4. **`RHYTHM_ECHO_RUN`** in the environment, for commands and workers.
 
 A message with none of these still lands in whatever action is open when it arrives, which covers plain SMTP mail and a cron job Echo flushed. Messages that arrive outside any action (`rhythm echo watch` while you click around) belong to no run.
@@ -144,7 +144,7 @@ A tool of your own can do the same: send `X-Echo-Run: <run>/<action>` on your re
 
 ## Snapshots
 
-`snapshot` runs every action and saves the run as `.echo/snapshots/<name>/run.json`, with a `report.html`. Without `--name`, the name is the date and time, such as `2026-10-24T08-19-22`. Names use letters, digits, dots, dashes and underscores, up to 64 characters, and start with a letter or digit. A snapshot with the same name is replaced once the new one is complete; the newest snapshot becomes the *latest*, the one `compare` uses.
+`snapshot` runs every action and saves the run as `.echo/snapshots/<name>/run.json`, with a `report.html`. Without `--name`, the name is the date and time, such as `2026-10-24T08-19-22`. Names use letters, digits, dots, dashes and underscores, up to 64 characters. They start with a letter or digit. A snapshot with the same name is replaced once the new one is complete; the newest snapshot becomes the *latest*, the one `compare` uses.
 
 ```sh
 rhythm echo snapshots
@@ -155,7 +155,7 @@ NAME                     ACTIONS  TAKEN        SENT
 before-update            3        1m ago       3 emails, 1 SMS, 1 chat message, 1 webhook  (latest)
 ```
 
-`rhythm echo compare --snapshot <name>` compares with another one, and `rhythm echo snapshots delete <name>` (or `rm`) removes one. Deleting the latest snapshot makes the newest remaining one, by the time it was taken, the latest:
+`rhythm echo compare --snapshot <name>` compares with another one. `rhythm echo snapshots delete <name>` (or `rm`) removes one. Deleting the latest snapshot makes the newest remaining one, by the time it was taken, the latest:
 
 ```text
 $ rhythm echo snapshots delete after-update
@@ -163,13 +163,13 @@ Deleted snapshot after-update
 The latest snapshot is now before-update
 ```
 
-A snapshot is written to `.echo/snapshots/.incoming-<name>` while it runs and moved into place when it's complete, so a snapshot that fails leaves nothing behind, and the listing never shows one in progress.
+A snapshot is written to `.echo/snapshots/.incoming-<name>` while it runs and moved into place when it's complete, so a snapshot that fails leaves nothing behind. The listing never shows one in progress.
 
 A snapshot reports the problems the site has now (an unfilled placeholder already in a template), so you know the starting point; `compare` then reports only what changed.
 
 ## Reading a comparison
 
-`compare` runs the actions again from the current config, matches each action by its ID, and diffs the messages each one sent. An action the snapshot doesn't have is run too, and everything it sends is listed as NEW, without checking those messages for problems (`run` shows them); actions missing this time are noted.
+`compare` runs the actions again from the current config, matches each action by its ID and diffs the messages each one sent. An action the snapshot doesn't have is run too. Everything it sends is listed as NEW, without checking those messages for problems (`run` shows them); actions missing this time are noted.
 
 ### The classes
 
@@ -177,7 +177,7 @@ A snapshot reports the problems the site has now (an unfilled placeholder alread
 |---|---|---|
 | **BROKE** | Worked in the snapshot, fails or is missing now | a message is no longer sent; a message now fails; the action itself fails; a new error in a message (an unfilled placeholder, a PHP warning, a failed `expect`) |
 | **NEW** | Wasn't there before | a message is now sent; a new warning or notice |
-| **CHANGED** | The same message, but different: check it's intended | recipients' copies, subject, sender, Reply-To, text, event, payload fields, fewer or more sends |
+| **CHANGED** | The same message with differences: check it's intended | recipients' copies, subject, sender, Reply-To, text, event, payload fields, fewer or more sends |
 | **FIXED** | A problem from the snapshot is gone | an error, warning or notice that's no longer reported |
 
 | Check | Class | Title | Before → after |
@@ -204,17 +204,17 @@ Issues found in messages (see [Messages and checks](Echo-Messages-And-Checks#che
 Two messages are *the same message* when they have the same **identity**:
 
 - email, SMS and WhatsApp: the channel, the service and the recipients;
-- everything else: the channel, the provider, the method, the host, the path with IDs replaced by `{id}` (`/v1/orders/123` and `/v1/orders/456` match), and the event.
+- everything else: the channel, the provider, the method, the host, the path with IDs replaced by `{id}` (`/v1/orders/123` and `/v1/orders/456` match) and the event.
 
-Several messages can share an identity, such as a welcome email and an account email to the same address. Within an identity, messages are paired by subject (and event) first, then whatever is left in order, so a changed subject reads as a change rather than one message lost and another new. Each pair is compared for content. A message left over in the snapshot is **no longer sent** (`sent` → `not sent`), and one left over in this run is **now sent**, unless it's the same message as one already paired, which reads as **sent fewer times** or **sent more times**. When several messages share an identity, titles add the subject: `Email to team@shop.test ("Weekly digest") is sent more times`. A Zapier, Make or n8n hook is named by its masked URL, since each URL is its own Zap or scenario.
+Several messages can share an identity, such as a welcome email and an account email to the same address. Within an identity, messages are paired by subject (and event) first, then whatever is left in order, so a changed subject reads as a change rather than one message lost and another new. Each pair is compared for content. A message left over in the snapshot is **no longer sent** (`sent` → `not sent`). One left over in this run is **now sent**, unless it's the same message as one already paired, which reads as **sent fewer times** or **sent more times**. When several messages share an identity, titles add the subject: `Email to team@shop.test ("Weekly digest") is sent more times`. A Zapier, Make or n8n hook is named by its masked URL, since each URL is its own Zap or scenario.
 
 Before anything is compared, what varies on every run is normalized away:
 
 | What | Becomes |
 |---|---|
 | `echo-test…@…` and `soundcheck-test…@…` addresses | "the test submitter" |
-| `+1555` followed by seven digits, and `+15005550…` numbers | "the test number" |
-| The subject | numbers replaced by `#` (`#1042` becomes `#`) and test names by `{name}`, and case ignored, so `Order #1041` and `Order #1042` match |
+| `+1555` followed by seven digits and `+15005550…` numbers | "the test number" |
+| The subject | numbers replaced by `#` (`#1042` becomes `#`) and test names by `{name}`, with case ignored, so `Order #1041` and `Order #1042` match |
 | The text | fingerprinted without numbers, dates, times, long hex and token-like strings, test data and whitespace |
 | A JSON payload | its field paths (`order.total`, `line_items[].sku`); a form body, its keys |
 
@@ -242,7 +242,7 @@ Display names (`Amazon SES email`, `Zapier webhook`, `request to <host>`) are pa
 
 ### Failing a build
 
-`--fail-on broke|new|changed` makes `compare` exit `1` when there's a change at or above that class: `new` fails on BROKE or NEW, `changed` on anything but FIXED. For `run` and `snapshot`, `--fail-on error|warning|notice` works on the problems found, and an action that fails (its request errors, its command exits non-zero) counts at every level. There's no `none`: leave the flag out. A value of the wrong kind is a usage error:
+`--fail-on broke|new|changed` makes `compare` exit `1` when there's a change at or above that class: `new` fails on BROKE or NEW, `changed` on anything but FIXED. For `run` and `snapshot`, `--fail-on error|warning|notice` works on the problems found. An action that fails (its request errors, its command exits non-zero) counts at every level. There's no `none`: leave the flag out. A value of the wrong kind is a usage error:
 
 ```text
 rhythm echo: --fail-on "error": want broke, new or changed
@@ -266,7 +266,7 @@ rhythm echo report --open           # open the HTML report
 | Format | Flag | |
 |---|---|---|
 | Terminal | (default) | The live view, styled; `--plain` (or any output that isn't a terminal) gives plain text with every detail. |
-| HTML | `--html`, `-o report.html` | One file: actions with their messages (emails in a sandboxed frame, SMS and chat as bubbles, payloads as sent, and each answer), changes on top. |
+| HTML | `--html`, `-o report.html` | One file: actions with their messages (emails in a sandboxed frame, SMS and chat as bubbles, payloads as sent and each answer), changes on top. |
 | Markdown | `--md` | The verdict, a count table, then a table per class with the change, actions, before → after and fix. Fits a pull request comment or a job summary. |
 | JSON | `--json` | The comparison, or the run (schema `rhythm-echo/v1`). |
 | JUnit | `--junit` | A test suite per class (`echo.broke`, `echo.new`…) and a test case per change; cases at or above `--fail-on` (BROKE and NEW without it) are failures. |

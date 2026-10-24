@@ -4,21 +4,21 @@ Answers to common questions and fixes for common problems with Echo. If yours is
 
 ### Why not Mailpit?
 
-Mailpit, MailHog, Mailtrap and smtp4dev are good mail catchers, and if all you need is an inbox for one app's SMTP mail, use one. Echo does three things they don't:
+Mailpit, MailHog, Mailtrap and smtp4dev are good mail catchers. If all you need is an inbox for one app's SMTP mail, use one. Echo does three things they don't:
 
-- **It compares.** A catcher shows you an inbox. Echo records what each action sent, then tells you after an update that the office's copy of the contact form is gone, the SMS now has `{first_name}` in it, and the Zapier payload lost a field.
-- **Every channel, not only SMTP.** Most of what a modern site sends isn't SMTP at all: API mailers (SendGrid, Postmark, Resend), SMS, WhatsApp, Slack, webhooks, GA4 and Meta events, payment calls. Echo catches them through the connector or its proxy, recognizes 34 services, and answers each one the way the service would, so the site carries on.
-- **It seals.** Pointing the mailer at a catcher stops email. It doesn't stop the SMS plugin, the WooCommerce webhook to the live CRM, or the purchase event that feeds your ads. Echo's seal covers them, and refuses live payment calls in every mode.
+- **It compares.** A catcher shows you an inbox. Echo records what each action sent, then tells you after an update that the office's copy of the contact form is gone, the SMS now has `{first_name}` in it and the Zapier payload lost a field.
+- **Every channel, not only SMTP.** Most of what a modern site sends isn't SMTP at all: API mailers (SendGrid, Postmark, Resend), SMS, WhatsApp, Slack, webhooks, GA4 and Meta events, payment calls. Echo catches them through the connector or its proxy, recognizes 34 services and answers each one the way the service would, so the site carries on.
+- **It seals.** Pointing the mailer at a catcher stops email. It doesn't stop the SMS plugin, the WooCommerce webhook to the live CRM or the purchase event that feeds your ads. Echo's seal covers them and refuses live payment calls in every mode.
 
 `rhythm echo up` also answers Mailpit's read routes for email (`/api/v1/messages` and friends), so tests written against Mailpit's API keep working; see [API](Echo-API#mailpit-style-routes).
 
 ### Is it safe to run on production?
 
-`check` and `headers` are: they only read DNS and files. Everything else is for staging and local sites. The connectors do nothing in production (`WP_ENVIRONMENT_TYPE`, `APP_ENV`, `NODE_ENV`, `VERCEL_ENV`), Echo's actions refuse URLs you list under `production:`, and `doctor` fails when `site:` is one of them.
+`check` and `headers` are: they only read DNS and files. Everything else is for staging and local sites. The connectors do nothing in production (`WP_ENVIRONMENT_TYPE`, `APP_ENV`, `NODE_ENV`, `VERCEL_ENV`), Echo's actions refuse URLs you list under `production:` and `doctor` fails when `site:` is one of them.
 
 ### Where did my messages go?
 
-The running catcher keeps messages in memory, the newest 10,000, and forgets them when it stops. What actions sent is saved in `.echo/snapshots/` and `.echo/runs/`, and `rhythm echo report` shows it again. To keep what you captured while clicking around, run an action, or save `rhythm echo ls --json` to a file.
+The running catcher keeps the newest 10,000 messages in memory and forgets them when it stops. What actions sent is saved in `.echo/snapshots/` and `.echo/runs/`; `rhythm echo report` shows it again. To keep what you captured while clicking around, run an action, or save `rhythm echo ls --json` to a file.
 
 ## Connecting a site
 
@@ -31,7 +31,7 @@ Work down this list:
 3. **Does it go through a hook the connector patches?** On WordPress, that's `wp_mail()` and `wp_remote_*()`. SDKs that call cURL themselves (the Twilio and Stripe PHP SDKs, WP Mail SMTP's Gmail mailer) don't: add [the proxy](Echo-Install-Connectors#proxy-and-ca-for-raw-curl). In Laravel, `new GuzzleHttp\Client()` and SDKs with their own HTTP stack; in Node, a separate `undici`, `http2` or raw sockets. The proxy covers those too.
 4. **Did something replace `wp_mail()` before Echo loaded?** `doctor` shows the warning *wp_mail() was already defined (…)*. Echo then catches mail through `pre_wp_mail` and `phpmailer_init`, which a replacement may skip. Find the plugin in the warning's path.
 5. **Is it sent later?** WooCommerce webhooks, many notifications and anything queued go out with WP-Cron, Action Scheduler or a queue worker, after the action is over. Add a `flush:` command; see [Flush queued work](Echo-Actions-And-Compare#flush-queued-work).
-6. **Did it arrive, but in no action?** `rhythm echo ls` shows everything. A message outside any action came without a run ID, after the action closed. Raise `quiet`, or make sure the request that triggers it carries `X-Echo-Run`.
+6. **Did it arrive outside any action?** `rhythm echo ls` shows everything. A message outside any action came without a run ID, after the action closed. Raise `quiet`, or make sure the request that triggers it carries `X-Echo-Run`.
 
 Platform update checks (`api.wordpress.org`, `repo.packagist.org`) are let through without being recorded, on purpose; see [What passes through](Echo-Sealing-Staging#what-passes-through).
 
@@ -61,7 +61,7 @@ For a stack that's all in Compose, run Echo as a service instead; the [hard seal
 
 ### doctor says a layer failed
 
-On a terminal, a failed check starts with `✗` and a note with `·`; with `--plain` they start with `FAIL` and `note`, and passed checks with `ok`.
+On a terminal, a failed check starts with `✗` and a note with `·`; with `--plain` they start with `FAIL` and `note`. Passed checks start with `ok`.
 
 | Line | Means | Fix |
 |---|---|---|
@@ -83,7 +83,7 @@ PHP's opcache may keep serving the old file for a moment: the official `wordpres
 
 With `--mitm`, the proxy presents certificates from Echo's own CA, so each client must trust it. Most read the system store or an environment variable (see [the table](Echo-Install-Connectors#the-https-proxy)). Some ship their own CA bundle and ignore all of these:
 
-- **Stripe's PHP SDK** uses its own `data/ca-certificates.crt`. Call `\Stripe\Stripe::setCABundlePath('/etc/rhythm-echo/bundle.pem')`. Allowlisting `api.stripe.com` doesn't help here: payment APIs are never tunnelled blind, so with `--mitm` Echo still decrypts Stripe calls (to tell test keys from live ones), and without it refuses them.
+- **Stripe's PHP SDK** uses its own `data/ca-certificates.crt`. Call `\Stripe\Stripe::setCABundlePath('/etc/rhythm-echo/bundle.pem')`. Allowlisting `api.stripe.com` doesn't help here: payment APIs are never tunnelled blind. With `--mitm` Echo still decrypts Stripe calls (to tell test keys from live ones); without it, Echo refuses them.
 - **WordPress** verifies against `wp-includes/certificates/ca-bundle.crt`: install the connector with `--ca`, which adds Echo's CA to that bundle.
 - **Python's `certifi`** (used by `requests`): set `REQUESTS_CA_BUNDLE` to a bundle of the system CAs plus Echo's.
 - **Java** keeps its own keystore: import `ca.pem` with `keytool -importcert`.
@@ -94,7 +94,7 @@ A client that **replaces** its store with Echo's certificate alone breaks for al
 cat /etc/ssl/certs/ca-certificates.crt "$(rhythm echo ca)" > /etc/rhythm-echo/bundle.pem
 ```
 
-When the TLS handshake fails, the client usually says `self-signed certificate in certificate chain` (curl's error 60), and nothing is recorded.
+When the TLS handshake fails, the client usually says `self-signed certificate in certificate chain` (curl's error 60). Nothing is recorded.
 
 ## Actions and comparisons
 
@@ -104,7 +104,7 @@ An action with `expect:` waits until enough messages arrive. When they don't, it
 
 ### Everything shows as CHANGED
 
-Usually a value that changes on every run reaches a message: a real address typed into an action, a random reference in the subject. Use `${fake:email}`, `${fake:name}` and `${fake:phone}` in actions, which Echo recognizes as test data, and check what differs with `rhythm echo report --plain`. Numbers, dates and token-like strings are already ignored; see [How messages are matched](Echo-Actions-And-Compare#how-messages-are-matched).
+Usually a value that changes on every run reaches a message: a real address typed into an action, a random reference in the subject. Use `${fake:email}`, `${fake:name}` and `${fake:phone}` in actions; Echo recognizes them as test data. Check what differs with `rhythm echo report --plain`. Numbers, dates and token-like strings are already ignored; see [How messages are matched](Echo-Actions-And-Compare#how-messages-are-matched).
 
 ### "no snapshot named …"
 
@@ -116,7 +116,7 @@ An action was renamed, removed, or left out with `--action`. Actions are matched
 
 ### A snapshot from an earlier build shows changes nobody made
 
-Problem titles use the services' display names (`Amazon SES email`, `Zapier webhook`, `request to <host>`), and an older build used other names. Compared with a snapshot taken before that, the same problems can show as NEW and FIXED. Take a new snapshot.
+Problem titles use the services' display names (`Amazon SES email`, `Zapier webhook`, `request to <host>`). An older build used other names. Compared with a snapshot taken before that, the same problems can show as NEW and FIXED. Take a new snapshot.
 
 ### A replay is refused
 
@@ -126,7 +126,7 @@ Each refusal says which rule it hit; see [Safety rules](Echo-Replay#safety-rules
 
 Open an issue on the [Echo repository](https://github.com/RhythmShahriar/echo/issues) with:
 
-- `rhythm echo --version`, your OS, and the stack and connector (WordPress, Laravel or Node version);
+- `rhythm echo --version`, your OS and the stack and connector (WordPress, Laravel or Node version);
 - the command you ran and its output, with `--plain`;
 - `rhythm echo doctor` output;
 - for a missed or misrecognized message, the request as `rhythm echo show <id>` prints it, with real data removed.

@@ -1,4 +1,4 @@
-A connector is the part of Echo that lives inside your site. It hooks the site's mailer and HTTP client, reports every message to Echo before it leaves, and obeys Echo's answer. This page covers each connector: WordPress, Laravel, Next.js and Node, and the generic route (SMTP, `sendmail` and the HTTPS proxy) for anything else, with what each one hooks and what it can't see.
+A connector is the part of Echo that lives inside your site. It hooks the site's mailer and HTTP client, reports every message to Echo before it leaves and obeys Echo's answer. This page covers each connector (WordPress, Laravel, Next.js and Node) plus the generic route for anything else (SMTP, `sendmail` and the HTTPS proxy). For each one it says what it hooks and what it can't see.
 
 ```sh
 rhythm echo install wordpress /var/www/staging   # writes the mu-plugin
@@ -19,7 +19,7 @@ WordPress is installed for real. For the other stacks, `install` prints the pack
 | **Next.js · Node** | `@rhythmsh/echo` (npm) | `fetch` (Node and Edge), `http`/`https` (axios, most SDKs), Nodemailer | a separate `undici` package, `http2`, raw sockets |
 | **Anything** | SMTP sink, `rhythm-echo sendmail`, HTTPS proxy | mail and outbound HTTP(S) from any language | traffic that ignores the proxy: use a [hard seal](Echo-Sealing-Staging#hard-seals) |
 
-Every connector switches itself off in production, and fails closed: if it can't reach Echo while sealed, it refuses to send rather than let the message out.
+Every connector switches itself off in production and fails closed: if it can't reach Echo while sealed, it refuses to send rather than let the message out.
 
 ## WordPress
 
@@ -69,7 +69,7 @@ The connector is one file, `wp-content/mu-plugins/rhythm-echo.php`, embedded in 
 | `--force` | off | Run even when WordPress says this is production. Only for a production-like box that isn't production. |
 | `--wp-cli`, `--container <name>`, `--uninstall` | | See above. |
 
-The installer reads `.echo/config.yaml` (or `--config <file>`) for the addresses Echo runs on: `listen` for the default `--url`, and `smtp` and `proxy` for the lines the other stacks print. Pass `--url` when the site reaches Echo at another address than the config's, such as `host.docker.internal` from a container.
+The installer reads `.echo/config.yaml` (or `--config <file>`) for the addresses Echo runs on: `listen` for the default `--url`; `smtp` and `proxy` for the lines the other stacks print. Pass `--url` when the site reaches Echo at another address than the config's, such as `host.docker.internal` from a container.
 
 ### Settings precedence
 
@@ -98,8 +98,8 @@ To remove the connector, run `rhythm echo install wordpress <path> --uninstall`,
 
 | Hook | Catches |
 |---|---|
-| its own `wp_mail()` | Every email WordPress, a plugin or a theme sends. Sealed, the message is reported and not sent; the caller gets `true`. Observed, it's sent the way core sends it, with core's filters and actions, and the outcome is reported. |
-| `pre_wp_mail`, `phpmailer_init` | A fallback for when something defined `wp_mail()` first. Echo still catches mail sent through those hooks, and `doctor` shows the warning: *wp_mail() was already defined (…) before Rhythm Echo loaded…* |
+| its own `wp_mail()` | Every email WordPress, a plugin or a theme sends. Sealed, the message is reported and not sent; the caller gets `true`. Observed, it's sent the way core sends it, with core's filters and actions. The outcome is reported. |
+| `pre_wp_mail`, `phpmailer_init` | A fallback for when something defined `wp_mail()` first. Echo still catches mail sent through those hooks. `doctor` shows the warning: *wp_mail() was already defined (…) before Rhythm Echo loaded…* |
 | `pre_http_request` | Every `wp_remote_*()` call, before it's sent: API mailers (SendGrid, Mailgun, Postmark and others), SMS plugins, WooCommerce webhooks, Slack, GA4, Meta CAPI, CRMs. Echo answers *allow*, *fake* (a provider-shaped response) or *block* (a `WP_Error`). |
 | `http_api_debug` | The response of each allowed request, so observe mode records whether it worked. |
 | cron and Action Scheduler | The run ID of the request that scheduled an event or action is stored with it and restored when it runs, so queued mail and webhooks are tied to the action that caused them. |
@@ -108,7 +108,7 @@ The site's own host (cron and Action Scheduler loopbacks) and Echo itself are ne
 
 ### Proxy and CA for raw cURL
 
-The Twilio and Stripe PHP SDKs, and some mailers, call cURL directly, so `pre_http_request` never sees them. With `--proxy`, the connector sets `https_proxy` and `http_proxy` (and `no_proxy` for the site, Echo and loopback) at the start of each request, which libcurl reads for every handle without its own proxy. With `--ca`, Echo's CA is appended to the WordPress HTTP API's bundle so requests that reach the decrypting proxy verify:
+The Twilio and Stripe PHP SDKs and some mailers call cURL directly, so `pre_http_request` never sees them. With `--proxy`, the connector sets `https_proxy` and `http_proxy` (and `no_proxy` for the site, Echo and loopback) at the start of each request, which libcurl reads for every handle without its own proxy. With `--ca`, Echo's CA is appended to the WordPress HTTP API's bundle so requests that reach the decrypting proxy verify:
 
 ```sh
 rhythm echo up --proxy 127.0.0.1:8026 --mitm
@@ -119,7 +119,7 @@ rhythm echo install wordpress /var/www/staging --proxy http://127.0.0.1:8026 --c
 
 ### Fail closed
 
-When sealed and Echo can't be reached, `wp_mail()` returns `false` and fires `wp_mail_failed`, `wp_remote_*()` returns a `WP_Error`, and the PHP error log says why:
+When sealed and Echo can't be reached, `wp_mail()` returns `false` and fires `wp_mail_failed`; `wp_remote_*()` returns a `WP_Error`. The PHP error log says why:
 
 ```text
 Rhythm Echo: email http://host.docker.internal:8025/v1/capture failed (Failed to connect to host.docker.internal port 8025 after 0 ms: Could not connect to server); sealed, so it was not sent
@@ -133,7 +133,7 @@ The connector adds two REST routes for `rhythm echo doctor`:
 
 | Route | Method | Does |
 |---|---|---|
-| `/wp-json/rhythm-echo/v1/ping` (or `?rest_route=/rhythm-echo/v1/ping`) | GET | Whether the connector is active and why not, the environment, the email layer, the proxy, warnings, and whether the site can reach Echo. |
+| `/wp-json/rhythm-echo/v1/ping` (or `?rest_route=/rhythm-echo/v1/ping`) | GET | Whether the connector is active and why not, the environment, the email layer, the proxy, warnings and whether the site can reach Echo. |
 | `/wp-json/rhythm-echo/v1/canary` | POST | Sends one `wp_mail()` to `canary@echo.invalid` and one `wp_remote_post()` to `https://canary.echo.invalid/`, so `doctor` can check both are caught. `.invalid` addresses can't be delivered even when unsealed. |
 
 With a token configured, both routes need `X-Echo-Token`. Without one, an administrator, or a request from the same machine or a private network (Echo on the Docker host), may call them; anyone else gets `401 rest_forbidden`.
@@ -186,7 +186,7 @@ through Echo's proxy: rhythm echo up --proxy 127.0.0.1:8026 --mitm, then set
 HTTPS_PROXY=http://127.0.0.1:8026 and trust: /home/you/.cache/rhythm/echo/ca/ca.pem (rhythm echo ca creates it)
 ```
 
-The package supports Laravel 11, 12 and 13 on PHP 8.2 or later, and its service provider is auto-discovered. With a token, a `RHYTHM_ECHO_TOKEN=<the token you started Echo with>` line is added under `RHYTHM_ECHO_URL`. The `(rhythm echo ca creates it)` note goes away once the CA exists.
+The package supports Laravel 11, 12 and 13 on PHP 8.2 or later. Its service provider is auto-discovered. With a token, a `RHYTHM_ECHO_TOKEN=<the token you started Echo with>` line is added under `RHYTHM_ECHO_URL`. The `(rhythm echo ca creates it)` note goes away once the CA exists.
 
 ### Environment
 
@@ -200,7 +200,7 @@ Everything is set from the environment. To have the file, publish it with `php a
 | `force` | `RHYTHM_ECHO_FORCE` | `false` | Run even when `APP_ENV=production`. |
 | `mode` | `RHYTHM_ECHO_MODE` | `seal` | What to assume when Echo can't be reached: `seal` fails closed, `observe` lets traffic through. |
 | `timeout` | `RHYTHM_ECHO_TIMEOUT` | `2` | Seconds to wait for Echo. |
-| `guzzle` | `RHYTHM_ECHO_GUZZLE` | `true` | Also cover Guzzle clients the container builds, and the Vonage client. |
+| `guzzle` | `RHYTHM_ECHO_GUZZLE` | `true` | Also cover Guzzle clients the container builds and the Vonage client. |
 
 The `testing` environment is off by default, so your own test suite keeps its `Mail::fake()` and `Http::fake()`.
 
@@ -214,7 +214,7 @@ The `testing` environment is off by default, so your own test suite keeps its `M
 | Vonage SMS notifications | yes, with `guzzle` on |
 | `new GuzzleHttp\Client()`, raw cURL, SDKs with their own HTTP stack (Twilio and Stripe PHP SDKs, AWS SDK) | **no**: use the proxy |
 
-Sealed, mail is kept and the app sees a normal send; a sealed HTTP call gets Echo's response (`fake`) or a `ConnectionException` (`block`). Observed, the real transport sends, and the outcome is reported against the same message. If Echo can't be reached while sealed, mail fails with a `TransportException` and HTTP with a `ConnectionException`; the `array` and `log` mailers keep working.
+Sealed, mail is kept and the app sees a normal send; a sealed HTTP call gets Echo's response (`fake`) or a `ConnectionException` (`block`). Observed, the real transport sends. The outcome is reported against the same message. If Echo can't be reached while sealed, mail fails with a `TransportException` and HTTP with a `ConnectionException`; the `array` and `log` mailers keep working.
 
 For clients the package can't see, run the worker or server through the proxy and trust Echo's CA in `openssl.cafile` or `curl.cainfo`:
 
@@ -237,7 +237,7 @@ flush: ["php artisan queue:work --stop-when-empty"]
 
 ### Commands
 
-- `php artisan echo:status [--json]`: whether the connector is active and why not, Echo's URL and mode, and a ping of Echo. Exits non-zero when it's off or Echo can't be reached.
+- `php artisan echo:status [--json]`: whether the connector is active and why not, Echo's URL and mode and a ping of Echo. Exits non-zero when it's off or Echo can't be reached.
 - `php artisan echo:canary [--json]`: sends one mail to `canary@echo.invalid` and one `POST https://canary.echo.invalid/` through the default mailer and the `Http` facade. `rhythm echo doctor`, run from the Laravel project (where `artisan` is), calls it and checks both arrive.
 
 ## Next.js and Node
@@ -287,7 +287,7 @@ You already have instrumentation.ts; add this inside its register(), which must 
   await registerEcho();
 ```
 
-`register()` runs in both runtimes: on **Node.js** it hooks `fetch`, `http`/`https` and Nodemailer; on **Edge** it hooks `fetch`. Next.js bundles server dependencies, and the connector can't reach a bundled Nodemailer, so `withEcho` adds `nodemailer` to `serverExternalPackages` and changes nothing else. On Next.js 14, add `nodemailer` to `experimental.serverComponentsExternalPackages` yourself.
+`register()` runs in both runtimes: on **Node.js** it hooks `fetch`, `http`/`https` and Nodemailer; on **Edge** it hooks `fetch`. Next.js bundles server dependencies. The connector can't reach a bundled Nodemailer, so `withEcho` adds `nodemailer` to `serverExternalPackages` and changes nothing else. On Next.js 14, add `nodemailer` to `experimental.serverComponentsExternalPackages` yourself.
 
 Route handlers, server actions and dynamic pages get the run ID automatically. In middleware and `after()` callbacks, wrap the work in `withEchoRun(request, fn)`.
 
@@ -324,19 +324,19 @@ Scripts and cron jobs run with `node --import @rhythmsh/echo/register script.js`
 
 `register(options)` takes the same settings in code (`url`, `token`, `force`, `site`) plus `maxBody` (default 256 KiB), `timeout` (milliseconds, default 5000), `logger` and `captureLoopback`.
 
-`rhythm echo install node` prints the install line (`npm install --save-dev @rhythmsh/echo`, or a regular dependency if staging installs without dev dependencies), the `--import` line and `RHYTHM_ECHO_URL`, and says: *The connector is off on VERCEL_ENV=production, and on NODE_ENV=production unless RHYTHM_ECHO_URL is set: setting it there turns the connector on.*
+`rhythm echo install node` prints the install line (`npm install --save-dev @rhythmsh/echo`, or a regular dependency if staging installs without dev dependencies), the `--import` line and `RHYTHM_ECHO_URL`. Then it says: *The connector is off on VERCEL_ENV=production, and on NODE_ENV=production unless RHYTHM_ECHO_URL is set: setting it there turns the connector on.*
 
-The connector stays inert, with no hooks installed, when `VERCEL_ENV=production`, when `NODE_ENV=production` outside Vercel unless `RHYTHM_ECHO_URL` is set, and during `next build`. Preview and development deployments activate it, including `next start` on a preview. When active, it logs one line per runtime, such as `[rhythm-echo] active (VERCEL_ENV=preview, nodejs): capturing fetch, http, https, nodemailer via …`. Sealed and unable to reach Echo, requests fail as network errors and Nodemailer rejects.
+The connector stays inert, with no hooks installed, when `VERCEL_ENV=production`, when `NODE_ENV=production` outside Vercel unless `RHYTHM_ECHO_URL` is set, or during `next build`. Preview and development deployments activate it, including `next start` on a preview. When active, it logs one line per runtime, such as `[rhythm-echo] active (VERCEL_ENV=preview, nodejs): capturing fetch, http, https, nodemailer via …`. Sealed and unable to reach Echo, requests fail as network errors and Nodemailer rejects.
 
 ### What it can't see
 
-A separately installed `undici` package's `request()` or `fetch()`, `http2`, raw `net` and `tls` sockets, a hand-built `ClientRequest` with `createConnection`, and a bundled Nodemailer without `withEcho`. Cover them with the proxy:
+A separately installed `undici` package's `request()` or `fetch()`, `http2`, raw `net` and `tls` sockets, a hand-built `ClientRequest` with `createConnection` and a bundled Nodemailer without `withEcho`. Cover them with the proxy:
 
 ```sh
 NODE_USE_ENV_PROXY=1 HTTPS_PROXY=http://127.0.0.1:8026 NODE_EXTRA_CA_CERTS="$(rhythm echo ca)" next start
 ```
 
-`NODE_USE_ENV_PROXY` covers `fetch` from Node 22.21 and 24.0, and `http`/`https` from Node 22.21 and 24.5.
+`NODE_USE_ENV_PROXY` covers `fetch` from Node 22.21 and 24.0. It covers `http`/`https` from Node 22.21 and 24.5.
 
 ## Any other stack
 
@@ -365,7 +365,7 @@ internal Docker network or behind a firewall, with Echo as its only way out.
 
 ### SMTP
 
-Point any mailer at `127.0.0.1:1025`. On loopback the sink accepts any login, or none (so a site set up for a real SMTP provider works unchanged). Beyond loopback, which `up` only allows with a token, it asks for AUTH PLAIN with any username and the token as the password, and refuses mail until then (`530 Authentication required: log in with any username and Echo's token as the password`). It takes up to 500 recipients and 25 MB per message, never delivers anything, and records every message as `faked`, in observe mode too. Envelope recipients that aren't in `To` or `Cc` are recorded as `Bcc`. An `X-Echo-Run` header in the message ties it to an action; otherwise it belongs to whichever action is running. Try it with curl:
+Point any mailer at `127.0.0.1:1025`. On loopback the sink accepts any login, or none (so a site set up for a real SMTP provider works unchanged). Beyond loopback, which `up` only allows with a token, it asks for AUTH PLAIN with any username and the token as the password. It refuses mail until then (`530 Authentication required: log in with any username and Echo's token as the password`). It takes up to 500 recipients and 25 MB per message and never delivers anything. It records every message as `faked`, in observe mode too. Envelope recipients that aren't in `To` or `Cc` are recorded as `Bcc`. An `X-Echo-Run` header in the message ties it to an action; otherwise it belongs to whichever action is running. Try it with curl:
 
 ```sh
 curl smtp://127.0.0.1:1025 --mail-from shop@shop.test --mail-rcpt jamie@shop.test --upload-file mail.txt
@@ -393,7 +393,7 @@ sendmail_path = "/usr/local/bin/rhythm-echo sendmail -t -i"
 | `-o…`, `-B`, `-N`, `-R`, `-V`, `-X`, `-L`, `-v`, `-U`, `-bm`, `-em`, `-ep`, `-eq`, `-G` | Accepted and ignored, so callers that pass them keep working. |
 | other `-b…` modes | Refused: only sending is supported. |
 
-It adds `Date` and `Message-ID` when they're missing, and `X-Echo-Run` from `RHYTHM_ECHO_RUN` when the message has none (a header already in the message wins), so mail from a `command` action is tied to it. It sends to the SMTP sink at `RHYTHM_ECHO_SMTP` (default `127.0.0.1:1025`), logging in with `RHYTHM_ECHO_TOKEN` when it's set, or, when only `RHYTHM_ECHO_URL` is set, to the capture API (with `RHYTHM_ECHO_TOKEN`). Like the sink's own mail, it's recorded as `faked` in every mode. It refuses to run when `WP_ENVIRONMENT_TYPE`, `APP_ENV`, `VERCEL_ENV` or `NODE_ENV` says `production`, unless `RHYTHM_ECHO_FORCE=1`.
+It adds `Date` and `Message-ID` when they're missing. It adds `X-Echo-Run` from `RHYTHM_ECHO_RUN` when the message has none (a header already in the message wins), so mail from a `command` action is tied to it. It sends to the SMTP sink at `RHYTHM_ECHO_SMTP` (default `127.0.0.1:1025`), logging in with `RHYTHM_ECHO_TOKEN` when it's set, or, when only `RHYTHM_ECHO_URL` is set, to the capture API (with `RHYTHM_ECHO_TOKEN`). Like the sink's own mail, it's recorded as `faked` in every mode. It refuses to run when `WP_ENVIRONMENT_TYPE`, `APP_ENV`, `VERCEL_ENV` or `NODE_ENV` says `production`, unless `RHYTHM_ECHO_FORCE=1`.
 
 Its exit codes are sendmail's, which callers understand:
 
@@ -415,7 +415,7 @@ rhythm echo up --proxy 127.0.0.1:8026 --mitm
 export HTTPS_PROXY=http://127.0.0.1:8026 https_proxy=http://127.0.0.1:8026
 ```
 
-With `--mitm`, the proxy decrypts HTTPS with a certificate from Echo's own CA, so it can record and fake each request; the app must trust that CA. `rhythm echo ca` prints its path, `rhythm echo ca --pem` the certificate, and containers can fetch it from `http://<proxy>/ca.pem`. Without `--mitm`, sealed HTTPS to unknown hosts is refused outright, since it can't be answered. Payment APIs (Stripe, live PayPal) are never tunnelled blind, in any mode and even when allowlisted: without `--mitm` a `CONNECT` to them is refused and recorded as `blocked` with `payment APIs need --mitm so Echo can tell test from live keys`; with `--mitm` they're decrypted so Echo can check the key. How each runtime picks up the proxy and the CA:
+With `--mitm`, the proxy decrypts HTTPS with a certificate from Echo's own CA, so it can record and fake each request; the app must trust that CA. `rhythm echo ca` prints its path and `rhythm echo ca --pem` the certificate. Containers can fetch it from `http://<proxy>/ca.pem`. Without `--mitm`, sealed HTTPS to unknown hosts is refused outright, since it can't be answered. Payment APIs (Stripe, live PayPal) are never tunnelled blind, in any mode and even when allowlisted: without `--mitm` a `CONNECT` to them is refused and recorded as `blocked` with `payment APIs need --mitm so Echo can tell test from live keys`; with `--mitm` they're decrypted so Echo can check the key. How each runtime picks up the proxy and the CA:
 
 | Client | Proxy | Trust Echo's CA |
 |---|---|---|

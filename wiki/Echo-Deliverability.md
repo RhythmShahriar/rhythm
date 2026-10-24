@@ -1,4 +1,4 @@
-A message your site sends can still land in spam, or be rejected, because of the sending domain's DNS. This page covers `rhythm echo check`, which checks SPF, DKIM, DMARC, MX, MTA-STS, TLS-RPT and BIMI for the service you actually send through, and `rhythm echo headers`, which reads a received email and says who sent it and why it passed or failed, with every issue each one reports.
+A message your site sends can still land in spam, or be rejected, because of the sending domain's DNS. This page covers `rhythm echo check`, which checks SPF, DKIM, DMARC, MX, MTA-STS, TLS-RPT and BIMI for the service you actually send through. It also covers `rhythm echo headers`, which reads a received email and says who sent it and why it passed or failed, with every issue each one reports.
 
 ```sh
 rhythm echo check yoursite.com --provider sendgrid        # DNS for the service you send with
@@ -55,7 +55,7 @@ Records: found DMARC, MX; no usable SPF, DKIM
 Delivery has errors - 1 error, 2 warnings, 2 notices
 ```
 
-The `Records:` line lists the records Echo could read and the ones it found missing or unusable (here two SPF records, so neither counts), and each issue ends with the domain it's about. After the fixes, the same zone with one SPF record including SendGrid, the `s1` key and `p=quarantine` with reports:
+The `Records:` line lists the records Echo could read and the ones it found missing or unusable (here two SPF records, so neither counts). Each issue ends with the domain it's about. After the fixes, the same zone with one SPF record including SendGrid, the `s1` key and `p=quarantine` with reports:
 
 ```text
 [NOTICE] No MTA-STS policy - shop.test
@@ -87,7 +87,7 @@ rhythm echo check shop.test --from-mail received.eml
 | error | No SPF record | Publish `v=spf1 … ~all` listing the services that send for the domain. |
 | error | Multiple SPF records | Merge them into one record. |
 | error | SPF allows every server (+all) | Change `+all` to `~all` (or `-all`). |
-| error | SPF needs more than 10 DNS lookups | Remove unused includes, replace `a` and `mx` with `ip4:`/`ip6:`, or move a sender to its own subdomain. The detail counts every `include`, `a`, `mx`, `ptr`, `exists` and `redirect`, through every include, and lists them. |
+| error | SPF needs more than 10 DNS lookups | Remove unused includes, replace `a` and `mx` with `ip4:`/`ip6:`, or move a sender to its own subdomain. The detail counts every `include`, `a`, `mx`, `ptr`, `exists` and `redirect`, through every include and lists them. |
 | error | SPF has more than 2 void lookups | Remove terms that point at names without records. |
 | error | SPF does not authorize the sending service | Add the service's include (`include:sendgrid.net`), or the relay's `ip4:`, before the `all` term. Needs a known sender. |
 | error | SPF record has a syntax error | Fix the listed terms. |
@@ -138,7 +138,7 @@ Alignment is judged against the organizational domain (the registrable domain un
 
 | Level | Issue | Fix, in short |
 |---|---|---|
-| warning | No MX record | Replies and bounces can't be delivered, and some receivers reject mail from a domain that can't receive it. |
+| warning | No MX record | Replies and bounces can't be delivered. Some receivers reject mail from a domain that can't receive it. |
 | warning | MX host does not resolve | Correct or remove the MX records listed. |
 | notice or warning | Domain has a null MX | `MX 0 .` says the domain accepts no mail; a warning when a sender is known, since receivers may reject its mail (RFC 7505). |
 | warning | MX lookup failed | Check the nameservers. |
@@ -204,7 +204,7 @@ Results: SPF pass · DKIM pass · DMARC pass
 All clear - 0 errors, 0 warnings, 0 notices
 ```
 
-Echo recognizes SendGrid, Mailgun, Postmark, Amazon SES, Resend, Brevo, Mailchimp, Mandrill, SparkPost, Google Workspace, Microsoft 365 and PHP `mail()` from the headers. `--check` runs the DNS checks above for the sender it found, and takes `--resolver` and `--mta-sts-fetch` like `check` does. `--json` prints the whole analysis: From, Return-Path, the sender, the verdict per method, the signatures (`d=`, `s=`, algorithm, signed headers) and the hops.
+Echo recognizes SendGrid, Mailgun, Postmark, Amazon SES, Resend, Brevo, Mailchimp, Mandrill, SparkPost, Google Workspace, Microsoft 365 and PHP `mail()` from the headers. `--check` runs the DNS checks above for the sender it found and takes `--resolver` and `--mta-sts-fetch` like `check` does. `--json` prints the whole analysis: From, Return-Path, the sender, the verdict per method, the signatures (`d=`, `s=`, algorithm, signed headers) and the hops.
 
 | Level | Issue | Fix, in short |
 |---|---|---|

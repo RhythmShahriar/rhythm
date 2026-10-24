@@ -1,4 +1,4 @@
-How well does Echo catch what goes wrong with what real sites send, and how does it compare with a mail catcher? This page describes the benchmark: a testbed of 20 broken scenarios on WordPress, Laravel, Next.js and plain PHP, how each one is run and judged, and the results.
+How well does Echo catch what goes wrong with what real sites send? How does it compare with a mail catcher? This page describes the benchmark: a testbed of 20 broken scenarios on WordPress, Laravel, Next.js and plain PHP, how each one is run and judged and the results.
 
 ## The testbed
 
@@ -6,19 +6,19 @@ The testbed lives in the Echo repository, in [`testbed/`](https://github.com/Rhy
 
 | Site | Address | What it is |
 |---|---|---|
-| WordPress | `http://localhost:18850` | WordPress 6.8.3 on PHP 8.3 with MariaDB 11.4: "Bean & Leaf", a coffee shop, with fixture plugins for a contact form, a WooCommerce stand-in (a receipt through WP-Cron, Twilio SMS, Slack, GA4, Meta CAPI, webhooks through an Action Scheduler stand-in), an SMS add-on whose Twilio client is raw cURL, and a Stripe webhook endpoint |
+| WordPress | `http://localhost:18850` | WordPress 6.8.3 on PHP 8.3 with MariaDB 11.4: "Bean & Leaf", a coffee shop, with fixture plugins for a contact form, a WooCommerce stand-in (a receipt through WP-Cron, Twilio SMS, Slack, GA4, Meta CAPI, webhooks through an Action Scheduler stand-in), an SMS add-on whose Twilio client is raw cURL and a Stripe webhook endpoint |
 | Laravel | `http://localhost:18851` | A stock Laravel app with `rhythmsh/echo-laravel`: an order queues a Mailable and calls Twilio with the `Http` client |
 | Next.js | `http://localhost:18852` | An app with `@rhythmsh/echo`: a signup route (a Resend-style `fetch`, Twilio `fetch`, Nodemailer) and an Edge route (Slack) |
 | Plain PHP | `http://localhost:18853` | A legacy order page that sends with `mail()`, through `sendmail_path` = `rhythm-echo sendmail` |
-| Mailpit | `http://localhost:18854` | The shop's "real" mail server in observe mode, and the comparison tool |
+| Mailpit | `http://localhost:18854` | The shop's "real" mail server in observe mode. It's also the comparison tool |
 
-The sites sit on a Docker network with `internal: true`, so nothing in the stack can reach the internet, whatever a connector or Echo decides: it's the [hard seal](Echo-Sealing-Staging#docker-internal-network), with Echo on the host. Every connector is installed from the checkout (the mu-plugin with `rhythm echo install wordpress`), and every run starts from the same seeded WordPress.
+The sites sit on a Docker network with `internal: true`, so nothing in the stack can reach the internet, whatever a connector or Echo decides: it's the [hard seal](Echo-Sealing-Staging#docker-internal-network), with Echo on the host. Every connector is installed from the checkout (the mu-plugin with `rhythm echo install wordpress`). Every run starts from the same seeded WordPress.
 
 Each scenario has a **good** state and a **broken** state. `testbed/toggle.sh s05 broken` breaks one by creating `testbed/state/s05`, which the fixtures check on every request, job and command: no rebuild, no restart.
 
 ## The 20 scenarios
 
-The manifest, `testbed/scenarios.yaml`, says what each scenario breaks, where, which Echo action shows it, and what counts as caught.
+The manifest, `testbed/scenarios.yaml`, says what each scenario breaks, where, which Echo action shows it and what counts as caught.
 
 | # | Area | Broken state | Caught when the comparison has |
 |---|---|---|---|
@@ -47,18 +47,18 @@ The manifest, `testbed/scenarios.yaml`, says what each scenario breaks, where, w
 
 For each scenario, the harness in `testbed/bench/`:
 
-1. drains anything an earlier broken run left queued, sets the good state, and starts its own Echo in the scenario's mode (sealed, except s16 and s19, whose actions only reach the testbed's CRM and Mailpit);
+1. drains anything an earlier broken run left queued, sets the good state and starts its own Echo in the scenario's mode (sealed, except s16 and s19, whose actions only reach the testbed's CRM and Mailpit);
 2. runs `rhythm-echo snapshot --action "<action>" --name good`;
 3. breaks the scenario;
 4. runs `rhythm-echo compare --action "<action>" --snapshot good`;
-5. for the deliverability scenarios, runs `rhythm-echo check <From domain> --provider sendgrid --return-path …` in both states against a fixture DNS server on `127.0.0.1:18870`, which answers only for the testbed's zone and never forwards, and adds the difference to the comparison;
+5. for the deliverability scenarios, runs `rhythm-echo check <From domain> --provider sendgrid --return-path …` in both states against a fixture DNS server on `127.0.0.1:18870`, which answers only for the testbed's zone and never forwards. It adds the difference to the comparison;
 6. passes when the comparison has a change of the expected class whose check and title match the manifest.
 
-The actions come from the testbed's own `.echo/config.yaml`: HTTP form posts, WP-CLI and artisan commands with `RHYTHM_ECHO_RUN` passed into the containers, flushes for WP-Cron and the queues, and a Stripe replay.
+The actions come from the testbed's own `.echo/config.yaml`: HTTP form posts, WP-CLI and artisan commands with `RHYTHM_ECHO_RUN` passed into the containers, flushes for WP-Cron and the queues and a Stripe replay.
 
 ### The other tools
 
-- **Mailpit** (`axllent/mailpit:v1.29.2`) is the usual staging mail catcher. It has no baseline, so it can't report a change; the question is whether a person reading its inbox would have seen the problem. For each state, the harness delivers the emails the site would have handed to an SMTP server into Mailpit, reads them back through its API, and counts the scenario as **caught** when the broken-state inbox visibly shows the problem (the scenario's text appears in a From, To, Subject or body, and didn't in the good state). A message that's no longer sent is a **miss**: the inbox simply has one email fewer. SMS, chat, webhooks, analytics and DNS are **can't see**.
+- **Mailpit** (`axllent/mailpit:v1.29.2`) is the usual staging mail catcher. It has no baseline, so it can't report a change; the question is whether a person reading its inbox would have seen the problem. For each state, the harness delivers the emails the site would have handed to an SMTP server into Mailpit, reads them back through its API and counts the scenario as **caught** when the broken-state inbox visibly shows the problem (the scenario's text appears in a From, To, Subject or body but not in the good state). A message that's no longer sent is a **miss**: the inbox simply has one email fewer. SMS, chat, webhooks, analytics and DNS are **can't see**.
 - **MessagePit** isn't run: it has no published Docker image or release binary that could be run without building it.
 
 ## Results
@@ -92,14 +92,14 @@ Run on 24 October 2026 with a development build of rhythm-echo on Linux (amd64);
 How to read it:
 
 - **Echo** caught all 20 scenarios as the change they are, through its normal commands: lost messages as BROKE `message/missing`, content problems from the message checks, s14 as a lost payload field, s16 as a failed send, s17 and s18 from `check` against the fixture DNS.
-- **s07** was the one miss in the first run (19 of 20): `compare` matched emails on their channel and recipients only, so the Resend welcome and the Nodemailer account email to the same new user counted as one message, and losing the welcome read as *sent fewer times*. Emails are now matched by service and recipients, then paired by subject, so Echo reports *Resend email to the test submitter is no longer sent* (BROKE). See [How messages are matched](Echo-Actions-And-Compare#how-messages-are-matched).
-- **s15** is reported as the old hook lost and the new one sent: *Zapier webhook to hooks.zapier.com/hooks/catch/1234567/ab••••• is no longer sent*, and *…/catch/7654321/zx••••• is now sent*. A catch hook is named by its masked URL, since each URL is its own Zap.
-- **Mailpit** sees what's *in* an email: the wrong address, the merge tag, the PHP warning, the staging link, the real customer address. It can't see an email that's missing (there's nothing to look at), and it never receives SMS, chat, webhooks, analytics or DNS.
+- **s07** was the one miss in the first run (19 of 20): `compare` matched emails on their channel and recipients only, so the Resend welcome and the Nodemailer account email to the same new user counted as one message. Losing the welcome read as *sent fewer times*. Emails are now matched by service and recipients, then paired by subject, so Echo reports *Resend email to the test submitter is no longer sent* (BROKE). See [How messages are matched](Echo-Actions-And-Compare#how-messages-are-matched).
+- **s15** is reported as the old hook lost and the new one sent: *Zapier webhook to hooks.zapier.com/hooks/catch/1234567/ab••••• is no longer sent* and *…/catch/7654321/zx••••• is now sent*. A catch hook is named by its masked URL, since each URL is its own Zap.
+- **Mailpit** sees what's *in* an email: the wrong address, the merge tag, the PHP warning, the staging link, the real customer address. It can't see an email that's missing (there's nothing to look at). It never receives SMS, chat, webhooks, analytics or DNS.
 
 The per-scenario details, including everything else Echo reported, are in [`docs/benchmark.md`](https://github.com/RhythmShahriar/echo/blob/master/docs/benchmark.md) in the Echo repository.
 
 > [!NOTE]
-> We wrote both Echo and the testbed, so read this as a regression suite with a scoreboard, not an independent review: every scenario is something Echo was built to catch. Each one is still a real failure mode, in a real WordPress, Laravel or Next.js app, and it passes only when Echo reports the expected change through its normal commands. The scenarios, the expectations and the harness are open; rerun it, and add scenarios where you think it falls short.
+> We wrote both Echo and the testbed, so read this as a regression suite with a scoreboard, not an independent review: every scenario is something Echo was built to catch. Each one is still a real failure mode, in a real WordPress, Laravel or Next.js app. It passes only when Echo reports the expected change through its normal commands. The scenarios, the expectations and the harness are open. Rerun it and add scenarios where you think it falls short.
 
 ## Run it yourself
 
@@ -113,7 +113,7 @@ go run -tags testbed ./testbed/bench -only s05,s09   # some scenarios
 make -C testbed down                                 # throw everything away
 ```
 
-The benchmark starts its own Echo on `0.0.0.0:18860`–`18862` with the testbed's token (the containers reach it through the testbed's gate), and keeps each run in `testbed/bench/work/<id>/`. `-tools none` skips Mailpit, `-bin` benchmarks another binary. The [testbed README](https://github.com/RhythmShahriar/echo/blob/master/testbed/README.md) has the details, and how to add a scenario. The testbed is also Echo's end-to-end test suite; see [Contributing](Contributing#echo-and-its-connectors).
+The benchmark starts its own Echo on `0.0.0.0:18860`–`18862` with the testbed's token (the containers reach it through the testbed's gate). It keeps each run in `testbed/bench/work/<id>/`. `-tools none` skips Mailpit, `-bin` benchmarks another binary. The [testbed README](https://github.com/RhythmShahriar/echo/blob/master/testbed/README.md) has the details, including how to add a scenario. The testbed is also Echo's end-to-end test suite; see [Contributing](Contributing#echo-and-its-connectors).
 
 ---
 <sub>← [FAQ and troubleshooting](Echo-FAQ) · [Home](Home) · [Responsible use](Responsible-Use) →</sub>

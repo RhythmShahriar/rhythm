@@ -1,6 +1,6 @@
-Every Echo command and flag, its exit codes, the environment variables it reads, and where it keeps files. Verified against rhythm-echo 1.0.0.
+Every Echo command and flag, its exit codes, the environment variables it reads and where it keeps files. Verified against rhythm-echo 1.0.0.
 
-Echo is the `rhythm-echo` binary. `rhythm echo …` runs it, and so does `rhythm-echo …` directly; this page uses the `rhythm echo` form.
+Echo is the `rhythm-echo` binary. `rhythm echo …` runs it, as does `rhythm-echo …` directly; this page uses the `rhythm echo` form.
 
 ## Commands
 
@@ -28,7 +28,7 @@ Echo is the `rhythm-echo` binary. `rhythm echo …` runs it, and so does `rhythm
 | `rhythm echo version` | `-v`, `--version` | Print the version: `rhythm-echo 1.0.0`. |
 | `rhythm echo help` | `-h`, `--help` | Print the help text. |
 
-Running `rhythm echo` with no command on a terminal asks what to do: a menu offers the likeliest next step first (start Echo, or watch when it's already running; compare with the latest snapshot; take a snapshot; run the actions; show the last result; connect a site; doctor; `init` when there's no config), asks the follow-up questions (which stack and where the site is for `install`, whether to open the HTML report), then runs that command. Piped or in CI it prints the help instead. `install`, `init`, `ca` and `snapshots` print their own usage with `-h`, and `sendmail` takes only sendmail's flags; the other commands print the full help. Flags may come before or after arguments: `rhythm echo check shop.com --json` and `rhythm echo check --json shop.com` are the same. An unknown command prints `rhythm echo: unknown command "…"` and the help, and exits `2`.
+Running `rhythm echo` with no command on a terminal asks what to do: a menu offers the likeliest next step first (start Echo, or watch when it's already running; compare with the latest snapshot; take a snapshot; run the actions; show the last result; connect a site; doctor; `init` when there's no config), asks the follow-up questions (which stack and where the site is for `install`, whether to open the HTML report), then runs that command. Piped or in CI it prints the help instead. `install`, `init`, `ca` and `snapshots` print their own usage with `-h`. `sendmail` takes only sendmail's flags; the other commands print the full help. Flags may come before or after arguments: `rhythm echo check shop.com --json` and `rhythm echo check --json shop.com` are the same. An unknown command prints `rhythm echo: unknown command "…"` and the help, then exits `2`.
 
 ### up
 
@@ -50,9 +50,9 @@ rhythm echo up --listen 172.17.0.1:8025 --token "$RHYTHM_ECHO_TOKEN"   # reachab
   Waiting for messages. Ctrl+C to stop.
 ```
 
-With `--proxy`, a `Proxy` line follows (`127.0.0.1:8026  (HTTPS_PROXY for SDKs that skip the connector)`), and with an allowlist an `Allowed` line. Each message is printed once, as it arrives (`08:16:33 Twilio SMS to +15551230000: Your code is 4821 [faked]` in plain text). When its status changes later (an observed request gets its answer, a check blocks it), an update line follows: `Update: 08:16:34 HTTPS connection to api.example.com is now blocked (was faked)`. The proxy's own warnings start with `proxy:`, such as `proxy: refused a tunnel host=api.stripe.com reason=payment APIs need --mitm so Echo can tell test from live keys`. On Ctrl+C: `Stopped. Captured 1 email, 3 chat messages this session.` Messages live in memory only (the newest 10,000) and are gone when Echo stops.
+With `--proxy`, a `Proxy` line follows (`127.0.0.1:8026  (HTTPS_PROXY for SDKs that skip the connector)`). With an allowlist an `Allowed` line follows too. Each message is printed once, as it arrives (`08:16:33 Twilio SMS to +15551230000: Your code is 4821 [faked]` in plain text). When its status changes later (an observed request gets its answer, a check blocks it), an update line follows: `Update: 08:16:34 HTTPS connection to api.example.com is now blocked (was faked)`. The proxy's own warnings start with `proxy:`, such as `proxy: refused a tunnel host=api.stripe.com reason=payment APIs need --mitm so Echo can tell test from live keys`. On Ctrl+C: `Stopped. Captured 1 email, 3 chat messages this session.` Messages live in memory only (the newest 10,000) and are gone when Echo stops.
 
-An address beyond loopback for `--listen`, `--smtp` or `--proxy` needs a token, and `up` refuses before it listens on anything (exit `2`):
+An address beyond loopback for `--listen`, `--smtp` or `--proxy` needs a token. `up` refuses before it listens on anything (exit `2`):
 
 ```text
 rhythm echo: --listen 0.0.0.0:8025 is reachable from other machines; set --token (or RHYTHM_ECHO_TOKEN) so only your connectors can post
@@ -112,7 +112,7 @@ note  WordPress: no connector answered at https://staging.shop.test (unexpected 
 
 When Echo isn't running: `FAIL  Echo: no Echo is running at http://127.0.0.1:8025 (start it with: rhythm echo up)`. With `-q`, only failed checks are printed.
 
-In order: Echo answers; the SMTP sink receives a canary (unless `smtp` is `off`; beyond loopback, `doctor` logs in with the token); the proxy is listening (when `proxy` is set); the WordPress connector at `site:` is active, can reach Echo, and catches a `wp_mail()` and a `wp_remote_post()` canary; the Laravel connector, when run in a Laravel project (where `artisan` is), catches `php artisan echo:canary`; each `flush` command runs. A `·` (or `note`) line is a note, not a failure: no `site:`, or no connector answered there. Canaries go to `.invalid` addresses and are deleted afterwards. `doctor` exits `1` when any check failed.
+In order: Echo answers; the SMTP sink receives a canary (unless `smtp` is `off`; beyond loopback, `doctor` logs in with the token); the proxy is listening (when `proxy` is set); the WordPress connector at `site:` is active, can reach Echo and catches a `wp_mail()` and a `wp_remote_post()` canary; the Laravel connector, when run in a Laravel project (where `artisan` is), catches `php artisan echo:canary`; each `flush` command runs. A `·` (or `note`) line is a note, not a failure: no `site:`, or no connector answered there. Canaries go to `.invalid` addresses and are deleted afterwards. `doctor` exits `1` when any check failed.
 
 ### watch, ls, show, clear
 
@@ -134,7 +134,7 @@ rhythm echo compare --snapshot before-update --fail-on broke
 rhythm echo run --action "Contact form" --fail-on error
 ```
 
-All three run the actions in the config, need Echo running, and write a report into `.echo/`. None takes arguments: `rhythm echo: snapshot takes no arguments; actions come from .echo/config.yaml`, `rhythm echo: run takes no arguments; actions come from .echo/config.yaml (pick some with --action)`. These usage errors exit `2` before anything is printed:
+All three run the actions in the config, need Echo running and write a report into `.echo/`. None takes arguments: `rhythm echo: snapshot takes no arguments; actions come from .echo/config.yaml`, `rhythm echo: run takes no arguments; actions come from .echo/config.yaml (pick some with --action)`. These usage errors exit `2` before anything is printed:
 
 ```text
 rhythm echo: no actions in .echo/config.yaml; add some (rhythm echo init writes examples), or use Soundcheck with --echo

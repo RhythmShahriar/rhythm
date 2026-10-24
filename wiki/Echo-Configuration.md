@@ -1,4 +1,4 @@
-Every Echo setting for a project lives in `.echo/config.yaml`. This page lists every key with its default, the environment variables Echo and its connectors read, and what's kept in the `.echo` folder.
+Every Echo setting for a project lives in `.echo/config.yaml`. This page lists every key with its default, the environment variables Echo and its connectors read and what's kept in the `.echo` folder.
 
 ## The config file
 
@@ -11,7 +11,7 @@ rhythm echo init --force   # replace an existing one
 Wrote .echo/config.yaml. Every setting is optional; add actions to snapshot and compare.
 ```
 
-Echo reads `.echo/config.yaml` from the folder you run it in, for every command, `up` included; `--config <file>` reads another file. Without a file, the defaults below apply. Every key is optional, and unknown keys are errors, so a typo fails loudly instead of being ignored:
+Echo reads `.echo/config.yaml` from the folder you run it in, for every command, `up` included; `--config <file>` reads another file. Without a file, the defaults below apply. Every key is optional. Unknown keys are errors, so a typo fails loudly instead of being ignored:
 
 ```text
 rhythm echo: .echo/config.yaml: yaml: unmarshal errors:
@@ -21,7 +21,7 @@ rhythm echo: .echo/config.yaml: line 1: "2" isn't a duration like 2s
 rhythm echo: action "A" is listed twice
 ```
 
-These exit with code `2`. Command-line flags override the file: `--seal`/`--observe` override `mode`, `--listen`, `--smtp` and `--proxy` their keys, `--mitm` turns `mitm` on, and `--allow` adds to `allow`.
+These exit with code `2`. Command-line flags override the file: `--seal`/`--observe` override `mode`, `--listen`, `--smtp` and `--proxy` their keys, `--mitm` turns `mitm` on and `--allow` adds to `allow`.
 
 Commit `config.yaml` to share it with your team. Keep secrets out of it: tokens and signing secrets come from the environment.
 
@@ -69,16 +69,16 @@ actions: []
 | `site` | `""` | The site's base URL. Relative action and replay URLs resolve against it; `doctor` checks the WordPress connector there; the content checks use its host to tell your links and your sending domain from others. |
 | `mode` | `seal` | `seal`: nothing leaves, Echo answers. `observe`: record and send for real. See [Sealing staging](Echo-Sealing-Staging#seal-and-observe). |
 | `listen` | `127.0.0.1:8025` | The capture API and live view. Other commands find Echo here too, unless `--url` or `RHYTHM_ECHO_URL` says otherwise. An address beyond loopback needs a token. |
-| `smtp` | `127.0.0.1:1025` | The SMTP sink. `off` turns it off. Beyond loopback it needs a token, and asks for it as the SMTP password. |
+| `smtp` | `127.0.0.1:1025` | The SMTP sink. `off` turns it off. Beyond loopback it needs a token and asks for it as the SMTP password. |
 | `proxy` | `""` (off) | The HTTP(S) proxy, e.g. `127.0.0.1:8026`. Beyond loopback it needs a token. |
 | `mitm` | `false` | Decrypt HTTPS in the proxy with Echo's CA, so sealed HTTPS can be recorded and faked. Clients must trust the CA (`rhythm echo ca`). |
 | `allow` | `[]` | Host globs reachable for real even when sealed. Live payment calls are refused anyway. See [The allowlist](Echo-Sealing-Staging#the-allowlist). |
 | `allow_recipients` | `[]` | Address or number globs that may really be messaged in observe mode; any other real recipient is flagged. |
 | `staging` | `[]` | URL prefixes that are staging. Replays send only to these, or to targets that resolve to loopback or private addresses. See [Replay](Echo-Replay#safety-rules). |
-| `production` | `[]` | URL prefixes of live sites. `http` actions refuse them, and `doctor` fails when `site` is one of them. |
+| `production` | `[]` | URL prefixes of live sites. `http` actions refuse them. `doctor` fails when `site` is one of them. |
 | `flush` | `[]` | Commands run after each action (with `sh -c` and `RHYTHM_ECHO_RUN`), so queued mail and webhooks go out during it. See [Flush queued work](Echo-Actions-And-Compare#flush-queued-work). |
 | `quiet` | `2s` | An action is done when nothing new has arrived for this long. A Go duration: `1500ms`, `2s`, `1m`. |
-| `timeout` | `30s` | The longest wait per action, and the timeout of its `http` request. |
+| `timeout` | `30s` | The longest wait per action and the timeout of its `http` request. |
 | `actions` | `[]` | What `snapshot`, `compare` and `run` run. |
 
 ### actions
@@ -101,7 +101,7 @@ Read by `rhythm-echo`:
 | Variable | Description |
 |---|---|
 | `RHYTHM_ECHO_URL` | Where Echo runs, for every command but `up` (which uses `listen`); default `http://` + `listen`. `--url` wins. |
-| `RHYTHM_ECHO_TOKEN` | The token `up` requires, and other commands send. `--token` wins. Never written to reports. |
+| `RHYTHM_ECHO_TOKEN` | The token `up` requires and other commands send. `--token` wins. Never written to reports. |
 | `ECHO_STRIPE_WEBHOOK_SECRET`, `ECHO_WEBHOOK_SECRET`, `ECHO_GITHUB_WEBHOOK_SECRET`, `ECHO_WC_WEBHOOK_SECRET` | Default signing secrets for [replay](Echo-Replay#secrets), per scheme. |
 | `RHYTHM_NO_UPDATE_CHECK` | Any value stops the once-a-day "new release available" check. |
 | `CI` | When set, as CI systems do, the release check is skipped too. |

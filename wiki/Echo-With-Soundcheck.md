@@ -1,4 +1,4 @@
-Soundcheck submits your site's real forms in a real browser and runs your scripted flows. With Echo running, `--echo` ties each submit and flow to the emails, SMS and webhooks it made the site send, so a form that says "sent" but emails nobody is caught, and a lost or changed message shows up in the comparison. This page covers turning it on, what happens on each submit, checking messages in flows with `expect: {message: …}`, and how the messages are compared.
+Soundcheck submits your site's real forms in a real browser and runs your scripted flows. With Echo running, `--echo` ties each submit and flow to the emails, SMS and webhooks it made the site send, so a form that says "sent" but emails nobody is caught. A lost or changed message shows up in the comparison. This page covers turning it on, what happens on each submit, checking messages in flows with `expect: {message: …}` and how the messages are compared.
 
 ```sh
 rhythm echo up                                                          # Echo, sealed
@@ -7,10 +7,10 @@ rhythm soundcheck snapshot staging.shop.test --level inspect,click,submit --echo
 rhythm soundcheck compare --level inspect,click,submit --echo
 ```
 
-You need Echo running with the site's [connector](Echo-Install-Connectors) installed, and Soundcheck 1.1 or later. Forms are only submitted at the `submit` level and flows at the `flows` level, so add those to `--level` (or `interactions.levels` in Soundcheck's config); without them, `--echo` is on but has nothing to record, and says so.
+You need Echo running with the site's [connector](Echo-Install-Connectors) installed and Soundcheck 1.1 or later. Forms are only submitted at the `submit` level and flows at the `flows` level, so add those to `--level` (or `interactions.levels` in Soundcheck's config); without them, `--echo` is on but has nothing to record. It says so.
 
 > [!IMPORTANT]
-> The `submit` level really sends forms. With Echo sealed, the messages they trigger stop at Echo; without it, they go out. Run this on staging, and list production under `production` in Soundcheck's config, which it never submits forms on. See [Interactions](Soundcheck-Interactions#the-production-guard).
+> The `submit` level really sends forms. With Echo sealed, the messages they trigger stop at Echo; without it, they go out. Run this on staging. List production under `production` in Soundcheck's config, which it never submits forms on. See [Interactions](Soundcheck-Interactions#the-production-guard).
 
 ## Turning it on
 
@@ -57,7 +57,7 @@ At the `submit` level Soundcheck fills each form with test data and submits it (
 1. **Tag.** Before the submit, Soundcheck sets `X-Echo-Run: <run>/<action>` on the tab's requests to the site's own origin, as a header and as a cookie. Requests to other hosts (reCAPTCHA, payment scripts, CRMs) are left alone, so they don't fail cross-origin checks. The action ID is the page and the form's stable selector, such as `form:/contact/#form.wpcf7-form`, the same in every run.
 2. **Submit.** The form is submitted as usual. Tagged submits take turns across tabs, because the cookie is shared by the browser session.
 3. **Collect.** When the submit succeeds, Soundcheck asks Echo for that action's messages, waiting until nothing new arrives for `quiet` (at most `timeout`).
-4. **Record.** The messages are saved with the page, the interaction's detail gets what was sent (`… · sent 2 emails, 1 chat message`), and Echo's checks run on them: an unfilled placeholder or a PHP warning in the email becomes a page issue named `echo/content/placeholder`, `echo/content/php-error` and so on (see [Messages and checks](Echo-Messages-And-Checks#checks)).
+4. **Record.** The messages are saved with the page and the interaction's detail gets what was sent (`… · sent 2 emails, 1 chat message`). Echo's checks run on them: an unfilled placeholder or a PHP warning in the email becomes a page issue named `echo/content/placeholder`, `echo/content/php-error` and so on (see [Messages and checks](Echo-Messages-And-Checks#checks)).
 
 When a submit shows success but Echo saw nothing go out, the page gets a notice:
 
@@ -81,7 +81,7 @@ The run's summary line counts what was sent:
 Snapshot "before-update" saved; all clear - 0 errors, 0 warnings, 0 notices - 2 pages · Echo: 2 emails, 1 chat message from 1 form or flow · 7s
 ```
 
-The HTML report gets a **Messages sent** table, one row per message (form or flow, page, channel, recipient, subject), and a row for each submit that sent nothing. Message bodies stay in Echo; its live view shows them in full.
+The HTML report gets a **Messages sent** table, one row per message (form or flow, page, channel, recipient, subject), plus a row for each submit that sent nothing. Message bodies stay in Echo; its live view shows them in full.
 
 ## Comparing
 
@@ -107,13 +107,13 @@ Pages: 2 pages to start
 Something broke - 1 broke, 0 new, 1 changed, 0 slower, 0 fixed - compared with snapshot "before-update" (just now), 2 pages · Echo: 1 email, 1 chat message from 1 form or flow · 5s
 ```
 
-- Changes are named `echo/message/missing`, `echo/message/subject` and so on, and grouped across pages: a newsletter form in every footer that stops sending is one line, with every page.
+- Changes are named `echo/message/missing`, `echo/message/subject` and so on. They're grouped across pages: a newsletter form in every footer that stops sending is one line, with every page.
 - With several forms on one page, each title starts with the form's name, so their changes don't merge.
 - A form that didn't submit this time isn't compared; the interact module reports why it didn't.
 - Where a form's messages are reported as BROKE, the *Form says sent, but no message went out* notice for the same form is dropped: it's the same news.
 - Soundcheck's fake data (`soundcheck-test+…@example.com`) is "the test submitter" to Echo, so a new address each run isn't a change.
 
-Take the snapshot and the comparison both with `--echo`. Comparing without it notes `modules differ (snapshot [interact echo], now [interact]); only modules in both are compared`, and the messages aren't checked.
+Take the snapshot and the comparison both with `--echo`. Comparing without it notes `modules differ (snapshot [interact echo], now [interact]); only modules in both are compared`. The messages aren't checked.
 
 ## Flows: expect a message
 
@@ -142,7 +142,7 @@ steps:
 | `text` | a substring of the text, the HTML or the raw body |
 | `count` | at least this many such messages; default 1 |
 
-Text fields ignore case and can use `${fake:…}` and `${env:…}`. `absent: true` wants no such message, and doesn't mix with `count`. A flow keeps its tag on for all its steps (it has its own browser session), so everything it causes counts. Like other expects, it retries until the step timeout, so a missing message fails after that wait:
+Text fields ignore case and can use `${fake:…}` and `${env:…}`. `absent: true` wants no such message. It doesn't mix with `count`. A flow keeps its tag on for all its steps (it has its own browser session), so everything it causes counts. Like other expects, it retries until the step timeout, so a missing message fails after that wait:
 
 ```text
 [ERROR] Flow "Contact form emails the office" step 6 failed: expect message email to "office@shop.test" subject "New message" - /contact/
@@ -153,7 +153,7 @@ Text fields ignore case and can use `${fake:…}` and `${env:…}`. `absent: tru
 
 Without `--echo`, a message expect fails with `expect message needs Echo: start it (rhythm echo up) and run with --echo`.
 
-Flows' messages are compared like forms', action by action (`flow:<name>`), and problems Echo finds in them are reported on the flow's start page.
+Flows' messages are compared like forms', action by action (`flow:<name>`). Problems Echo finds in them are reported on the flow's start page.
 
 ## In CI
 

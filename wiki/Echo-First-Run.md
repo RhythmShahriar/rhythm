@@ -43,7 +43,7 @@ Then:
   Waiting for messages. Ctrl+C to stop.
 ```
 
-Leave it running in its own terminal. Echo is now **sealed**: whatever the site sends is recorded and answered by Echo, and nothing reaches a real inbox, phone or API. Open http://127.0.0.1:8025 in a browser for a live view that refreshes every five seconds.
+Leave it running in its own terminal. Echo is now **sealed**: whatever the site sends is recorded and answered by Echo. Nothing reaches a real inbox, phone or API. Open http://127.0.0.1:8025 in a browser for a live view that refreshes every five seconds.
 
 > [!NOTE]
 > Echo listens on `127.0.0.1` only. If the site runs in Docker, a VM or another machine, it can't reach that address; see [FAQ](Echo-FAQ#the-site-runs-in-docker).
@@ -78,7 +78,7 @@ The path is the site's root (with `wp-config.php`) or its `wp-content` folder. I
 When `wp-config.php` already sets `WP_ENVIRONMENT_TYPE` to `staging`, `development` or `local`, that paragraph is replaced by `wp-config.php sets WP_ENVIRONMENT_TYPE to staging, so the connector runs.`
 
 > [!IMPORTANT]
-> The connector does nothing on a production site, and WordPress treats a site **without** `WP_ENVIRONMENT_TYPE` as production. Make sure staging's `wp-config.php` has the `define()` line above (or `development` or `local`). Otherwise the connector stays off and shows an admin notice saying why.
+> The connector does nothing on a production site. WordPress treats a site **without** `WP_ENVIRONMENT_TYPE` as production. Make sure staging's `wp-config.php` has the `define()` line above (or `development` or `local`). Otherwise the connector stays off and shows an admin notice saying why.
 
 ## 4. Check every layer
 
@@ -137,7 +137,7 @@ Watching http://127.0.0.1:8025 (seal mode). Ctrl+C to stop.
 
 Piped or with `--plain`, each message is one line of text instead: `08:19:45 Zapier webhook to hooks.zapier.com/hooks/catch/123456/ab•••••: POST [faked]`. The last part of a Zapier, Make or n8n hook URL is its secret, so Echo masks it everywhere it shows the URL.
 
-`faked` means Echo answered in the service's place: the site got a normal "sent" reply, and nothing left. `rhythm echo ls` lists everything captured so far, and `rhythm echo show <id>` prints one message as JSON. See [Messages and checks](Echo-Messages-And-Checks).
+`faked` means Echo answered in the service's place: the site got a normal "sent" reply and nothing left. `rhythm echo ls` lists everything captured so far; `rhythm echo show <id>` prints one message as JSON. See [Messages and checks](Echo-Messages-And-Checks).
 
 ## 6. List the actions
 
@@ -188,7 +188,7 @@ rhythm echo snapshot --name before-update
   → next: make your change, then run: rhythm echo compare
 ```
 
-Each action ran in turn, and Echo waited until nothing new had arrived for `quiet` (one second here) before moving on. The snapshot is in `.echo/snapshots/before-update/` and is now the *latest* one, which `compare` uses. If the snapshot found problems in what was sent (an unfilled placeholder, a PHP warning in an email), they're listed above the panel: that's the starting point.
+Each action ran in turn. Echo waited until nothing new had arrived for `quiet` (one second here) before moving on. The snapshot is in `.echo/snapshots/before-update/` and is now the *latest* one, which `compare` uses. If the snapshot found problems in what was sent (an unfilled placeholder, a PHP warning in an email), they're listed above the panel: that's the starting point.
 
 ## 8. Make your change
 
@@ -242,7 +242,7 @@ rhythm echo compare
 Reading from the top:
 
 - **BROKE** is what the snapshot sent and this run doesn't. The office's copy of the contact form is gone, so the `expect` fails too. The SMS now has an unfilled `{first_name}`, which is a new error.
-- **CHANGED** is the same message, but different. "The test submitter" is the `${fake:email}` address, which changes every run; Echo compares it as a role, not an address. The same goes for `+1555…` numbers, which are test numbers. The Zapier payload lost a field that whatever receives it may need; a catch hook (Zapier, Make, n8n) is named by its URL, with the secret part masked, since each URL is its own Zap or scenario.
+- **CHANGED** is the same message with different content. "The test submitter" is the `${fake:email}` address, which changes every run; Echo compares it as a role, not an address. The same goes for `+1555…` numbers, which are test numbers. The Zapier payload lost a field that whatever receives it may need; a catch hook (Zapier, Make, n8n) is named by its URL, with the secret part masked, since each URL is its own Zap or scenario.
 - **The panel** gives the verdict and the count per class.
 
 To see the details of every change, including the before and after values, print the stored result in plain text:
@@ -276,7 +276,7 @@ rhythm echo compare --open
 rhythm echo report --open
 ```
 
-The report shows each action with its messages: emails rendered in a sandboxed frame, SMS and chat messages as bubbles, webhook bodies as they were sent, each with the answer it got, and the changes on top. It's one file, so you can attach it to a ticket.
+The report shows each action with its messages: emails rendered in a sandboxed frame, SMS and chat messages as bubbles and webhook bodies as they were sent. Each comes with the answer it got. The changes are on top. It's one file, so you can attach it to a ticket.
 
 ## Next steps
 

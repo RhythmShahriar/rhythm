@@ -1,4 +1,4 @@
-Everything a site sends becomes a **message** in Echo: an email, an SMS, a Slack alert, a webhook, an analytics event, a payment call. This page covers the channels, the 34 services Echo recognizes, what a message records and how it's masked, how to list and inspect messages, and every check Echo runs on them, with its level and fix.
+Everything a site sends becomes a **message** in Echo: an email, an SMS, a Slack alert, a webhook, an analytics event, a payment call. This page covers the channels and the 34 services Echo recognizes. It covers what a message records, how it's masked and how to list and inspect messages. It also lists every check Echo runs on them, with its level and fix.
 
 ## Channels
 
@@ -8,7 +8,7 @@ Everything a site sends becomes a **message** in Echo: an email, an SMS, a Slack
 | `sms` | Text messages through an SMS API | Twilio, Vonage, Plivo |
 | `whatsapp` | WhatsApp messages | WhatsApp Cloud API, Twilio with a `whatsapp:` number |
 | `chat` | Team chat alerts | Slack, Discord, Microsoft Teams |
-| `webhook` | Anything posted to an API: CRMs, automation hooks, WooCommerce webhooks, and any unrecognized `POST`, `PUT` or `PATCH` | Zapier, HubSpot, a webhook to your own app |
+| `webhook` | Anything posted to an API: CRMs, automation hooks, WooCommerce webhooks and any unrecognized `POST`, `PUT` or `PATCH` | Zapier, HubSpot, a webhook to your own app |
 | `analytics` | Server-side tracking events | GA4 Measurement Protocol, Meta Conversions API |
 | `payment` | Payment API calls | Stripe, PayPal |
 | `push` | Push notifications | FCM, OneSignal |
@@ -49,9 +49,9 @@ A connector reports a raw HTTP request; Echo works out which service it's for an
 | Stripe | payment | `api.stripe.com` | the call (`payment_intents create`), amount and currency, test or live mode |
 | PayPal | payment | `api-m.paypal.com`, `api.paypal.com` and the sandbox hosts | the call, sandbox or live mode |
 | WooCommerce webhooks | webhook | any request with an `X-WC-Webhook-Topic` header | the topic (`order.created`) as the event, the delivery URL |
-| HubSpot | webhook | `api.hubapi.com`, `api.hubspot.com`, `api.hsforms.com` | the call (`contacts create`) or `form submit`, and the contact's email |
+| HubSpot | webhook | `api.hubapi.com`, `api.hubspot.com`, `api.hsforms.com` | the call (`contacts create`) or `form submit`, plus the contact's email |
 | Mailchimp (Marketing API) | webhook | `api.mailchimp.com/3.0/…` | the list member's email |
-| Klaviyo | webhook | `a.klaviyo.com` | the metric or call, and the profile's email |
+| Klaviyo | webhook | `a.klaviyo.com` | the metric or call, plus the profile's email |
 | ActiveCampaign | webhook | `…api-us1.com` and `…activehosted.com` `/api/3/…` | the contact |
 | Zapier | webhook | `hooks.zapier.com` | the hook, with its secret part masked |
 | Make | webhook | `hook.*.make.com`, `hook.*.integromat.com` | the hook, with its secret part masked |
@@ -59,7 +59,7 @@ A connector reports a raw HTTP request; Echo works out which service it's for an
 
 `rhythm echo doctor` reports how many services are recognized (`34 providers recognized`).
 
-Titles and message lines use each service's display name: `Amazon SES email`, `MessageBird SMS`, `Teams message`, `Meta Conversions API event`, `Stripe call`, `Zapier webhook`, `HubSpot webhook`. A WooCommerce webhook and an unrecognized webhook name the host they go to (`WooCommerce webhook to shop.example.com`, `webhook to crm.shop.test`). Anything else is `request to <host>`, and a tunnel through the proxy `HTTPS connection to <host>`.
+Titles and message lines use each service's display name: `Amazon SES email`, `MessageBird SMS`, `Teams message`, `Meta Conversions API event`, `Stripe call`, `Zapier webhook`, `HubSpot webhook`. A WooCommerce webhook and an unrecognized webhook name the host they go to (`WooCommerce webhook to shop.example.com`, `webhook to crm.shop.test`). Anything else is `request to <host>`. A tunnel through the proxy is `HTTPS connection to <host>`.
 
 ## What a message records
 
@@ -117,7 +117,7 @@ Credentials are masked before a message is stored:
 - `Authorization`, `Proxy-Authorization`, `Cookie`, `X-Api-Key`, `Api-Key`, `X-Postmark-Server-Token` and `X-Echo-Token` headers are masked whole: `•••••`.
 - Known secrets in other headers, URLs and bodies keep a short prefix: `sk_live_•••••`, `https://hooks.slack.com/services/T0000/B0000/fi•••••`.
 - A Zapier, Make or n8n hook URL is its own credential, so its secret last part is masked in `url`, `to`, the live view and the reports: `https://hooks.zapier.com/hooks/catch/123456/ab•••••/`. So are `sig`, `signature` and `code` query values, which covers Logic Apps and Power Automate trigger URLs. The masked form is the same every run, so `compare` still pairs the same hook. Two hooks on one account whose secrets start with the same two characters look the same to `compare`.
-- The connectors mask credential headers before anything leaves the site, and keep only the first few characters of payment keys, which is all the [live-mode check](Echo-Sealing-Staging#live-payments-are-refused) needs.
+- The connectors mask credential headers before anything leaves the site. They keep only the first few characters of payment keys, which is all the [live-mode check](Echo-Sealing-Staging#live-payments-are-refused) needs.
 
 Content isn't masked: names, addresses, order details and links in emails, including password reset links, are stored as sent. Bodies are capped at 256 KiB per message (larger ones end in `…(truncated)`). Treat captures, `.echo/` and reports like a database dump; see [Responsible use](Responsible-Use#what-echo-does).
 
@@ -156,7 +156,7 @@ Deleted 5 messages
 
 ## Checks
 
-Echo checks each message an action sends: `snapshot`, `compare` and `run` list the problems, and Soundcheck's `--echo` reports them as page issues. Each problem has a stable title, so a comparison can tell a new problem from one the snapshot already had: a new error is **BROKE**, a new warning or notice **NEW**, and one that went away **FIXED**. `watch` and `ls` show messages without checking them.
+Echo checks each message an action sends: `snapshot`, `compare` and `run` list the problems. Soundcheck's `--echo` reports them as page issues. Each problem has a stable title, so a comparison can tell a new problem from one the snapshot already had: a new error is **BROKE**, a new warning or notice **NEW** and one that went away **FIXED**. `watch` and `ls` show messages without checking them.
 
 ```text
 [ERROR] Unfilled placeholder *|ORDER_ID|* in email - Order email
@@ -195,9 +195,9 @@ These apply to email, SMS, WhatsApp and chat messages. The text checked is the p
 | `content/dev-link` | warning | Email links to a development address (localhost) | Build links from the site's configured URL, not a hard-coded or local one. |
 | `content/secret` | warning | Webhook to … carries a credential in its body | Don't put API keys or passwords in payloads; send them in an Authorization header, or not at all. |
 
-- **Placeholders** found: `{{ name }}`, `*|FNAME|*` (Mailchimp), `%%name%%`, `{first_name}` (lowercase names in single braces), and `[your-name]` or `[_field]` (Contact Form 7).
+- **Placeholders** found: `{{ name }}`, `*|FNAME|*` (Mailchimp), `%%name%%`, `{first_name}` (lowercase names in single braces) and `[your-name]` or `[_field]` (Contact Form 7).
 - **PHP errors**: `Fatal error`, `Parse error`, `Warning`, `Notice` and `Deprecated` lines with a file and line number, in plain text or PHP's HTML format. The detail shortens the path to what follows `wp-content/`.
-- **Development addresses**: `localhost`, `127.*`, `10.*`, `192.168.*`, `0.0.0.0`, and hosts ending in `.local`, `.test`, `.localhost`, `.ddev.site`, `.lndo.site`, `.docker` or `.invalid`. This check is skipped when the configured `site:` is itself a development address, since then every link would match.
+- **Development addresses**: `localhost`, `127.*`, `10.*`, `192.168.*`, `0.0.0.0` and hosts ending in `.local`, `.test`, `.localhost`, `.ddev.site`, `.lndo.site`, `.docker` or `.invalid`. This check is skipped when the configured `site:` is itself a development address, since then every link would match.
 - **Credentials in a body** (`content/secret`) is reported for any message but email whose stored body had a secret masked, whatever happened to it: a sealed site's payload says what the live site would send. It applies to webhooks and other API calls, not only the channels above, for example `Webhook to crm.shop.test carries a credential in its body`.
 
 ### Email
@@ -236,7 +236,7 @@ Parts are counted the way carriers charge them: one GSM-7 part holds 160 charact
 | `send/failed` | error | Email fails, Twilio SMS fails (HTTP 401) | Check the sender's settings (API key, SMTP login, endpoint URL) and the provider's error above. |
 | `seal/real-recipient` | warning | Email really sent to an address outside the allowlist | Run sealed on staging (`rhythm echo up`), or add test recipients to `allow_recipients`. |
 
-`seal/real-recipient` only applies to messages a connector really sent (observe mode or an allowed host; never mail caught by the SMTP sink or `sendmail`), and ignores test addresses: see [The allowlist](Echo-Sealing-Staging#the-allowlist).
+`seal/real-recipient` only applies to messages a connector really sent (observe mode or an allowed host; never mail caught by the SMTP sink or `sendmail`). It ignores test addresses: see [The allowlist](Echo-Sealing-Staging#the-allowlist).
 
 ### Actions
 

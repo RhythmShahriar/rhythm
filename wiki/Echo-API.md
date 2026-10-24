@@ -1,4 +1,4 @@
-`rhythm echo up` serves a small HTTP API on its `listen` address (`127.0.0.1:8025` by default). Connectors post captures to it, and Echo's own commands, Soundcheck and your tests read from it. This page covers every REST route, the capture protocol for writing a connector for another stack, and the `client` Go package.
+`rhythm echo up` serves a small HTTP API on its `listen` address (`127.0.0.1:8025` by default). Connectors post captures to it. Echo's own commands, Soundcheck and your tests read from it. This page covers every REST route, the capture protocol for writing a connector for another stack and the `client` Go package.
 
 ## Authentication
 
@@ -66,7 +66,7 @@ curl -s "http://127.0.0.1:8025/v1/wait?run=checkout-test&channel=email&count=1&q
 
 ## The capture protocol
 
-A connector is code inside the site that reports each email and outbound HTTP request to Echo before it's sent, and does what Echo answers. The protocol is one JSON request, versioned as wire `1`. The WordPress, Laravel and Node connectors, the SMTP sink, the `sendmail` stand-in and the proxy all speak it, so a connector for another stack gets the same recognition, fakes, checks and comparisons.
+A connector is code inside the site that reports each email and outbound HTTP request to Echo before it's sent and does what Echo answers. The protocol is one JSON request, versioned as wire `1`. The WordPress, Laravel and Node connectors, the SMTP sink, the `sendmail` stand-in and the proxy all speak it, so a connector for another stack gets the same recognition, fakes, checks and comparisons.
 
 ### An HTTP request
 
@@ -122,10 +122,10 @@ Echo answers `"action": "fake"` when sealed (don't send; tell the caller it was 
 | `id` | string | For `after`: the `id` Echo returned for the `before`. |
 | `run` | string | `<run>/<action>`, copied from the triggering request's `X-Echo-Run` header or cookie, or `RHYTHM_ECHO_RUN`. |
 | `source.via` | string | Your connector's name. |
-| `source.stack`, `source.plugin`, `source.hook` | string | The stack, the plugin or package that sent it (best guess), and the hook you caught it in. |
+| `source.stack`, `source.plugin`, `source.hook` | string | The stack, the plugin or package that sent it (best guess) and the hook you caught it in. |
 | `source.host` | string | The site's own host. Requests to it are always allowed. |
 | `email` | object | `from`, `to[]`, `cc[]`, `bcc[]`, `reply_to`, `subject`, `text`, `html`, `headers{}`, `raw`. |
-| `http` | object | `method`, `url`, `headers{}`, `body`, and for `after`: `status`, `response`. |
+| `http` | object | `method`, `url`, `headers{}` and `body`, plus for `after`: `status`, `response`. |
 | `error` | string | The send failed: a transport error, `wp_mail_failed`. |
 
 A bad capture gets `400` with the reason (`an email capture needs email`, `http capture: bad url`, `kind must be "email" or "http"`). A capture is limited to 32 MiB; Echo keeps 256 KiB of each body.
@@ -136,15 +136,15 @@ A bad capture gets `400` with the reason (`an email capture needs email`, `http 
 2. **Fail closed.** If Echo can't be reached and the connector's mode is `seal` (the default), don't send: fail the mail or the request.
 3. **Skip what isn't a message.** Don't report requests to the site's own host or to Echo itself.
 4. **Mask credentials before they leave.** Mask `Authorization`, cookies and API-key headers; keep the first characters of payment keys (`sk_live_•••••`) so Echo can tell live from test. Echo redacts secrets in bodies.
-5. **Copy the run ID.** Take `X-Echo-Run` from the incoming request (header, then cookie), carry it into queued work, and fall back to `RHYTHM_ECHO_RUN`.
-6. **Send the token** as `X-Echo-Token` when `RHYTHM_ECHO_TOKEN` is set, and read `RHYTHM_ECHO_URL` for Echo's address (default `http://127.0.0.1:8025`).
+5. **Copy the run ID.** Take `X-Echo-Run` from the incoming request (header, then cookie), carry it into queued work and fall back to `RHYTHM_ECHO_RUN`.
+6. **Send the token** as `X-Echo-Token` when `RHYTHM_ECHO_TOKEN` is set. Read `RHYTHM_ECHO_URL` for Echo's address (default `http://127.0.0.1:8025`).
 7. **Keep it short.** Echo runs next to the site: a timeout of a few seconds is plenty.
 
 The Laravel package's `src/` and the Node package's `src/` in the [Echo repository](https://github.com/RhythmShahriar/echo/tree/master/connectors) are compact references, with tests against a fake Echo.
 
 ## Mailpit-style routes
 
-`rhythm echo up` also serves a small read API for email shaped like [Mailpit](https://mailpit.axllent.org)'s, for tests written against Mailpit: `GET /api/v1/messages` (newest first, with `start` and `limit`, default 50), `GET /api/v1/message/{ID}` (`latest` works; adds a `Headers` field Mailpit doesn't have), `GET /api/v1/message/{ID}/headers`, and `DELETE /api/v1/messages` (`{"IDs": […]}`, or every email with an empty body). They cover email only and take the same token as the rest of the API.
+`rhythm echo up` also serves a small read API for email shaped like [Mailpit](https://mailpit.axllent.org)'s, for tests written against Mailpit: `GET /api/v1/messages` (newest first, with `start` and `limit`, default 50), `GET /api/v1/message/{ID}` (`latest` works; adds a `Headers` field Mailpit doesn't have), `GET /api/v1/message/{ID}/headers` and `DELETE /api/v1/messages` (`{"IDs": […]}`, or every email with an empty body). They cover email only and take the same token as the rest of the API.
 
 
 ## The client package
@@ -215,7 +215,7 @@ cleared 1
 | `Capture(ctx, wire.Capture)` | Report a capture, as a connector would. |
 | `client.RunValue(run, action)` | The `X-Echo-Run` value, `run + "/" + action`. |
 
-`client.Filter` has `Run`, `Action`, `Channel`, `To` and `Since`. The message type is `model.Message` from `github.com/RhythmShahriar/echo/model`, the capture types are in `github.com/RhythmShahriar/echo/wire`, and the comparison Soundcheck uses is `github.com/RhythmShahriar/echo/compare`.
+`client.Filter` has `Run`, `Action`, `Channel`, `To` and `Since`. The message type is `model.Message` from `github.com/RhythmShahriar/echo/model`, the capture types are in `github.com/RhythmShahriar/echo/wire`. The comparison Soundcheck uses is `github.com/RhythmShahriar/echo/compare`.
 
 ---
 <sub>← [Configuration](Echo-Configuration) · [Home](Home) · [CLI reference](Echo-CLI-Reference) →</sub>
