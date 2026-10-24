@@ -439,6 +439,12 @@ func TestAllowAddr(t *testing.T) {
 		{"10.0.0.1", false, false, true},
 		{"fd00::1", false, false, true},
 		{"::ffff:10.0.0.1", false, false, true},
+		{"100.100.100.200", false, false, true},
+		{"100.64.0.1", false, false, true},
+		{"100.128.0.1", true, true, true},
+		{"64:ff9b::a9fe:a9fe", false, false, false},
+		{"64:ff9b::7f00:1", false, true, false},
+		{"64:ff9b::808:808", true, true, true},
 		{"8.8.8.8", true, true, true},
 		{"2001:4860:4860::8888", true, true, true},
 	} {

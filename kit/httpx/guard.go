@@ -118,16 +118,30 @@ func canonicalAddr(u *url.URL) string {
 // "link-local" or "private"), or "" for a public one.
 func AddrClass(ip netip.Addr) string {
 	ip = ip.Unmap()
+	// A NAT64 address carries an IPv4 one in its last 32 bits and
+	// reaches it through the gateway, so it is classed by that address.
+	if ip.Is6() && nat64.Contains(ip) {
+		b := ip.As16()
+		ip = netip.AddrFrom4([4]byte(b[12:]))
+	}
 	switch {
 	case ip.IsLoopback() || ip.IsUnspecified():
 		return "loopback"
 	case ip.IsLinkLocalUnicast():
 		return "link-local" // 169.254.0.0/16 (cloud metadata), fe80::/10
-	case ip.IsPrivate():
-		return "private" // RFC 1918, fc00::/7
+	case ip.IsPrivate() || cgnat.Contains(ip):
+		return "private" // RFC 1918, fc00::/7, RFC 6598 shared space
 	}
 	return ""
 }
+
+var (
+	// nat64 is the RFC 6052 well-known NAT64 prefix.
+	nat64 = netip.MustParsePrefix("64:ff9b::/96")
+	// cgnat is the RFC 6598 carrier-grade NAT range. Some clouds put
+	// their metadata service there (Alibaba Cloud at 100.100.100.200).
+	cgnat = netip.MustParsePrefix("100.64.0.0/10")
+)
 
 // AllowAddr reports whether a connection to ip is allowed for a target
 // that resolves to targetIPs. A public ip is always allowed. A non-public
