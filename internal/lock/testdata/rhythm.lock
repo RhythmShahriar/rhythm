@@ -1,0 +1,56 @@
+{
+  "schema": "rhythm-lock/v1",
+  "rhythm": {
+    "name": "rhythm",
+    "repo": "RhythmShahriar/rhythm",
+    "version": "0.7.0",
+    "platforms": {
+      "darwin_arm64": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "linux_amd64": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  },
+  "tools": [
+    {
+      "name": "soundcheck",
+      "repo": "RhythmShahriar/soundcheck",
+      "version": "0.4.2",
+      "platforms": {
+        "linux_amd64": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "source": "registry"
+    },
+    {
+      "name": "tuner",
+      "repo": "RhythmShahriar/tuner",
+      "version": "0.3.1-rc.2",
+      "signer": "https://github.com/RhythmShahriar/tuner/.github/workflows/release.yml@refs/tags/v0.3.1-rc.2",
+      "platforms": {
+        "darwin_arm64": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "linux_amd64": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "windows_amd64": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "data": [
+        {
+          "name": "checks",
+          "version": "2026.10.20",
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        {
+          "name": "wpvulnerability",
+          "version": "2026-10-24",
+          "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      ],
+      "source": "registry"
+    },
+    {
+      "name": "zap",
+      "repo": "someone/rhythm-zap",
+      "version": "1.0.0",
+      "platforms": {
+        "linux_amd64": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      },
+      "source": "extension"
+    }
+  ]
+}
