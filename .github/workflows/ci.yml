@@ -80,6 +80,10 @@ jobs:
           args: release --snapshot --clean --skip=publish,sign
         env:
           GOWORK: "off"
+      # check-jsonschema is pinned by version, not by hash: hash pinning
+      # would mean pinning its whole dependency tree (rpds-py ships native
+      # wheels per platform). This job never signs or publishes, so a bad
+      # package could only fail or pass the manifest schema check.
       - name: Install rpm and check-jsonschema
         run: |
           sudo apt-get update -q && sudo apt-get install -y -q rpm
