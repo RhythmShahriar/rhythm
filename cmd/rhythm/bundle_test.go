@@ -218,8 +218,8 @@ func TestBundleRefusesUnsafeNames(t *testing.T) {
 
 func TestBundlePlatforms(t *testing.T) {
 	lockedSandbox(t)
-	// The lock pins this platform and three others, but only this one's
-	// archive is published, so another platform fails, closed.
+	// The lock pins this platform and three others. Only this one's
+	// archive is published, so another platform fails closed.
 	code, out, errs := runCmd("bundle", "--locked", "-o", "b.tar.gz", "--platform", "plan9/amd64")
 	if code != 1 || !strings.Contains(errs, "rhythm.lock has no archive for plan9_amd64") || !strings.Contains(errs, "not written") {
 		t.Errorf("unlocked platform: exit %d\n%s%s", code, out, errs)

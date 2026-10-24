@@ -77,7 +77,7 @@ On Windows, `RHYTHM_TOOLS = 'none'` is the way to install no tools: Windows Powe
 - run: rhythm tuner scan .
 ```
 
-The action installs rhythm with the installer from the same tag, then the tools with `rhythm install`, signatures checked, and puts them on `PATH` on Linux, macOS and Windows runners. It caches the verified archives (keyed on the runner OS, architecture, `rhythm.lock` and the inputs), so a pipeline downloads each release once. Inputs: `tools`, `version` (of rhythm, default the latest), `locked`, `skip-signature`, `token` (default `github.token`, sent to `api.github.com` only), `install-dir` and `working-directory`. Outputs: `rhythm-version`, `tool-versions` (`tuner@0.3.2 soundcheck@0.4.1`), `install-dir`, `cache-dir` and `cache-hit`. With `locked`, a version in `tools` that `rhythm.lock` doesn't pin fails the step.
+The action installs rhythm with the installer from the same tag, then the tools with `rhythm install` (signatures checked). It puts them on `PATH` on Linux, macOS and Windows runners. It caches the verified archives (keyed on the runner OS, architecture, `rhythm.lock` and the inputs), so a pipeline downloads each release once. Inputs: `tools`, `version` (of rhythm, default the latest), `locked`, `skip-signature`, `token` (default `github.token`, sent to `api.github.com` only), `install-dir` and `working-directory`. Outputs: `rhythm-version`, `tool-versions` (`tuner@0.3.2 soundcheck@0.4.1`), `install-dir`, `cache-dir` and `cache-hit`. With `locked`, a version in `tools` that `rhythm.lock` doesn't pin fails the step.
 
 ## Tools
 
@@ -160,7 +160,7 @@ rhythm: unknown tool "tunr"
   run 'rhythm help' to see the tools
 ```
 
-`rhythm install` and `rhythm update` check each release's signature, then each download against the release checksums, and swap binaries atomically, so a failed update never leaves a broken install. A release whose signature is missing or doesn't verify is refused and nothing changes; `--skip-signature` installs it anyway with a warning, for a mirror you trust. `rhythm list` shows `yes` under SIGNED for a binary that passed the check and hasn't changed since. The binary it replaced stays next to the new one as `<binary>.prev`, which `--rollback` restores. Tools mention when a new release is out, at most once a day; set `RHYTHM_NO_UPDATE_CHECK=1` to silence that.
+`rhythm install` and `rhythm update` check each release's signature, then each download against the release checksums. They swap binaries atomically, so a failed update never leaves a broken install. A release whose signature is missing or doesn't verify is refused and nothing changes; `--skip-signature` installs it anyway with a warning, for a mirror you trust. `rhythm list` shows `yes` under SIGNED for a binary that passed the check and hasn't changed since. The binary it replaced stays next to the new one as `<binary>.prev`, which `--rollback` restores. Tools mention when a new release is out, at most once a day; set `RHYTHM_NO_UPDATE_CHECK=1` to silence that.
 
 ### Exit codes
 
@@ -242,7 +242,7 @@ Completion covers rhythm's commands, the tools and their flags plus each tool's 
 
 `rhythm update`, `rhythm install` and both installers check every download against the release's `checksums.txt`. That catches a corrupted or cut-off download. It can't tell you who published the release: `checksums.txt` sits on the same release page as the archives, so anyone who can upload there can upload a matching pair.
 
-The signature closes that gap. The release workflow signs `checksums.txt` with keyless [cosign](https://docs.sigstore.dev/). The signing certificate records which repository and which tag the run was for. rhythm checks it on every install, update and lock, and fails closed: a missing or invalid signature installs nothing. `rhythm verify` checks what you already have: the signature for the version installed, the archive against `checksums.txt` and the installed binary against the one in the archive, byte for byte. The installers run `rhythm verify rhythm` after installing rhythm, and check the signature themselves first when cosign or gh is there. To check a download by hand, get `checksums.txt` and `checksums.txt.sigstore.json` from the release next to your archive, then run (cosign 2.4 or later):
+The signature closes that gap. The release workflow signs `checksums.txt` with keyless [cosign](https://docs.sigstore.dev/). The signing certificate records which repository and which tag the run was for. rhythm checks it on every install, update and lock. It fails closed: a missing or invalid signature installs nothing. `rhythm verify` checks what you already have: the signature for the version installed, the archive against `checksums.txt` and the installed binary against the one in the archive, byte for byte. The installers run `rhythm verify rhythm` after installing rhythm. They check the signature themselves first when cosign or gh is there. To check a download by hand, get `checksums.txt` and `checksums.txt.sigstore.json` from the release next to your archive, then run (cosign 2.4 or later):
 
 ```sh
 cosign verify-blob --bundle checksums.txt.sigstore.json \

@@ -61,7 +61,7 @@ func TestSharedWorkflowVerifies(t *testing.T) {
 	}
 }
 
-// Another CA's bundle doesn't chain to this one, and the public-good root
+// Another CA's bundle doesn't chain to this one. The public-good root
 // trusts neither.
 func TestOtherRootsRefuse(t *testing.T) {
 	ca, other := newCA(t), newCA(t)

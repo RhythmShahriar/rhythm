@@ -206,7 +206,7 @@ func cmdBundle(args []string, stdout, stderr io.Writer) int {
 }
 
 // bundleRelease adds e's locked release to w: checksums.txt and its
-// signature, both checked, and the archive of every platform, each
+// signature (both checked) and the archive of every platform, each
 // checked against the lock and checksums.txt.
 func bundleRelease(ctx context.Context, w *bundle.Writer, e *lockEntry, binary string, platforms []string) (bundle.Release, error) {
 	out := bundle.Release{Name: e.Name, Repo: e.Repo, Version: e.Version, Assets: map[string]bundle.File{}}

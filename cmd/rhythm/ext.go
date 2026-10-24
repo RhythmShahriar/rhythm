@@ -169,8 +169,8 @@ Installs an extension from its GitHub releases next to rhythm (or into
 rhythm update keeps it current. The release must carry a Sigstore
 signature over checksums.txt from a workflow of the extension's own
 repository; an unsigned or wrongly signed release is refused. The
-workflow that signed it is recorded, and later releases must come from
-the same one.`
+workflow that signed it is recorded. Later releases must come from the
+same one.`
 
 func extInstall(args []string, stdout, stderr io.Writer) int {
 	flags := newFlagSet("ext install", extInstallSynopsis)

@@ -79,8 +79,8 @@ func realFixture(t *testing.T) (sums, bundle []byte) {
 	return sums, bundle
 }
 
-// An extension's own workflow may sign for it, but never for rhythm's
-// own tools.
+// An extension's own workflow may sign for it. It never may for
+// rhythm's own tools.
 func TestVerifierPinsByRepository(t *testing.T) {
 	ca, err := sigverifytest.New()
 	if err != nil {
@@ -151,7 +151,7 @@ func TestInstallPrintsTheSigner(t *testing.T) {
 	if code != 0 || errs != "" || out != want {
 		t.Fatalf("exit %d\n%s%s\nwant\n%s", code, out, errs, want)
 	}
-	// rhythm list says so without the network, and stops once the file
+	// rhythm list says so without the network. It stops once the file
 	// changes.
 	_, out, _ = runCmd("list", "--offline")
 	if !strings.Contains(out, "tuner   0.4.0    yes     ") {
@@ -190,7 +190,7 @@ func TestUpdatePrintsTheSigner(t *testing.T) {
 	}
 }
 
-// A checksums.txt changed after signing is refused, and the binary that
+// A checksums.txt changed after signing is refused. The binary that
 // was there stays.
 func TestEditedChecksumsFailClosed(t *testing.T) {
 	s, f := signedSandbox(t)
@@ -337,7 +337,7 @@ func TestVerifyRhythmItselfAndJSON(t *testing.T) {
 
 func TestVerifyFailures(t *testing.T) {
 	s, f := signedSandbox(t)
-	// Not installed, and a development build.
+	// Not installed, then a development build.
 	s.stub(t, "rhythm-echo", "dev", "")
 	code, out, errs := runCmd("verify", "tuner", "echo")
 	if code != 1 || !strings.Contains(errs, "rhythm-tuner       isn't installed; install it with: rhythm install tuner") ||

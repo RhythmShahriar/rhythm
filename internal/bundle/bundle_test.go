@@ -28,7 +28,7 @@ var (
 )
 
 // sample writes a bundle with two releases of one repository and one of
-// another, and returns its path.
+// another. It returns its path.
 func sample(t *testing.T) string {
 	t.Helper()
 	p := filepath.Join(t.TempDir(), "rhythm-bundle.tar.gz")
