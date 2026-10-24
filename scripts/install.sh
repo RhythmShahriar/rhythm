@@ -339,7 +339,9 @@ main() {
 	'' | *[!0-9]*) secs= ;;
 	esac
 	[ -n "$secs" ] || die "RHYTHM_INSTALL_TIMEOUT must be a whole number of seconds: '$timeout'"
-	[ ${#secs} -le 4 ] && [ "$secs" -le 3600 ] || die "RHYTHM_INSTALL_TIMEOUT must be at most 3600 seconds: '$timeout'"
+	if [ ${#secs} -gt 4 ] || [ "$secs" -gt 3600 ]; then
+		die "RHYTHM_INSTALL_TIMEOUT must be at most 3600 seconds: '$timeout'"
+	fi
 	timeout=$secs
 	limits="--connect-timeout $timeout --speed-limit 1 --speed-time $timeout"
 

@@ -136,12 +136,12 @@ install() {
 	# $shell is split on purpose, so RHYTHM_TEST_SH can be "busybox sh".
 	# It runs in $cdir, so a relative RHYTHM_INSTALL_DIR lands in the case.
 	# shellcheck disable=SC2086
-	(cd "$cdir" && cat "${script:-$installer}" | env -i \
+	(cd "$cdir" && env -i \
 		HOME="$cdir/home" PATH="${path:-$syspath}" TMPDIR="$cdir/tmp" \
 		XDG_CONFIG_HOME="$cdir/home/.config" XDG_CACHE_HOME="$cdir/home/.cache" \
 		RHYTHM_GITHUB_API="$base" RHYTHM_INSTALL_DIR="$cdir/bin" \
 		RHYTHM_TEST_LOG="$cdir/argv.log" FAKE_CURL_LOG="$cdir/curl.log" FAKE_SIG_LOG="$cdir/sig.log" \
-		"$@" $shell >"$cdir/out" 2>&1)
+		"$@" $shell <"${script:-$installer}" >"$cdir/out" 2>&1)
 	code=$?
 	set -e
 }
