@@ -206,6 +206,17 @@ func TestInstallCopiesItselfAndLogs(t *testing.T) {
 	if err != nil || string(got) != "rhythm install tuner --dir "+dir+"\n" {
 		t.Fatalf("log = %q, %v", got, err)
 	}
+	// --skip-signature is taken and logged, so the setup-rhythm test can
+	// see that the action passed it.
+	if err := os.Remove(log); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errOut := call("install", "--skip-signature", "tuner", "--dir", dir); code != 0 {
+		t.Fatalf("install --skip-signature = %d %q", code, errOut)
+	}
+	if got, err := os.ReadFile(log); err != nil || string(got) != "rhythm install --skip-signature tuner --dir "+dir+"\n" {
+		t.Fatalf("log = %q, %v", got, err)
+	}
 	// An alias installs the tool under its name.
 	if code, out, errOut := call("install", "t", "--dir", dir); code != 0 || !strings.Contains(out, "Installed rhythm-tuner ") {
 		t.Fatalf("install t = %d %q %q", code, out, errOut)

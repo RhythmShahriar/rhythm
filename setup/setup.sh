@@ -4,8 +4,9 @@
 
 # The steps of the setup-rhythm action (action.yml), one per argument:
 #
-#   setup.sh prepare   work out the install and download-cache folders and
-#                      the cache key, as step outputs
+#   setup.sh prepare   check the true/false inputs, then work out the
+#                      install and download-cache folders and the cache
+#                      key, as step outputs
 #   setup.sh rhythm    install rhythm with scripts/install.sh (macOS, Linux)
 #   setup.sh tools     install the tools with rhythm install, add the
 #                      install folder to PATH and write the outputs
@@ -31,7 +32,8 @@ output() {
 }
 
 # truthy reports whether an input is true; anything but true or false is
-# a mistake worth stopping for.
+# a mistake worth stopping for. It is the one rule for these inputs on
+# every runner: the Windows step takes skip-signature from prepare.
 truthy() {
 	case $(printf '%s' "$2" | tr '[:upper:]' '[:lower:]') in
 	true | 1 | yes) return 0 ;;
@@ -92,7 +94,12 @@ sha256() {
 }
 
 prepare() {
-	local arch lock key
+	local arch lock key skip=
+	# A bad value stops here, before any step installs something.
+	truthy locked "${INPUT_LOCKED:-false}" || :
+	if truthy skip-signature "${INPUT_SKIP_SIGNATURE:-false}"; then
+		skip=1
+	fi
 	arch=${RUNNER_ARCH:-$(uname -m)}
 	lock=none
 	if [ -f rhythm.lock ]; then
@@ -105,6 +112,7 @@ prepare() {
 	output cache-dir "$(cache_dir)"
 	output cache-key "setup-rhythm-v1-$os-$arch-$lock-$key"
 	output cache-prefix "setup-rhythm-v1-$os-$arch-"
+	output skip-signature "$skip"
 }
 
 # install_rhythm installs the router alone, with the repository's own
