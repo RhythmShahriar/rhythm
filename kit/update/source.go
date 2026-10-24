@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -57,7 +58,9 @@ func (g gitHub) Latest(ctx context.Context) (*Release, error) {
 func (g gitHub) ByTag(ctx context.Context, version string) (*Release, error) {
 	tag := "v" + version
 	var v ghRelease
-	if err := g.u.getJSON(ctx, "/releases/tags/"+tag, tag, &v); err != nil {
+	// Escaped as well, for callers that use this Source without ByTag's
+	// check: a / ? or # in the version must not reshape the request.
+	if err := g.u.getJSON(ctx, "/releases/tags/"+url.PathEscape(tag), tag, &v); err != nil {
 		return nil, err
 	}
 	if v.Draft {

@@ -218,6 +218,62 @@ func TestByTag(t *testing.T) {
 	}
 }
 
+// TestByTagKeepsThePath checks that a version can't reshape the request
+// sent to the API host along with the token. ByTag refuses it before any
+// request; the GitHub source escapes it for callers that skip ByTag.
+func TestByTagKeepsThePath(t *testing.T) {
+	var mu sync.Mutex
+	var seen []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		seen = append(seen, r.URL.EscapedPath()+"?"+r.URL.RawQuery)
+		mu.Unlock()
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	u := &Updater{Repo: "RhythmShahriar/tuner", Binary: "rhythm-tuner", API: srv.URL}
+	bad := []string{"0.3.1/../x", "0.3.1/../../x", "0.3.1?per_page=1", "0.3.1#x", "0.3.1-rc1/x", "0.3.1+b/x", "0.3", "latest", "", "0.3.1-rc 1", "0.3.1-é"}
+	for _, v := range bad {
+		_, err := u.ByTag(context.Background(), v)
+		if err == nil || !strings.Contains(err.Error(), "invalid version") {
+			t.Errorf("ByTag(%q) err = %v, want invalid version", v, err)
+		}
+	}
+	mu.Lock()
+	if len(seen) != 0 {
+		t.Errorf("refused versions still sent %q", seen)
+	}
+	seen = nil
+	mu.Unlock()
+
+	_, _ = gitHub{u}.ByTag(context.Background(), "0.3.1/../x?y#z")
+	mu.Lock()
+	defer mu.Unlock()
+	want := "/repos/RhythmShahriar/tuner/releases/tags/v0.3.1%2F..%2Fx%3Fy%23z?"
+	if len(seen) != 1 || seen[0] != want {
+		t.Errorf("source sent %q, want [%q]", seen, want)
+	}
+}
+
+func TestExactVersion(t *testing.T) {
+	for v, want := range map[string]bool{
+		"0.3.1":          true,
+		"0.4.0-rc1":      true,
+		"1.2.3-rc.1+b.5": true,
+		"10.20.30":       true,
+		"0.3":            false,
+		"0.3.1-":         false,
+		"0.3.1/x":        false,
+		"01.2.3":         false,
+		"0.3.1-rc_1":     false,
+		"0.3.1-rc%2F":    false,
+	} {
+		if got := exactVersion(v); got != want {
+			t.Errorf("exactVersion(%q) = %v, want %v", v, got, want)
+		}
+	}
+}
+
 func TestChecksumsListsEveryPlatform(t *testing.T) {
 	u := pinned(t).updater()
 	rel, err := u.ByTag(context.Background(), "0.3.1")

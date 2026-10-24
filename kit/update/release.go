@@ -82,9 +82,30 @@ func (u *Updater) getJSON(ctx context.Context, path, want string, v any) error {
 
 // ByTag fetches the release tagged v<version>. The version may carry the
 // leading v or not. Prereleases are returned too, since asking for one by
-// name is deliberate; drafts are not.
+// name is deliberate; drafts are not. A version that isn't an exact
+// semantic version such as 0.3.1 or 0.4.0-rc1 is refused before any
+// request, so it can't change the path or query sent with the token.
 func (u *Updater) ByTag(ctx context.Context, version string) (*Release, error) {
-	return u.source().ByTag(ctx, strings.TrimPrefix(strings.TrimSpace(version), "v"))
+	v := strings.TrimPrefix(strings.TrimSpace(version), "v")
+	if !exactVersion(v) {
+		return nil, fmt.Errorf("invalid version %q; use an exact version such as 0.3.1", version)
+	}
+	return u.source().ByTag(ctx, v)
+}
+
+// exactVersion reports whether v is X.Y.Z with an optional -prerelease
+// and +build part made only of letters, digits, dots and hyphens.
+func exactVersion(v string) bool {
+	_, exact, err := parseSpec(v)
+	if err != nil || !exact {
+		return false
+	}
+	for _, r := range v {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && r != '.' && r != '-' && r != '+' {
+			return false
+		}
+	}
+	return true
 }
 
 // releases lists the source's releases for Resolve and MinAge. A Source
