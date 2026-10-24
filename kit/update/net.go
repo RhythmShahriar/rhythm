@@ -105,7 +105,7 @@ func (u *Updater) newRequest(ctx context.Context, raw string) (*http.Request, er
 // client returns a copy of u.HTTP (or a default client) whose redirects
 // stay on https and drop the token when they leave the first host. Go
 // keeps Authorization on a redirect to the same host name on another
-// port, and a caller's client may not strip it at all, so this doesn't
+// port and a caller's client may not strip it at all, so this doesn't
 // rely on either.
 func (u *Updater) client() *http.Client {
 	var c http.Client

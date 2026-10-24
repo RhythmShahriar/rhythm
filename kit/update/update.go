@@ -44,10 +44,10 @@ const maxArchive = 200 << 20
 //
 // It reads these environment variables:
 //
-//   - GITHUB_TOKEN is sent only to api.github.com and to the github.com
-//     and objects.githubusercontent.com download hosts, and only when API
-//     is api.github.com. It lifts the 60 requests an hour anonymous limit
-//     in CI.
+//   - GITHUB_TOKEN is sent only when API is api.github.com. It then goes
+//     only to api.github.com and the github.com and
+//     objects.githubusercontent.com download hosts. It lifts the 60
+//     requests an hour anonymous limit in CI.
 //   - RHYTHM_GITHUB_TOKEN is sent to the host named by API (a mirror or
 //     GitHub Enterprise) and takes precedence over GITHUB_TOKEN.
 //   - RHYTHM_OFFLINE, set to anything but "" or "0", works like Offline.
@@ -161,7 +161,7 @@ func Newer(current, latest string) bool {
 
 // comparePre orders two prerelease labels as SemVer 2.0.0 section 11
 // does: dot-separated identifiers compared left to right, numeric ones
-// numerically and below alphanumeric ones, and a label with fewer
+// numerically and below alphanumeric ones; a label with fewer
 // identifiers lower when the rest are equal. One extension: digit runs
 // inside an alphanumeric identifier also compare numerically, so rc9
 // sorts before rc10 the way people tag releases. Identifiers without
@@ -416,7 +416,7 @@ func fromZip(archive []byte, bin string) ([]byte, error) {
 	return nil, fmt.Errorf("no %s in the archive", bin)
 }
 
-// Seams for tests: rename lets them inject failures, and useOldSwap
+// Seams for tests: rename lets them inject failures and useOldSwap
 // forces the Windows path on every OS.
 var (
 	rename     = os.Rename
