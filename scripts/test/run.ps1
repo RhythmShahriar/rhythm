@@ -109,7 +109,7 @@ function New-Release([string]$Version, [string]$Binary, [string]$Base, [string]$
 
 # The same releases as mkfake.sh builds for install.sh.
 $All = 'tuner:t,soundcheck:sc,echo:e'
-$New = 'dry-run,verify,defaults,pins,locked'
+$New = 'dry-run,verify,defaults,pins,locked,skip-signature'
 $Build = Join-Path $Work 'build'
 foreach ($R in @(
         @('0.7.0', $All, $New, 'yes'),
@@ -671,11 +671,34 @@ function Case-skip_signature {
     if ((Get-SigLog).Count) { Fail 'cosign ran with RHYTHM_SKIP_SIGNATURE=1' }
     if ((Get-Content (Join-Path $script:CaseDir 'argv.log')) -match '^rhythm verify') { Fail 'rhythm verify ran with RHYTHM_SKIP_SIGNATURE=1' }
     Assert-Tools 'tuner', 'soundcheck', 'echo'
+    # The tools are installed without their signature checks too.
+    $Bin = Join-Path $script:CaseDir 'bin'
+    foreach ($T in 'tuner', 'soundcheck', 'echo') {
+        if ((Get-Argv) -notcontains "rhythm install $T --dir $Bin --quiet --skip-signature") { Fail "rhythm install $T wasn't given --skip-signature" }
+    }
 
+    Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $script:CaseDir 'argv.log')
     Invoke-Install @{ PATH = "$CosignBin$Sep$SysPath"; RHYTHM_SKIP_SIGNATURE = '0' }
     Assert-Code 0
     Assert-NoOut 'RHYTHM_SKIP_SIGNATURE'
     if (-not (Get-SigLog).Count) { Fail 'RHYTHM_SKIP_SIGNATURE=0 skipped cosign' }
+    if ((Get-Argv) -match '--skip-signature') { Fail 'RHYTHM_SKIP_SIGNATURE=0 passed --skip-signature' }
+
+    # With RHYTHM_LOCKED, the one rhythm install --locked gets it.
+    $Lock = Join-Path $script:CaseDir 'rhythm.lock'
+    [IO.File]::WriteAllText($Lock, '{"schema":"rhythm-lock/v1","tools":[{"name":"tuner","version":"0.3.1"}]}', $Utf8)
+    Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $script:CaseDir 'argv.log')
+    Invoke-Install @{ RHYTHM_SKIP_SIGNATURE = '1'; RHYTHM_LOCKED = '1' }
+    Assert-Code 0
+    if ((Get-Argv) -notcontains "rhythm install --locked --dir $Bin --quiet --skip-signature") { Fail "rhythm install --locked wasn't given --skip-signature" }
+    Remove-Item -Force $Lock
+
+    # A rhythm without the flag isn't given it; it checks no tool signatures.
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $Bin, (Join-Path $script:CaseDir 'argv.log')
+    Invoke-Install @{ RHYTHM_SKIP_SIGNATURE = '1'; RHYTHM_VERSION = '0.6.0'; RHYTHM_TOOLS = 'tuner' }
+    Assert-Code 0
+    Assert-Tools 'tuner'
+    if ((Get-Argv) -match '--skip-signature') { Fail 'rhythm 0.6.0 was given --skip-signature' }
 }
 
 function Case-router_verify {

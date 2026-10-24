@@ -23,7 +23,7 @@ case $(uname -s) in MINGW* | MSYS* | CYGWIN*) exe=.exe ;; esac
 
 export GOWORK=off
 go -C "$root" build -o "$work/rhythm$exe" \
-	-ldflags "-X main.version=0.7.0 -X main.features=dry-run,verify,defaults,pins,locked" ./scripts/test/stub
+	-ldflags "-X main.version=0.7.0 -X main.features=dry-run,verify,defaults,pins,locked,skip-signature" ./scripts/test/stub
 go -C "$root" build -o "$work/fakeapi$exe" ./setup/internal/fakeapi
 nohup "$work/fakeapi$exe" -stub "$work/rhythm$exe" -addr "$addr" >"$work/../fakeapi.log" 2>&1 &
 

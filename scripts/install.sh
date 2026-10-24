@@ -12,7 +12,7 @@
 #                        pins one (default: the tools rhythm installs on a fresh setup,
 #                        "tuner soundcheck echo" for an older rhythm; "none" for none)
 #   RHYTHM_LOCKED        1 installs the tools in ./rhythm.lock instead (rhythm install --locked)
-#   RHYTHM_SKIP_SIGNATURE  1 skips the signature checks, for a mirror you trust
+#   RHYTHM_SKIP_SIGNATURE  1 skips the signature checks, rhythm's and the tools', for a mirror you trust
 #   RHYTHM_GITHUB_API    GitHub API base, for mirrors (default https://api.github.com).
 #                        It must be https; plain http is accepted only for 127.0.0.1, ::1 and localhost.
 #                        It is a plain base URL: no user info, query or fragment.
@@ -522,13 +522,20 @@ main() {
 	if [ -n "$todo$locked" ] && "$dir/rhythm" install --help 2>&1 | grep -q -- --quiet; then
 		quiet=--quiet
 	fi
+	# RHYTHM_SKIP_SIGNATURE covers the tools too: rhythm install is told
+	# --skip-signature when it has the flag. An older rhythm doesn't check
+	# the tools' signatures at all.
+	skip_flag=
+	if [ -n "$skip_sig" ] && [ -n "$todo$locked" ] && "$dir/rhythm" install --help 2>&1 | grep -q -- --skip-signature; then
+		skip_flag=--skip-signature
+	fi
 	# A tool that fails doesn't stop the next; the router has said why.
 	done_tools=
 	failed=
 	if [ -n "$locked" ]; then
 		# One call; the tools installed are the ones rhythm says it installed.
-		# shellcheck disable=SC2086 # $quiet is empty or one flag
-		if ! "$dir/rhythm" install --locked --dir "$dir" $quiet >"$tmp/install.out" 2>&1; then
+		# shellcheck disable=SC2086 # $quiet and $skip_flag are empty or one flag
+		if ! "$dir/rhythm" install --locked --dir "$dir" $quiet $skip_flag >"$tmp/install.out" 2>&1; then
 			failed=$(sed -n 's/^Installed [0-9]*, .*failed [0-9]*: //p' "$tmp/install.out" | tr -d ',' | sed 's/rhythm-//g')
 			[ -n "$failed" ] || failed="rhythm.lock"
 		fi
@@ -538,8 +545,8 @@ main() {
 		grep -v "^Note: .* isn't on your PATH\.\$" "$tmp/install.out" >&2 || :
 	fi
 	for tool in $todo; do
-		# shellcheck disable=SC2086 # $quiet is empty or one flag
-		if "$dir/rhythm" install "$tool" --dir "$dir" $quiet >"$tmp/install.out"; then
+		# shellcheck disable=SC2086 # $quiet and $skip_flag are empty or one flag
+		if "$dir/rhythm" install "$tool" --dir "$dir" $quiet $skip_flag >"$tmp/install.out"; then
 			done_tools="$done_tools $(tool_name "$tool")"
 		else
 			failed="$failed $(tool_name "$tool")"

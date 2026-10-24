@@ -14,13 +14,14 @@
 //	                               RHYTHM_TEST_VERIFY is "fail"), "defaults"
 //	                               (install --defaults: $RHYTHM_TEST_DEFAULTS
 //	                               when set, else echo, soundcheck and
-//	                               tuner), "pins" (tool@version) and
+//	                               tuner), "pins" (tool@version),
 //	                               "locked" (install --locked, from
-//	                               ./rhythm.lock)
+//	                               ./rhythm.lock) and "skip-signature"
+//	                               (install --skip-signature)
 //	-X main.toolsBlock=yes         whether help has a "Tools:" block
 //
-// install takes --skip-signature and only logs it. It logs its argv to
-// $RHYTHM_TEST_LOG, checks every name before installing
+// install takes --skip-signature with that feature and only logs it. It
+// logs its argv to $RHYTHM_TEST_LOG, checks every name before installing
 // any (with rhythm's did-you-mean lines), fetches each tool's archive from
 // $RHYTHM_GITHUB_API so a test can make one 404, "installs" a tool by
 // copying itself to rhythm-<tool>(.exe) in --dir and notes when --dir isn't
@@ -50,7 +51,7 @@ import (
 var (
 	version    = "0.0.0"
 	tools      = "tuner:t,soundcheck:sc,echo:e"
-	features   = "dry-run,verify,defaults,pins,locked"
+	features   = "dry-run,verify,defaults,pins,locked,skip-signature"
 	toolsBlock = "yes"
 )
 
@@ -140,6 +141,9 @@ func install(args []string, stdout, stderr io.Writer) int {
 				fmt.Fprintln(stdout, "  --locked         install the versions in rhythm.lock")
 			}
 			fmt.Fprintln(stdout, "  --quiet          print only the Installed lines and errors")
+			if has("skip-signature") {
+				fmt.Fprintln(stdout, "  --skip-signature install without checking release signatures")
+			}
 			return 0
 		case "--defaults", "--locked":
 			if !has(strings.TrimPrefix(args[i], "--")) {
@@ -154,6 +158,9 @@ func install(args []string, stdout, stderr io.Writer) int {
 			}
 		case "--skip-signature":
 			// Logged with the rest of argv, which is all a test needs.
+			if !has("skip-signature") {
+				return badFlag(args[i], stderr)
+			}
 		case "--quiet", "--dry-run":
 			if !has("dry-run") {
 				return badFlag(args[i], stderr)

@@ -663,12 +663,35 @@ case_skip_signature() {
 	[ ! -e "$cdir/sig.log" ] || fail "cosign ran with RHYTHM_SKIP_SIGNATURE=1"
 	! grep -q '^rhythm verify' "$cdir/argv.log" || fail "rhythm verify ran with RHYTHM_SKIP_SIGNATURE=1"
 	expect_tools tuner soundcheck echo
+	# The tools are installed without their signature checks too.
+	for t in tuner soundcheck echo; do
+		grep -qx "rhythm install $t --dir $cdir/bin --quiet --skip-signature" "$cdir/argv.log" ||
+			fail "rhythm install $t wasn't given --skip-signature"
+	done
 
+	rm -f "$cdir/argv.log"
 	install RHYTHM_SKIP_SIGNATURE=0
 	path=
 	expect_code 0
 	expect_no_out RHYTHM_SKIP_SIGNATURE
 	[ -s "$cdir/sig.log" ] || fail "RHYTHM_SKIP_SIGNATURE=0 skipped cosign"
+	! grep -q -- '--skip-signature' "$cdir/argv.log" || fail "RHYTHM_SKIP_SIGNATURE=0 passed --skip-signature"
+
+	# With RHYTHM_LOCKED, the one rhythm install --locked gets it.
+	printf '%s\n' '{"schema":"rhythm-lock/v1","tools":[{"name":"tuner","version":"0.3.1"}]}' >"$cdir/rhythm.lock"
+	rm -f "$cdir/argv.log"
+	install RHYTHM_SKIP_SIGNATURE=1 RHYTHM_LOCKED=1
+	expect_code 0
+	grep -qx "rhythm install --locked --dir $cdir/bin --quiet --skip-signature" "$cdir/argv.log" ||
+		fail "rhythm install --locked wasn't given --skip-signature"
+	rm -f "$cdir/rhythm.lock"
+
+	# A rhythm without the flag isn't given it; it checks no tool signatures.
+	rm -rf "${cdir:?}/bin" "$cdir/argv.log"
+	install RHYTHM_SKIP_SIGNATURE=1 RHYTHM_VERSION=0.6.0 RHYTHM_TOOLS=tuner
+	expect_code 0
+	expect_tools tuner
+	! grep -q -- '--skip-signature' "$cdir/argv.log" || fail "rhythm 0.6.0 was given --skip-signature"
 }
 
 case_router_verify() {
