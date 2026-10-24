@@ -25,6 +25,34 @@ import (
 	"time"
 )
 
+// TestMain points the config and cache folders at a temp folder, so no
+// test reads or writes the real ~/.config/rhythm (first-run markers,
+// update-check state) or ~/.cache/rhythm.
+func TestMain(m *testing.M) {
+	home, err := os.MkdirTemp("", "rhythm-test-home-*")
+	if err != nil {
+		panic(err)
+	}
+	for _, v := range []string{"HOME", "USERPROFILE", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "APPDATA", "LOCALAPPDATA", "RHYTHM_CONFIG_DIR"} {
+		_ = os.Setenv(v, filepath.Join(home, strings.ToLower(v)))
+	}
+	code := m.Run()
+	_ = os.RemoveAll(home)
+	os.Exit(code)
+}
+
+// freshConfig gives the test a config folder of its own.
+func freshConfig(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config"))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(dir, "cache"))
+	t.Setenv("APPDATA", filepath.Join(dir, "config"))
+	t.Setenv("LOCALAPPDATA", filepath.Join(dir, "cache"))
+	return dir
+}
+
 // fakeAPI serves GitHub-style latest releases for several repositories
 // and records every request path.
 type fakeAPI struct {
@@ -734,4 +762,76 @@ func TestUpdateCheckExitStatus(t *testing.T) {
 			t.Errorf("help doesn't explain exit 10:\n%s", out)
 		}
 	})
+}
+
+func TestUpdateAnnouncesNewTools(t *testing.T) {
+	freshConfig(t)
+	installed, latest := allTools()
+	delete(installed, "rhythm-echo")
+	delete(installed, "rhythm-soundcheck")
+	newSandbox(t, installed, latest)
+
+	code, out, errs := runCmd("update", "--no-data")
+	if code != 0 {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	want := "New tool available: echo (rhythm install echo)\nNew tool available: soundcheck (rhythm install soundcheck)\n"
+	if !strings.HasSuffix(out, want) || strings.Contains(out, "available: tuner") {
+		t.Errorf("stdout:\n%s\nwant it to end with\n%s", out, want)
+	}
+	// Once per machine.
+	if _, out, _ := runCmd("update", "--check"); strings.Contains(out, "New tool") {
+		t.Errorf("announced twice:\n%s", out)
+	}
+	// tuner was installed, so it was recorded and isn't announced as new
+	// after it is removed.
+	t.Setenv("PATH", t.TempDir())
+	if _, out, _ := runCmd("update", "--check"); strings.Contains(out, "New tool") {
+		t.Errorf("an installed tool announced as new:\n%s", out)
+	}
+}
+
+func TestUpdateAnnouncesAfterCheck(t *testing.T) {
+	freshConfig(t)
+	installed, latest := allTools()
+	delete(installed, "rhythm-echo")
+	newSandbox(t, installed, latest)
+	code, out, _ := runCmd("update", "--check")
+	if code != exitOutdated || !strings.Contains(out, "New tool available: echo (rhythm install echo)\n") {
+		t.Errorf("exit %d\n%s", code, out)
+	}
+}
+
+func TestUpdateQuiet(t *testing.T) {
+	freshConfig(t)
+	installed, latest := allTools()
+	delete(installed, "rhythm-echo")
+	latest[tools["tuner"]] = "0.1.0"
+	newSandbox(t, installed, latest)
+
+	code, out, errs := runCmd("update", "--quiet", "--no-data")
+	if code != 0 {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	if strings.Contains(out, "New tool") || strings.Contains(out, "up to date") {
+		t.Errorf("--quiet printed:\n%s", out)
+	}
+	if !strings.Contains(out, "rhythm-soundcheck  0.1.0 → 0.2.0 ✔") {
+		t.Errorf("--quiet hid the update:\n%s", out)
+	}
+	// A quiet run doesn't use up the announcement.
+	if _, out, _ := runCmd("update", "--check"); !strings.Contains(out, "New tool available: echo") {
+		t.Errorf("not announced after a quiet run:\n%s", out)
+	}
+}
+
+func TestUpdateFailureHasNoAnnouncement(t *testing.T) {
+	freshConfig(t)
+	installed, latest := allTools()
+	delete(installed, "rhythm-echo")
+	delete(latest, tools["tuner"])
+	newSandbox(t, installed, latest)
+	if code, out, _ := runCmd("update", "--check"); code != 1 || strings.Contains(out, "New tool") {
+		t.Errorf("exit %d\n%s", code, out)
+	}
 }

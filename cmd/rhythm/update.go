@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/RhythmShahriar/rhythm/kit/config"
 	"github.com/RhythmShahriar/rhythm/kit/update"
 )
 
@@ -38,6 +39,7 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 	checkOnly := flags.Bool("check", false, "only report available updates")
 	selfOnly := flags.Bool("self-only", false, "update only rhythm itself")
 	noData := flags.Bool("no-data", false, "skip refreshing the tools' data")
+	quiet := flags.Bool("quiet", false, "print only updates, problems and the tools' own output")
 	names, code, ok := parseArgs(flags, args, stdout, stderr)
 	if !ok {
 		return code
@@ -59,7 +61,7 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 	}
 
 	var progress io.Writer // the download progress line, on a terminal only
-	if isTerminal(stderr) {
+	if !*quiet && isTerminal(stderr) {
 		progress = stderr
 	}
 	for _, t := range targets {
@@ -75,6 +77,9 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 			continue
 		}
 		if !update.IsRelease(t.current) {
+			if *quiet {
+				continue
+			}
 			fmt.Fprintf(stdout, "%-18s %s (development build, not updated)\n", t.binary, t.current)
 			continue
 		}
@@ -89,7 +94,9 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 			continue
 		}
 		if !update.Newer(t.current, rel.Version) {
-			fmt.Fprintf(stdout, "%-18s %s (up to date)\n", t.binary, t.current)
+			if !*quiet {
+				fmt.Fprintf(stdout, "%-18s %s (up to date)\n", t.binary, t.current)
+			}
 			rep.upToDate++
 			continue
 		}
@@ -124,6 +131,9 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, rep.summary(*checkOnly))
 		return 1
 	}
+	if !*quiet {
+		announceNewTools(stdout)
+	}
 	if *checkOnly && rep.updated > 0 {
 		return exitOutdated
 	}
@@ -148,6 +158,24 @@ func refreshData(ctx context.Context, t target, stdout, stderr io.Writer, rep *u
 		fmt.Fprintf(stderr, "%s  data refresh failed (%v)\n", t.binary, err)
 	}
 	rep.failed = append(rep.failed, t.binary+" data")
+}
+
+// firstRun reports whether a key is new on this machine and remembers
+// it. Tests replace it to watch what is recorded.
+var firstRun = config.FirstRun
+
+// announceNewTools tells the user about tools a fresh setup would get
+// that aren't installed here, such as a tool added in this release of
+// rhythm. Each is announced once per machine. Installed tools are
+// recorded as seen too, so one removed later isn't announced as new.
+func announceNewTools(w io.Writer) {
+	for _, tool := range defaultInstallTools() {
+		seen := !firstRun("tool-" + tool)
+		if _, err := exec.LookPath("rhythm-" + tool); err == nil || seen {
+			continue
+		}
+		fmt.Fprintf(w, "New tool available: %s (rhythm install %s)\n", tool, tool)
+	}
 }
 
 // updateReport counts what rhythm update did, for the closing summary.
