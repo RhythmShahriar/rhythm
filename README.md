@@ -44,7 +44,7 @@ This installs `rhythm`, Tuner, Soundcheck and Echo to `~/.local/bin` (`/usr/loca
 | Variable | Effect |
 |---|---|
 | `RHYTHM_INSTALL_DIR` | install somewhere else |
-| `RHYTHM_VERSION` | install a specific version, e.g. `0.1.0` |
+| `RHYTHM_VERSION` | install a specific version, e.g. `0.5.0` |
 | `RHYTHM_TOOLS` | tools to install alongside (default `tuner soundcheck echo`; `none` for none) |
 | `GITHUB_TOKEN` | sent to `api.github.com` only, to lift GitHub's limit of 60 anonymous requests an hour (shared CI runners hit it) |
 | `RHYTHM_GITHUB_API` | a GitHub API mirror; it must be `https` (plain `http` only for `127.0.0.1`, `::1` and `localhost`) |
@@ -52,13 +52,14 @@ This installs `rhythm`, Tuner, Soundcheck and Echo to `~/.local/bin` (`/usr/loca
 
 ```sh
 curl -fsSL https://rythm.sh/install | RHYTHM_INSTALL_DIR=/opt/bin RHYTHM_TOOLS=none sh
+curl -fsSL https://rythm.sh/install | RHYTHM_VERSION=0.5.0 sh
 ```
 
 ```powershell
 $env:RHYTHM_TOOLS = 'none'; irm https://rythm.sh/install.ps1 | iex
 ```
 
-Windows PowerShell 5.1 can't set a variable to an empty value, so use `none` there.
+Windows PowerShell 5.1 can't set a variable to an empty value, so use `none` there. A pinned older `rhythm` installs the tools it knows and skips the rest with a warning.
 
 </details>
 

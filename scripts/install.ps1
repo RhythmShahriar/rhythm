@@ -162,6 +162,55 @@ finally {
     Remove-Item -Recurse -Force $Tmp -ErrorAction SilentlyContinue
 }
 
+# Invoke-Native runs rhythm.exe and returns its exit code and its output,
+# stderr included. Windows PowerShell 5.1 turns redirected stderr into
+# errors, which 'Stop' would throw, so this lowers the preference first.
+function Invoke-Native([string[]]$Arguments) {
+    $Prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $Out = & $Rhythm @Arguments 2>&1 | ForEach-Object { "$_" }
+        @{ Code = $LASTEXITCODE; Out = ($Out -join "`n") }
+    }
+    finally {
+        $ErrorActionPreference = $Prev
+    }
+}
+
+# Test-RouterKnows reports whether the installed rhythm knows a tool. Newer
+# routers answer `rhythm install --dry-run <tool>`. Older ones reject the
+# flag, so the tool list comes from the "Tools:" block of `rhythm help`, or
+# from $DefaultTools when even that is missing.
+$Probe = ''
+$Known = @()
+$ProbeOut = ''
+function Test-RouterKnows([string]$Tool) {
+    if ($script:Probe -ne 'help') {
+        $R = Invoke-Native @('install', '--dry-run', $Tool)
+        $script:ProbeOut = $R.Out
+        if ($R.Code -eq 0) { $script:Probe = 'dry-run'; return $true }
+        if ($script:Probe -eq 'dry-run' -or $R.Out -notmatch 'flag provided but not defined') {
+            $script:Probe = 'dry-run'
+            return $false
+        }
+        $script:Probe = 'help'
+        $script:ProbeOut = ''
+        # Rows look like "  soundcheck (sc)  did my change break anything?".
+        $In = $false
+        $List = @()
+        foreach ($Row in ((Invoke-Native @('help')).Out -split "`n")) {
+            if ($Row -match '^Tools:') { $In = $true; continue }
+            if (-not $In) { continue }
+            if ($Row -match '^\s*$') { break }
+            $Words = @($Row.Trim() -split '\s+')
+            $List += $Words[0]
+            if ($Words.Count -gt 1 -and $Words[1] -match '^\((.+)\)$') { $List += $Matches[1] }
+        }
+        $script:Known = if ($List.Count) { $List } else { @($DefaultTools -split ' ') }
+    }
+    return $script:Known -contains $Tool
+}
+
 $Rhythm = Join-Path $Dir 'rhythm.exe'
 # Off Windows (pwsh on Linux or macOS, mostly the installer tests) the
 # Windows rhythm.exe can't run, so the script stops after copying it.
@@ -182,11 +231,23 @@ Write-Host "Installed $Installed to $Dir"
 
 # An unset RHYTHM_TOOLS means the defaults. Windows PowerShell 5.1 can't set
 # a variable to '' (that deletes it), so "none" is the way to ask for none
-# there.
-$ToolList = if ($null -ne $env:RHYTHM_TOOLS) { $env:RHYTHM_TOOLS } else { $DefaultTools }
+# there. An old pinned rhythm may not know every default tool; those are
+# skipped. A name the user asked for must be known, or nothing more is
+# installed.
+$Explicit = $null -ne $env:RHYTHM_TOOLS
+$ToolList = if ($Explicit) { $env:RHYTHM_TOOLS } else { $DefaultTools }
 $Tools = @($ToolList -split '\s+' | Where-Object { $_ })
 if ($Tools.Count -eq 1 -and $Tools[0] -eq 'none') { $Tools = @() }
+$Todo = @()
 foreach ($Tool in $Tools) {
+    if (Test-RouterKnows $Tool) { $Todo += $Tool; continue }
+    if ($Explicit) {
+        if ($ProbeOut) { Write-Host $ProbeOut }
+        throw "rhythm install: $Installed doesn't know $Tool; run '$Rhythm help' to see the tools"
+    }
+    Write-Host "warning: $Installed doesn't know $Tool; skipped"
+}
+foreach ($Tool in $Todo) {
     & $Rhythm install $Tool --dir $Dir
     if ($LASTEXITCODE -ne 0) { throw "rhythm install: installing $Tool failed" }
 }

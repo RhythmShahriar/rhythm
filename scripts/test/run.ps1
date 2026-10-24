@@ -202,6 +202,9 @@ function Case-default {
     Assert-File 'rhythm.exe'
     Assert-Tools 'tuner', 'soundcheck', 'echo'
     Assert-Out "Installed rhythm 0.6.0 to $(Join-Path $script:CaseDir 'bin')"
+    if (-not (Select-String -Path (Join-Path $script:CaseDir 'argv.log') -SimpleMatch 'rhythm install --dry-run tuner' -Quiet)) {
+        Fail "the router wasn't asked about tuner"
+    }
 }
 
 function Case-none {
@@ -281,6 +284,46 @@ function Case-rate_limit {
     Invoke-Install @{ RHYTHM_GITHUB_API = "$BaseUrl/status/500" }
     Assert-Code 1
     Assert-Out "couldn't fetch the release from GitHub ($BaseUrl/status/500/repos/RhythmShahriar/rhythm/releases/latest): HTTP 500"
+}
+
+function Case-old_router {
+    Invoke-Install @{ RHYTHM_VERSION = '0.4.0' }
+    Assert-Code 0
+    Assert-Out "warning: rhythm 0.4.0 doesn't know echo; skipped"
+    Assert-Tools 'tuner', 'soundcheck'
+    if (Select-String -Path (Join-Path $script:CaseDir 'argv.log') -SimpleMatch 'install echo' -Quiet) {
+        Fail 'the router was asked to install echo'
+    }
+}
+
+function Case-old_router_named {
+    Invoke-Install @{ RHYTHM_VERSION = 'v0.4.0'; RHYTHM_TOOLS = 'tuner echo' }
+    Assert-Code 1
+    Assert-Out "rhythm install: rhythm 0.4.0 doesn't know echo; run '$(Get-Bin 'rhythm.exe') help' to see the tools"
+    Assert-File 'rhythm.exe'
+    Assert-Tools
+}
+
+function Case-router_without_dry_run {
+    Invoke-Install @{ RHYTHM_VERSION = '0.5.0' }
+    Assert-Code 0
+    Assert-Tools 'tuner', 'soundcheck', 'echo'
+    Assert-NoOut 'warning'
+}
+
+function Case-router_without_tools_block {
+    Invoke-Install @{ RHYTHM_VERSION = '0.3.5' }
+    Assert-Code 0
+    Assert-Tools 'tuner', 'soundcheck', 'echo'
+}
+
+function Case-unknown_tool {
+    Invoke-Install @{ RHYTHM_TOOLS = 'tuner bogus' }
+    Assert-Code 1
+    Assert-Out 'rhythm: unknown tool "bogus"'
+    Assert-Out "rhythm install: rhythm 0.6.0 doesn't know bogus"
+    Assert-File 'rhythm.exe'
+    Assert-Tools
 }
 
 function Case-running_exe {
@@ -364,7 +407,8 @@ function Case-readonly_dir {
 
 if (-not $Cases.Count) {
     $Cases = 'default', 'none', 'some', 'http_refused', 'http_download_refused', 'github_token', 'rhythm_token',
-    'rate_limit', 'running_exe', 'swap_fallback', 'swap_restore', 'readonly_dir'
+    'rate_limit', 'old_router', 'old_router_named', 'router_without_dry_run', 'router_without_tools_block',
+    'unknown_tool', 'running_exe', 'swap_fallback', 'swap_restore', 'readonly_dir'
 }
 # Installing on Windows adds the folder to the user PATH; put it back after.
 $UserPath = if ($OnWindows) { [Environment]::GetEnvironmentVariable('Path', 'User') } else { $null }

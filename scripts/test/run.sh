@@ -111,6 +111,7 @@ case_default() {
 	expect_file rhythm
 	expect_tools tuner soundcheck echo
 	expect_out "Installed rhythm 0.6.0 to $cdir/bin"
+	grep -qx 'rhythm install --dry-run tuner' "$cdir/argv.log" || fail "the router wasn't asked about tuner"
 }
 
 case_none() {
@@ -224,8 +225,48 @@ case_rate_limit() {
 	expect_out "couldn't fetch the release from GitHub ($base/status/500/repos/RhythmShahriar/rhythm/releases/latest): HTTP 500"
 }
 
+case_old_router() {
+	install RHYTHM_VERSION=0.4.0
+	expect_code 0
+	expect_out "Installed rhythm 0.4.0 to $cdir/bin"
+	expect_out "warning: rhythm 0.4.0 doesn't know echo; skipped"
+	expect_tools tuner soundcheck
+	! grep -q 'install echo' "$cdir/argv.log" || fail "the router was asked to install echo"
+}
+
+case_old_router_named() {
+	install RHYTHM_VERSION=v0.4.0 RHYTHM_TOOLS='tuner echo'
+	expect_code 1
+	expect_out "rhythm install: rhythm 0.4.0 doesn't know echo; run '$cdir/bin/rhythm help' to see the tools"
+	expect_file rhythm
+	expect_tools
+}
+
+case_router_without_dry_run() {
+	install RHYTHM_VERSION=0.5.0
+	expect_code 0
+	expect_tools tuner soundcheck echo
+	expect_no_out warning
+}
+
+case_router_without_tools_block() {
+	install RHYTHM_VERSION=0.3.5
+	expect_code 0
+	expect_tools tuner soundcheck echo
+}
+
+case_unknown_tool() {
+	install RHYTHM_TOOLS='tuner bogus'
+	expect_code 1
+	expect_out 'rhythm: unknown tool "bogus"'
+	expect_out "rhythm install: rhythm 0.6.0 doesn't know bogus"
+	expect_file rhythm
+	expect_tools
+}
+
 cases=${*:-default none some truncated proto http_refused http_download_refused github_token
-rhythm_token rate_limit}
+rhythm_token rate_limit old_router old_router_named router_without_dry_run
+router_without_tools_block unknown_tool}
 script='' path=''
 for case in $cases; do
 	cdir=$work/cases/$case

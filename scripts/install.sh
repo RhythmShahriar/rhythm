@@ -24,6 +24,7 @@ main() {
 	DEFAULT_TOOLS="tuner soundcheck echo"
 
 	say() { printf '%s\n' "$*" >&2; }
+	warn() { say "warning: $*"; }
 	die() {
 		say "rhythm install: $*"
 		exit 1
@@ -100,6 +101,35 @@ main() {
 	asset() {
 		tr ',' '\n' <"$tmp/release.json" | grep '"browser_download_url"' |
 			sed 's/.*"browser_download_url"[^"]*"\([^"]*\)".*/\1/' | grep "/$1\$" | head -n 1
+	}
+
+	# router_knows reports whether the installed rhythm knows tool $1. Newer
+	# routers answer `rhythm install --dry-run <tool>`. Older ones reject the
+	# flag, so the tool list comes from the "Tools:" block of `rhythm help`, or
+	# from DEFAULT_TOOLS when even that is missing.
+	router_knows() {
+		if [ "$probe" != help ]; then
+			if "$dir/rhythm" install --dry-run "$1" >"$tmp/probe.out" 2>&1; then
+				probe=dry-run
+				return 0
+			fi
+			if [ "$probe" = dry-run ] || ! grep -q 'flag provided but not defined' "$tmp/probe.out"; then
+				probe=dry-run
+				return 1
+			fi
+			probe=help
+			# Rows look like "  soundcheck (sc)  did my change break anything?".
+			known=$("$dir/rhythm" help 2>/dev/null | awk '
+				/^Tools:/ { on = 1; next }
+				on && /^[[:space:]]*$/ { exit }
+				on { print $1; if ($2 ~ /^\(.*\)$/) print substr($2, 2, length($2) - 2) }' | tr '\n' ' ')
+			[ -n "$known" ] || known=$DEFAULT_TOOLS
+			: >"$tmp/probe.out"
+		fi
+		case " $known " in
+		*" $1 "*) return 0 ;;
+		esac
+		return 1
 	}
 
 	command -v curl >/dev/null 2>&1 || die "curl is required"
@@ -191,13 +221,29 @@ main() {
 	installed=$("$dir/rhythm" --version) || die "the installed $dir/rhythm doesn't run"
 	say "Installed $installed to $dir"
 
-	# An unset RHYTHM_TOOLS means the defaults; "none", in any case, means none.
+	# An unset RHYTHM_TOOLS means the defaults. An old pinned rhythm may not
+	# know every default tool; those are skipped. A name the user asked for
+	# must be known, or nothing more is installed.
+	explicit=${RHYTHM_TOOLS+yes}
 	tools=${RHYTHM_TOOLS-$DEFAULT_TOOLS}
 	if [ "$(lower "$(printf '%s' "$tools" | tr -d ' \t\n')")" = none ]; then
 		tools=
 	fi
+	probe=
+	known=
+	todo=
 	set -f
 	for tool in $tools; do
+		if router_knows "$tool"; then
+			todo="$todo $tool"
+		elif [ -n "$explicit" ]; then
+			[ -s "$tmp/probe.out" ] && cat "$tmp/probe.out" >&2
+			die "$installed doesn't know $tool; run '$dir/rhythm help' to see the tools"
+		else
+			warn "$installed doesn't know $tool; skipped"
+		fi
+	done
+	for tool in $todo; do
 		"$dir/rhythm" install "$tool" --dir "$dir" >&2 || die "installing $tool failed"
 	done
 	set +f
