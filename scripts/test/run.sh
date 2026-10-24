@@ -451,9 +451,14 @@ expect_path_hint() {
 	expect_out "$1"
 }
 
+# bashrc is the file the hint names for bash on this OS: a macOS
+# terminal starts bash as a login shell, which reads ~/.bash_profile.
+bashrc=.bashrc
+[ "$(uname -s)" != Darwin ] || bashrc=.bash_profile
+
 case_path_hint() {
 	export_line="Add $cdir/bin to your PATH, then open a new terminal: echo 'export PATH=\"$cdir/bin:\$PATH\"' >>"
-	for spec in /bin/zsh:.zshrc /usr/local/bin/zsh:.zshrc /bin/bash:.bashrc /bin/dash:.profile :.profile; do
+	for spec in /bin/zsh:.zshrc /usr/local/bin/zsh:.zshrc /bin/bash:$bashrc /bin/dash:.profile :.profile; do
 		install SHELL="${spec%%:*}"
 		expect_code 0
 		expect_path_hint "$export_line ~/${spec#*:}"
@@ -488,12 +493,12 @@ case_path_hint_quote() {
 	qbin="$cdir/it's/bin"
 	install SHELL=/bin/bash RHYTHM_INSTALL_DIR="$qbin"
 	expect_code 0
-	expect_path_hint "echo 'export PATH=\"$cdir/it'\\''s/bin:\$PATH\"' >> ~/.bashrc"
+	expect_path_hint "echo 'export PATH=\"$cdir/it'\\''s/bin:\$PATH\"' >> ~/$bashrc"
 	cmd=$(sed -n 's/^Add .* to your PATH, then open a new terminal: //p' "$cdir/out")
 	mkdir -p "$cdir/qhome"
 	HOME="$cdir/qhome" sh -c "$cmd" || fail "the hint isn't a working command: $cmd"
 	# shellcheck disable=SC2016 # the line must hold a literal $PATH
-	[ "$(cat "$cdir/qhome/.bashrc")" = "export PATH=\"$qbin:\$PATH\"" ] || fail ".bashrc got: $(cat "$cdir/qhome/.bashrc")"
+	[ "$(cat "$cdir/qhome/$bashrc")" = "export PATH=\"$qbin:\$PATH\"" ] || fail "$bashrc got: $(cat "$cdir/qhome/$bashrc")"
 
 	install SHELL=/usr/bin/fish RHYTHM_INSTALL_DIR="$qbin"
 	expect_code 0
