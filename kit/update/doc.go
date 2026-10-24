@@ -26,13 +26,13 @@
 //
 //   - RHYTHM_GITHUB_API: a mirror or GitHub Enterprise API base. Callers
 //     read it and set Updater.API; it must be https.
-//   - GITHUB_TOKEN: sent only when the API is api.github.com, and then
+//   - GITHUB_TOKEN: sent only when the API is api.github.com and then
 //     only to api.github.com, github.com and objects.githubusercontent.com.
 //   - RHYTHM_GITHUB_TOKEN: sent to the host named by the API base, for a
 //     mirror; it takes precedence over GITHUB_TOKEN.
 //   - RHYTHM_OFFLINE: anything but "" or "0" turns on offline mode, as
 //     Updater.Offline does: no request is sent at all.
-//   - RHYTHM_NO_UPDATE_CHECK, and CI: no background update check (Check
+//   - RHYTHM_NO_UPDATE_CHECK or CI: no background update check (Check
 //     and Notice), while an explicit Install still works.
 //
 // The default client takes its proxy from HTTPS_PROXY, HTTP_PROXY and
@@ -52,7 +52,7 @@
 //     closed. With no Verifier this step is skipped.
 //  4. checksums.txt must list the platform archive.
 //  5. The archive is streamed to a temp file next to the destination (at
-//     most 200 MB), hashed on the way, and its sha256 must match
+//     most 200 MB) and hashed on the way; its sha256 must match
 //     checksums.txt; otherwise Install returns ErrChecksum.
 //  6. The binary is unpacked from that file into a second temp file next
 //     to the destination and swapped into place.
@@ -64,7 +64,7 @@
 // the whole new one. On Windows a running executable can't be replaced,
 // so the old one is renamed to <binary>.old first; if the new one then
 // can't take its place, .old is renamed back. A stale .old is deleted on
-// the next update, and only while the binary itself exists. Temp files
+// the next update, only while the binary itself exists. Temp files
 // are removed on every error, including a canceled context.
 //
 // # Errors

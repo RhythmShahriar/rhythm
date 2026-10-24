@@ -22,8 +22,9 @@ import (
 	"github.com/RhythmShahriar/rhythm/kit/config"
 )
 
-// Largest archive we'll download, and largest binary we'll unpack from
-// one (a compressed archive may hold a bigger binary, but not unbounded).
+// Largest archive we'll download and largest binary we'll unpack from
+// one (a compressed archive may hold a bigger binary, though not an
+// unbounded one).
 const (
 	maxArchive = 200 << 20
 	maxBinary  = 2 * maxArchive
@@ -70,7 +71,7 @@ type Updater struct {
 	Progress func(done, total int64)
 
 	// Verifier, when set, checks the Sigstore bundle over checksums.txt
-	// before Install trusts any checksum in it, and Install fails closed
+	// before Install trusts any checksum in it; Install fails closed
 	// with ErrSignature when the bundle is missing or doesn't verify.
 	// SkipSignature turns the check off for one run; this package prints
 	// nothing about it, so the caller should warn.

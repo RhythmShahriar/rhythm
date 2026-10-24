@@ -63,7 +63,7 @@ func (u *Updater) download(ctx context.Context, raw string, limit int64) ([]byte
 }
 
 // downloadFile streams raw into a new temp file in dir, hashing it on the
-// way, and returns the file's path and hex sha256. The file is removed on
+// way; it returns the file's path and hex sha256. The file is removed on
 // every error, including a canceled ctx.
 func (u *Updater) downloadFile(ctx context.Context, raw, dir, pattern string, limit int64) (file, sum string, err error) {
 	body, total, err := u.open(ctx, raw)

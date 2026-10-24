@@ -28,7 +28,7 @@ import (
 )
 
 // bigArchive writes a tar.gz holding an n-byte rhythm-tuner to a file,
-// without holding either in memory, and returns its path and sha256.
+// without holding either in memory and returns its path and sha256.
 // Stored uncompressed, so the archive is as big as the binary.
 func bigArchive(t *testing.T, n int64) (string, string) {
 	t.Helper()
