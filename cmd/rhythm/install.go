@@ -127,22 +127,31 @@ func cmdInstall(args []string, stdout, stderr io.Writer) int {
 		*dir = filepath.Dir(self)
 	}
 
+	// An existing symlink is followed, so a link into a tool folder stays
+	// a link; a package manager's install is left to the manager.
+	binary := "rhythm-" + tool
+	dest := filepath.Join(*dir, exe(binary))
+	writeTo := resolve(dest)
+	if m := managedBy(writeTo, binary); m != nil {
+		fmt.Fprintf(stderr, "%s is managed by %s; update it with: %s\n", binary, m.name, m.upgrade)
+		return 1
+	}
+
 	ctx, stop := signalContext()
 	defer stop()
-	u := updater(repo, "rhythm-"+tool, "")
+	u := updater(repo, binary, "")
 	rel, err := u.Latest(ctx)
 	if err != nil {
 		return installFailed(ctx, stderr, err)
 	}
-	dest := filepath.Join(*dir, exe("rhythm-"+tool))
-	if err := u.Install(ctx, rel, dest); err != nil {
+	if err := u.Install(ctx, rel, writeTo); err != nil {
 		return installFailed(ctx, stderr, err)
 	}
-	fmt.Fprintf(stdout, "Installed rhythm-%s %s to %s\n", tool, rel.Version, dest)
-	switch found, err := exec.LookPath("rhythm-" + tool); {
+	fmt.Fprintf(stdout, "Installed %s %s to %s\n", binary, rel.Version, dest)
+	switch found, err := exec.LookPath(binary); {
 	case err != nil:
 		fmt.Fprintf(stdout, "Note: %s isn't on your PATH.\n", *dir)
-	case found != dest:
+	case found != dest && resolve(found) != writeTo:
 		fmt.Fprintf(stdout, "Note: %s comes first on your PATH; remove it to use this install.\n", found)
 	}
 	return 0

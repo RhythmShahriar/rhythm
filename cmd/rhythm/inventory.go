@@ -34,6 +34,8 @@ type target struct {
 	probe   string // why the version is unknown
 	hung    bool   // the version probe timed out
 	path    string // where it was found
+	real    string // path with symlinks resolved; updates write here so links stay links
+	managed *manager
 }
 
 // selfPath returns the running rhythm binary with symlinks resolved. It is
@@ -118,7 +120,7 @@ func levenshtein(a, b string) int {
 func findTargets(ctx context.Context, want map[string]bool) (targets []target, missing []string) {
 	if want == nil || want[selfName] {
 		if self, err := selfPath(); err == nil {
-			targets = append(targets, target{tool: selfName, binary: selfName, repo: selfRepo, current: version, path: self})
+			targets = append(targets, target{tool: selfName, binary: selfName, repo: selfRepo, current: version, path: self, real: self})
 		}
 	}
 	for _, tool := range toolNames() {
@@ -132,7 +134,10 @@ func findTargets(ctx context.Context, want map[string]bool) (targets []target, m
 			}
 			continue
 		}
-		targets = append(targets, target{tool: tool, binary: "rhythm-" + tool, repo: tools[tool], path: bin})
+		targets = append(targets, target{tool: tool, binary: "rhythm-" + tool, repo: tools[tool], path: bin, real: resolve(bin)})
+	}
+	for i := range targets {
+		targets[i].managed = managedBy(targets[i].real, targets[i].binary)
 	}
 	var wg sync.WaitGroup
 	for i := range targets {
@@ -146,6 +151,96 @@ func findTargets(ctx context.Context, want map[string]bool) (targets []target, m
 	}
 	wg.Wait()
 	return targets, missing
+}
+
+// resolve follows symlinks from p, or returns p when it can't.
+func resolve(p string) string {
+	if real, err := filepath.EvalSymlinks(p); err == nil {
+		return real
+	}
+	return p
+}
+
+// manager is a package manager that owns an install.
+type manager struct {
+	name    string // e.g. Homebrew
+	upgrade string // the command that updates the install
+}
+
+// managedBy reports which package manager installed the binary at real (a
+// path with symlinks resolved), or nil when rhythm may replace it. Writing
+// over a managed install would leave the manager's records wrong. Its
+// next upgrade or cleanup would then undo rhythm's work.
+func managedBy(real, binary string) *manager {
+	// Windows paths are compared with forward slashes; case doesn't
+	// matter there or on macOS.
+	p := strings.ReplaceAll(real, `\`, "/")
+	lower := strings.ToLower(p)
+	if len(lower) != len(p) {
+		p = lower // non-ASCII case folding changed the length; offsets must match
+	}
+	// segment returns the path element right after marker: the formula,
+	// app or plugin name in the managers' layouts.
+	segment := func(at int) string {
+		rest := p[at:]
+		if i := strings.IndexByte(rest, '/'); i >= 0 {
+			rest = rest[:i]
+		}
+		if rest == "" {
+			return binary
+		}
+		return rest
+	}
+	contains := func(marker string) (int, bool) {
+		i := strings.Index(lower, marker)
+		return i + len(marker), i >= 0
+	}
+	under := func(env, sub string) (int, bool) {
+		dir := strings.ToLower(strings.ReplaceAll(os.Getenv(env), `\`, "/"))
+		if dir == "" {
+			return 0, false
+		}
+		prefix := strings.TrimSuffix(dir, "/") + sub
+		return len(prefix), strings.HasPrefix(lower, prefix)
+	}
+
+	if at, ok := contains("/caskroom/"); ok {
+		return &manager{"Homebrew", "brew upgrade --cask " + segment(at)}
+	}
+	if at, ok := contains("/cellar/"); ok {
+		return &manager{"Homebrew", "brew upgrade " + segment(at)}
+	}
+	if strings.HasPrefix(lower, "/opt/homebrew/") || strings.HasPrefix(lower, "/home/linuxbrew/") {
+		return &manager{"Homebrew", "brew upgrade " + binary}
+	}
+	if strings.HasPrefix(lower, "/nix/store/") {
+		return &manager{"Nix", "nix profile upgrade " + binary}
+	}
+	if at, ok := under("MISE_DATA_DIR", "/installs/"); ok {
+		return &manager{"mise", "mise upgrade " + segment(at)}
+	}
+	if at, ok := contains("/mise/installs/"); ok {
+		return &manager{"mise", "mise upgrade " + segment(at)}
+	}
+	if at, ok := under("ASDF_DATA_DIR", "/installs/"); ok {
+		return &manager{"asdf", "asdf install " + segment(at) + " latest"}
+	}
+	if at, ok := contains("/.asdf/installs/"); ok {
+		return &manager{"asdf", "asdf install " + segment(at) + " latest"}
+	}
+	if at, ok := under("SCOOP", "/apps/"); ok {
+		return &manager{"Scoop", "scoop update " + segment(at)}
+	}
+	if at, ok := contains("/scoop/apps/"); ok {
+		return &manager{"Scoop", "scoop update " + segment(at)}
+	}
+	if at, ok := contains("/winget/packages/"); ok {
+		// Package folders are named <id>_<source>, e.g.
+		// RhythmShahriar.rhythm_Microsoft.Winget.Source_8wekyb3d8bbwe.
+		id, _, _ := strings.Cut(segment(at), "_")
+		return &manager{"WinGet", "winget upgrade --id " + id}
+	}
+	return nil
 }
 
 // unknownVersion is reported for a tool whose version couldn't be read.

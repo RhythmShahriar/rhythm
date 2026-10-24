@@ -54,6 +54,10 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 		if ctx.Err() != nil {
 			break
 		}
+		if t.managed != nil {
+			fmt.Fprintf(stdout, "%s is managed by %s; update it with: %s\n", t.binary, t.managed.name, t.managed.upgrade)
+			continue
+		}
 		if t.current == unknownVersion {
 			fmt.Fprintf(stdout, "%-18s version unknown (%s), not updated\n", t.binary, t.probe)
 			continue
@@ -78,7 +82,7 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 			rep.updated++
 			continue
 		}
-		if err := u.Install(ctx, rel, t.path); err != nil {
+		if err := u.Install(ctx, rel, t.real); err != nil {
 			rep.fail(ctx, stderr, t.binary, err)
 			continue
 		}

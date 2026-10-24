@@ -448,3 +448,82 @@ func TestUpdateSuccessHasNoSummary(t *testing.T) {
 		t.Errorf("exit %d\n%s%s", code, out, errs)
 	}
 }
+
+func TestUpdateWritesThroughSymlinks(t *testing.T) {
+	installed, latest := allTools()
+	delete(installed, "rhythm-tuner")
+	s := newSandbox(t, installed, latest)
+	// bin/rhythm-tuner -> ../opt/rhythm-tuner, as stow or a hand-made link
+	// would leave it.
+	opt := filepath.Join(s.dir, "opt")
+	if err := os.Mkdir(opt, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(opt, "rhythm-tuner"), stubScript("rhythm-tuner", "0.1.0", s.log("rhythm-tuner"), ""), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(s.bin, "rhythm-tuner")
+	if err := os.Symlink("../opt/rhythm-tuner", link); err != nil {
+		t.Fatal(err)
+	}
+
+	if code, out, errs := runCmd("update", "tuner"); code != 0 {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	if fi, err := os.Lstat(link); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("the link was replaced by a file: %v", err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(opt, "rhythm-tuner")); !strings.Contains(string(got), "rhythm-tuner 0.2.0") {
+		t.Errorf("the link target wasn't updated:\n%s", got)
+	}
+}
+
+func TestUpdateLeavesManagedInstalls(t *testing.T) {
+	installed, latest := allTools()
+	delete(installed, "rhythm-tuner")
+	latest[selfRepo] = "0.2.0"
+	s := newSandbox(t, installed, latest)
+	cellar := func(name string) string {
+		dir := filepath.Join(s.dir, "Cellar", name, "0.1.0", "bin")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, stubScript(name, "0.1.0", s.log(name), ""), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	if err := os.Symlink(cellar("rhythm-tuner"), filepath.Join(s.bin, "rhythm-tuner")); err != nil {
+		t.Fatal(err)
+	}
+	self := cellar("rhythm")
+	fakeSelf(t, self, "0.1.0")
+
+	code, out, errs := runCmd("update")
+	if code != 0 {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	for _, want := range []string{
+		"rhythm-tuner is managed by Homebrew; update it with: brew upgrade rhythm-tuner\n",
+		"rhythm is managed by Homebrew; update it with: brew upgrade rhythm\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q:\n%s", want, out)
+		}
+	}
+	for _, p := range s.api.requests() {
+		if strings.Contains(p, "/tuner") || strings.Contains(p, "/rhythm/") || strings.HasSuffix(p, "/rhythm") {
+			t.Errorf("a managed install was looked up: %s", p)
+		}
+	}
+	for _, p := range []string{self, filepath.Join(s.dir, "Cellar", "rhythm-tuner", "0.1.0", "bin", "rhythm-tuner")} {
+		if got, _ := os.ReadFile(p); !strings.Contains(string(got), "0.1.0") {
+			t.Errorf("%s was rewritten", p)
+		}
+	}
+	// The data is the tool's own; Homebrew doesn't refresh it.
+	if !s.ranUpdate("rhythm-tuner") {
+		t.Error("the managed tool's data refresh didn't run")
+	}
+}

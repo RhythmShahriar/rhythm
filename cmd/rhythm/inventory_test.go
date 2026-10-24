@@ -133,3 +133,36 @@ func TestUpdateHungToolTimesOut(t *testing.T) {
 		t.Error("the other tools weren't updated")
 	}
 }
+
+func TestManagedBy(t *testing.T) {
+	t.Setenv("MISE_DATA_DIR", "/data/mise")
+	t.Setenv("ASDF_DATA_DIR", "")
+	t.Setenv("SCOOP", `D:\tools\scoop-root`)
+	for path, want := range map[string]string{
+		"/opt/homebrew/Cellar/rhythm/0.3.0/bin/rhythm":                 "Homebrew: brew upgrade rhythm",
+		"/usr/local/Cellar/rhythm-tuner/0.3.0/bin/rhythm-tuner":        "Homebrew: brew upgrade rhythm-tuner",
+		"/home/linuxbrew/.linuxbrew/Cellar/rhythm/0.3.0/bin/rhythm":    "Homebrew: brew upgrade rhythm",
+		"/opt/homebrew/Caskroom/rhythm/0.3.0/rhythm":                   "Homebrew: brew upgrade --cask rhythm",
+		"/opt/homebrew/bin/rhythm":                                     "Homebrew: brew upgrade rhythm",
+		"/nix/store/abc123-rhythm-0.3.0/bin/rhythm":                    "Nix: nix profile upgrade rhythm",
+		"/home/me/.local/share/mise/installs/rhythm/0.3.0/rhythm":      "mise: mise upgrade rhythm",
+		"/data/mise/installs/ubi-rhythmshahriar-rhythm/0.3.0/rhythm":   "mise: mise upgrade ubi-rhythmshahriar-rhythm",
+		"/home/me/.asdf/installs/rhythm/0.3.0/bin/rhythm":              "asdf: asdf install rhythm latest",
+		`C:\Users\me\scoop\apps\rhythm\current\rhythm.exe`:             "Scoop: scoop update rhythm",
+		`D:\tools\scoop-root\apps\rhythm-tuner\0.3.0\rhythm-tuner.exe`: "Scoop: scoop update rhythm-tuner",
+		`C:\Users\me\AppData\Local\Microsoft\WinGet\Packages\RhythmShahriar.rhythm_Microsoft.Winget.Source_8wekyb3d8bbwe\rhythm.exe`: "WinGet: winget upgrade --id RhythmShahriar.rhythm",
+		"/usr/local/bin/rhythm":                "",
+		"/home/me/.local/bin/rhythm":           "",
+		"/home/me/opt/rhythm-tuner":            "",
+		"/home/me/src/homebrew-notes/rhythm":   "",
+		`C:\Users\me\AppData\Local\rhythm\bin`: "",
+	} {
+		got := ""
+		if m := managedBy(path, filepath.Base(strings.ReplaceAll(path, `\`, "/"))); m != nil {
+			got = m.name + ": " + m.upgrade
+		}
+		if got != want {
+			t.Errorf("managedBy(%s) = %q, want %q", path, got, want)
+		}
+	}
+}
