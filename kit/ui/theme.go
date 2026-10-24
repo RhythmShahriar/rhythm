@@ -34,6 +34,8 @@ const (
 // Signal is the brand dot, adjusted for the terminal's background.
 var Signal = lipgloss.AdaptiveColor{Light: DotStrong, Dark: Dot}
 
+// Text styles shared by every tool: Brand for the product name, Label
+// for field names, Dim for secondary text and Good for success.
 var (
 	Brand = lipgloss.NewStyle().Foreground(Signal).Bold(true)
 	Label = lipgloss.NewStyle().Bold(true)

@@ -3,12 +3,48 @@
 
 // Package crawl discovers the pages of a website the way a careful
 // visitor would: from its sitemaps and by following its own links. It
-// stays on the site (the same host, scheme and port, see SameSite) for
-// pages, sitemaps and redirects alike, honors robots.txt, skips URLs with
-// side effects (logout, add to cart), de-duplicates and groups pages that
-// share a URL template so a large catalog is checked through a few
-// samples. Its default client times out and won't connect to private
-// addresses unless the site itself is on one.
+// de-duplicates pages and groups those that share a URL template, so a
+// large catalog is checked through a few samples.
+//
+// # Same site
+//
+// A crawl stays on the start URL's site for pages, sitemaps and redirects
+// alike. Another URL is on the same site when it has the same host
+// (ignoring case and a leading "www."), the same scheme and the same port,
+// where a missing port means 80 for http and 443 for https. The one
+// exception is the upgrade from http on port 80 to https on port 443.
+// Another port on the same host is another site. See SameSite.
+//
+// # robots.txt
+//
+// The crawler reads /robots.txt first and applies the group for its user
+// agent's product token, or "*", with RFC 9309 longest-match rules (Allow
+// wins a tie). A missing robots.txt (404, 403, 410 or another 4xx) allows
+// everything. One that can't be read (5xx, 429, a timeout or a network
+// error) disallows everything but the start page and pages the caller
+// listed, as RFC 9309 asks; Frontier.RobotsUnavailable says why.
+// Options.IgnoreRobots turns both off, for the caller's own site.
+//
+// # Excluded pages
+//
+// DefaultExcludes skips URLs with side effects or no content of their own:
+// WordPress admin, login, cron, XML-RPC, REST and feeds, logout and
+// confirm links, add-to-cart and remove-item links, unsubscribe and
+// opt-out links, delete and trash actions, search results, previews and
+// any URL with a token or nonce in its query. Patterns match the path and
+// query without case. Options.Exclude adds to the list.
+//
+// # Budgets
+//
+// A crawl returns at most Options.Limit pages (500), keeps
+// Options.PerGroup pages per URL template (3) and makes a path segment a
+// template after Options.FanOut children (10). It reads at most 5 MB of
+// any response, 1000 sitemap files (Options.MaxSitemaps), 50,000 URLs per
+// sitemap and sitemap indexes 3 levels deep, follows at most 10 redirects
+// per request and runs 4 requests at a time (Options.Concurrency) at
+// Options.Rate per host. The default client times out after 30 s and
+// won't connect to private addresses unless the site itself is on one
+// (Options.AllowPrivate).
 package crawl
 
 import (
@@ -39,6 +75,8 @@ const (
 	maxSitemaps     = 1000
 )
 
+// Options configures a Crawler and a Frontier. The zero value is a
+// polite crawl with the defaults described in the package doc.
 type Options struct {
 	Limit        int      // most pages to return; 0 means 500
 	PerGroup     int      // pages kept per URL template; 0 means 3, <0 keeps every page

@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 // Package ratelimit keeps Rhythm tools polite: an even request pace per
-// host that slows down when a server asks it to, plus the retry helpers
-// and target parsing every tool shares.
+// host (Limiter, Hosts) that slows down when a server asks it to (Slow),
+// and the retry waits every tool shares (Backoff, RetryAfter, Sleep).
+// ParseTarget, which turns a command-line target into a URL, lives here
+// too because every tool that paces requests also parses one.
 package ratelimit
 
 import (
@@ -21,7 +23,7 @@ import (
 // Slowest pace a limiter backs off to after repeated throttling.
 const Slowest = 2 * time.Second
 
-// Longest Retry-After a tool will honor.
+// MaxRetryWait is the longest Retry-After a tool will honor.
 const MaxRetryWait = 30 * time.Second
 
 // MinRate is the slowest pace New accepts, one request per hour. Slower

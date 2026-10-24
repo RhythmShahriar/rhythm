@@ -3,11 +3,37 @@
 
 // Package secrets finds credentials in text and masks them, so tools can
 // report what they saw without ever printing a key, token or password.
-// Rules cover common cloud, payment, mail, messaging, CI and AI providers,
-// HTTP authorization and cookie headers, URLs with credentials, password
-// reset links, private keys, JWTs and secret-looking names in config
-// files, YAML, JSON, code and form bodies. Rules lists them, Redact masks
-// them in text and RedactHeader masks one HTTP header.
+//
+// Rules (listed by Rules, each with an ID and tags) cover these kinds:
+//
+//   - cloud and infrastructure: AWS, Google Cloud, Azure, DigitalOcean,
+//     Heroku, Alibaba, Cloudflare, Netlify, Vault, Terraform Cloud,
+//     Doppler, Pulumi, Databricks, Supabase, PlanetScale, age and
+//     1Password keys
+//   - payment and commerce: Stripe, Square, Braintree, Shopify,
+//     Flutterwave and shipping API keys
+//   - mail and messaging: SendGrid, Mailgun, Mailchimp, Brevo and Resend
+//     keys, Slack, Discord, Teams and Telegram tokens and webhooks, Twilio
+//   - code, packages and CI: GitHub, GitLab and Atlassian tokens, npm,
+//     PyPI, RubyGems, Docker Hub, NuGet and JFrog tokens, CircleCI,
+//     Buildkite and SonarQube tokens
+//   - SaaS and monitoring: Grafana, Sentry, New Relic, Linear, Notion,
+//     Figma, Airtable, HubSpot and similar API tokens
+//   - AI: Anthropic, OpenAI, OpenRouter, Hugging Face, Replicate, Groq,
+//     Perplexity and xAI keys
+//   - generic shapes: private keys in PEM blocks, JWTs, URLs with a user
+//     and password, Authorization and Cookie headers, token headers,
+//     password reset links, curl -u and .npmrc credentials
+//   - secret-looking names (password, api_key, AUTH_KEY...) in
+//     wp-config.php, PHP serialized data, .env files, YAML, JSON, code and
+//     form bodies
+//
+// Masking policy: names stay visible and values are masked. A variable,
+// header or cookie name is kept as written, so a report still says which
+// setting leaked. A value keeps at most 4 leading characters (never more
+// than a third of it) followed by a fixed run of bullets, so neither the
+// secret nor its length is printed. FindSecrets returns what it found,
+// Redact masks secrets inside text and RedactHeader masks one HTTP header.
 package secrets
 
 import (
@@ -23,6 +49,8 @@ type Secret struct {
 	Masked string `json:"masked"`
 }
 
+// String formats the secret as name=masked, or just masked when it has
+// no name. It is always safe to print.
 func (s Secret) String() string {
 	if s.Name != "" {
 		return s.Name + "=" + s.Masked
