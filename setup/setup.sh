@@ -130,8 +130,18 @@ install_rhythm() {
 	sh "$here/../scripts/install.sh"
 }
 
+# drop_note copies its input, leaving out the lines that match $1 when
+# it isn't empty.
+drop_note() {
+	if [ -z "$1" ]; then
+		cat
+	else
+		grep --line-buffered -v "$1" || :
+	fi
+}
+
 tools() {
-	local dir rhythm v args specs line out status
+	local dir rhythm v args specs line out status note
 	dir=$(install_dir)
 	rhythm=$dir/rhythm
 	[ "$os" != Windows ] || rhythm=$dir/rhythm.exe
@@ -139,8 +149,12 @@ tools() {
 	v=$("$rhythm" --version) || die "$rhythm --version failed"
 	v=${v##* }
 	output rhythm-version "$v"
+	# The folder goes on PATH for the steps after this one, so rhythm's
+	# note that it isn't on PATH yet is left out; outside Actions it stays.
+	note=
 	if [ -n "${GITHUB_PATH:-}" ]; then
 		printf '%s\n' "$dir" >>"$GITHUB_PATH"
+		note="^Note: .* isn't on your PATH\.\$"
 	fi
 
 	read -r -a specs <<<"$(printf '%s' "${INPUT_TOOLS:-}" | tr ',' ' ')"
@@ -160,7 +174,9 @@ tools() {
 	export RHYTHM_DOWNLOAD_CACHE=1
 	out=$(mktemp)
 	status=0
-	"$rhythm" "${args[@]}" ${specs[@]+"${specs[@]}"} | tee "$out" || status=$?
+	# pipefail makes $status rhythm's own exit code; drop_note always
+	# succeeds, even when grep is left with no line.
+	"$rhythm" "${args[@]}" ${specs[@]+"${specs[@]}"} | drop_note "$note" | tee "$out" || status=$?
 	# tool@version for each tool now in place, installed or already there.
 	local versions=()
 	while IFS= read -r line; do
