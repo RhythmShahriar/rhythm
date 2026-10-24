@@ -49,6 +49,7 @@ This installs `rhythm`, Tuner, Soundcheck and Echo to `~/.local/bin` (`/usr/loca
 | `GITHUB_TOKEN` | sent to `api.github.com` only, to lift GitHub's limit of 60 anonymous requests an hour (shared CI runners hit it) |
 | `RHYTHM_GITHUB_API` | a GitHub API mirror; it must be a plain `https` base URL (plain `http` only for `127.0.0.1`, `::1` and `localhost`), with no user info, `?` or `#` |
 | `RHYTHM_GITHUB_TOKEN` | a token for that mirror; sent to the `RHYTHM_GITHUB_API` host and used instead of `GITHUB_TOKEN` |
+| `RHYTHM_INSTALL_TIMEOUT` | seconds to wait for a server that doesn't answer before the installer gives up (default `30`). `install.sh` also gives up on a download that has stalled for that long |
 | `RHYTHM_LOCKED` | `1` installs the tools and versions in `rhythm.lock` in the current folder (`rhythm install --locked`) instead of `RHYTHM_TOOLS` |
 | `RHYTHM_SKIP_SIGNATURE` | `1` skips the signature checks, with a warning. Only for a mirror you trust that can't serve the signatures |
 

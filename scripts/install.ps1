@@ -17,6 +17,7 @@
 #                        It is a plain base URL: no user info, query or fragment.
 #   GITHUB_TOKEN         sent to api.github.com only, to lift the anonymous rate limit
 #   RHYTHM_GITHUB_TOKEN  sent to the RHYTHM_GITHUB_API host, whatever it is; wins over GITHUB_TOKEN
+#   RHYTHM_INSTALL_TIMEOUT  seconds to wait for a server to answer (default 30)
 #
 # Everything is in one script block, closed on the last line, so a download
 # cut off partway is a parse error instead of a partial install. The block
@@ -81,6 +82,26 @@
         $Headers.Authorization = "Bearer $env:GITHUB_TOKEN"
     }
 
+    # A stalled API or download would hang `irm | iex` for good. The web
+    # cmdlets give up on a server that hasn't answered in this long.
+    $Timeout = if ($env:RHYTHM_INSTALL_TIMEOUT) { $env:RHYTHM_INSTALL_TIMEOUT } else { '30' }
+    if ($Timeout -notmatch '^[0-9]+$' -or [int64]$Timeout -eq 0) {
+        throw "rhythm install: RHYTHM_INSTALL_TIMEOUT must be a whole number of seconds: '$Timeout'"
+    }
+    $Timeout = [int]$Timeout
+
+    # Test-Timeout reports whether a web cmdlet's error was a timeout. The
+    # wording differs between Windows PowerShell 5.1 and pwsh.
+    function Test-Timeout($Err) {
+        $E = $Err.Exception
+        while ($E) {
+            if ($E -is [TimeoutException] -or $E -is [Threading.Tasks.TaskCanceledException] -or
+                ($E -is [Net.WebException] -and $E.Status -eq [Net.WebExceptionStatus]::Timeout)) { return $true }
+            $E = $E.InnerException
+        }
+        return "$($Err.Exception.Message)" -match 'time(d)? ?out|Timeout'
+    }
+
     $Arch = switch ($env:PROCESSOR_ARCHITECTURE) {
         'AMD64' { 'amd64' }
         'ARM64' { 'arm64' }
@@ -102,13 +123,14 @@
         $ReleaseUrl = "$Api/repos/$Repo/releases/latest"
     }
     try {
-        $Release = Invoke-RestMethod -Uri $ReleaseUrl -Headers $Headers -UseBasicParsing
+        $Release = Invoke-RestMethod -Uri $ReleaseUrl -Headers $Headers -UseBasicParsing -TimeoutSec $Timeout
     }
     catch {
         $Status = 0
         if ($_.Exception.Response) { $Status = [int]$_.Exception.Response.StatusCode }
         if ($Status -eq 403 -or $Status -eq 429) { throw 'rhythm install: GitHub rate limit reached; set GITHUB_TOKEN' }
         if ($Status) { throw "rhythm install: couldn't fetch the release from GitHub ($ReleaseUrl): HTTP $Status" }
+        if (Test-Timeout $_) { throw "rhythm install: timed out after $($Timeout)s waiting for $($ApiUri.Host) ($ReleaseUrl); set RHYTHM_INSTALL_TIMEOUT to wait longer" }
         throw "rhythm install: couldn't reach $($ApiUri.Host) ($ReleaseUrl): $($_.Exception.Message)"
     }
     if (-not $env:RHYTHM_VERSION) {
@@ -125,6 +147,17 @@
     Assert-Https $Archive.browser_download_url
     Assert-Https $Sums.browser_download_url
     if ($Bundle) { Assert-Https $Bundle.browser_download_url }
+
+    # Save-Url downloads $Url to $OutFile, naming a timeout as one.
+    function Save-Url([string]$Url, [string]$OutFile) {
+        try {
+            Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -TimeoutSec $Timeout
+        }
+        catch {
+            if (Test-Timeout $_) { throw "rhythm install: timed out after $($Timeout)s downloading $Url; set RHYTHM_INSTALL_TIMEOUT to wait longer" }
+            throw
+        }
+    }
 
     # Invoke-Exe runs a program and returns its exit code and its output,
     # stderr included. Windows PowerShell 5.1 turns redirected stderr into
@@ -246,12 +279,12 @@
     try {
         $Zip = Join-Path $Tmp $Name
         $SumsFile = Join-Path $Tmp 'checksums.txt'
-        Invoke-WebRequest -Uri $Archive.browser_download_url -OutFile $Zip -UseBasicParsing
-        Invoke-WebRequest -Uri $Sums.browser_download_url -OutFile $SumsFile -UseBasicParsing
+        Save-Url $Archive.browser_download_url $Zip
+        Save-Url $Sums.browser_download_url $SumsFile
         $BundleFile = ''
         if ($Bundle) {
             $BundleFile = Join-Path $Tmp 'checksums.txt.sigstore.json'
-            Invoke-WebRequest -Uri $Bundle.browser_download_url -OutFile $BundleFile -UseBasicParsing
+            Save-Url $Bundle.browser_download_url $BundleFile
         }
         if ($SkipSignature) {
             Write-Host "warning: RHYTHM_SKIP_SIGNATURE is set: nothing checks that this release was signed by $Repo. Use it only with a mirror you trust."

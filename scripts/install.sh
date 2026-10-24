@@ -18,6 +18,7 @@
 #                        It is a plain base URL: no user info, query or fragment.
 #   GITHUB_TOKEN         sent to api.github.com only, to lift the anonymous rate limit
 #   RHYTHM_GITHUB_TOKEN  sent to the RHYTHM_GITHUB_API host, whatever it is; wins over GITHUB_TOKEN
+#   RHYTHM_INSTALL_TIMEOUT  seconds to wait for a connection, or on one that has stalled (default 30)
 #
 # Everything, helpers included, is inside main, called on the last line, so a
 # download cut off halfway through is a syntax error instead of a partial install.
@@ -92,18 +93,24 @@ main() {
 	# fetch downloads URL $1 to file $2.
 	fetch() {
 		check_url "$1"
-		curl -fsSL --proto "$proto" --tlsv1.2 -o "$2" "$1"
+		# shellcheck disable=SC2086 # $limits is several flags
+		curl -fsSL --proto "$proto" --tlsv1.2 $limits -o "$2" "$1" || {
+			_rc=$?
+			[ $_rc -ne 28 ] || die "timed out after ${timeout}s downloading $1; set RHYTHM_INSTALL_TIMEOUT to wait longer"
+			return $_rc
+		}
 	}
 
 	# api_get downloads API URL $1 to file $2 and prints the HTTP status. The
 	# token goes to curl on stdin, so it never shows up in a process listing.
 	api_get() {
+		# shellcheck disable=SC2086 # $limits is several flags
 		if [ -n "$token" ]; then
 			printf 'header = "Authorization: Bearer %s"\n' "$token" |
-				curl -sSL --proto "$proto" --tlsv1.2 -K - -H 'Accept: application/vnd.github+json' \
+				curl -sSL --proto "$proto" --tlsv1.2 $limits -K - -H 'Accept: application/vnd.github+json' \
 					-o "$2" -w '%{http_code}' "$1"
 		else
-			curl -sSL --proto "$proto" --tlsv1.2 -H 'Accept: application/vnd.github+json' \
+			curl -sSL --proto "$proto" --tlsv1.2 $limits -H 'Accept: application/vnd.github+json' \
 				-o "$2" -w '%{http_code}' "$1"
 		fi
 	}
@@ -316,6 +323,15 @@ main() {
 	[ "$(printf '%s' "$token" | wc -l)" -eq 0 ] ||
 		die "the GitHub token has a character curl can't send in a header"
 
+	# A stalled API or download would hang `curl | sh` for good. curl gives
+	# up on a connection that takes longer than this, or that moves less
+	# than a byte a second for this long; a slow but working link goes on.
+	timeout=${RHYTHM_INSTALL_TIMEOUT:-30}
+	case $timeout in
+	'' | *[!0-9]* | 0) die "RHYTHM_INSTALL_TIMEOUT must be a whole number of seconds: '$timeout'" ;;
+	esac
+	limits="--connect-timeout $timeout --speed-limit 1 --speed-time $timeout"
+
 	os=$(lower "$(uname -s)")
 	case $os in
 	linux | darwin) ;;
@@ -352,8 +368,13 @@ main() {
 	else
 		release_url="$API/repos/$REPO/releases/latest"
 	fi
-	status=$(api_get "$release_url" "$tmp/release.json") ||
-		die "couldn't reach $(url_host "$API") ($release_url)"
+	rc=0
+	status=$(api_get "$release_url" "$tmp/release.json") || rc=$?
+	case $rc in
+	0) ;;
+	28) die "timed out after ${timeout}s waiting for $(url_host "$API") ($release_url); set RHYTHM_INSTALL_TIMEOUT to wait longer" ;;
+	*) die "couldn't reach $(url_host "$API") ($release_url)" ;;
+	esac
 	case $status in
 	200) ;;
 	403 | 429) die "GitHub rate limit reached; set GITHUB_TOKEN" ;;

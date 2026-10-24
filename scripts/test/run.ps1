@@ -261,8 +261,8 @@ function Invoke-Install([hashtable]$Set = @{}, [string]$Prelude = '', [string]$S
 # A prelude that stands in for the web cmdlets: it logs the URL and the
 # Authorization header, then fails as if offline.
 $Mock = @'
-function Invoke-RestMethod { param($Uri, $Headers, [switch]$UseBasicParsing) Add-Content -Path $env:MOCK_LOG -Value "$Uri auth=$($Headers.Authorization)"; throw 'offline' }
-function Invoke-WebRequest { param($Uri, $OutFile, [switch]$UseBasicParsing) Add-Content -Path $env:MOCK_LOG -Value "$Uri"; throw 'offline' }
+function Invoke-RestMethod { param($Uri, $Headers, [switch]$UseBasicParsing, $TimeoutSec) Add-Content -Path $env:MOCK_LOG -Value "$Uri auth=$($Headers.Authorization)"; throw 'offline' }
+function Invoke-WebRequest { param($Uri, $OutFile, [switch]$UseBasicParsing, $TimeoutSec) Add-Content -Path $env:MOCK_LOG -Value "$Uri"; throw 'offline' }
 '@
 
 function Get-Requests { if (Test-Path $RequestLog) { @(Get-Content $RequestLog) } else { @() } }
@@ -780,6 +780,24 @@ function Case-version_checked {
     }
 }
 
+function Case-timeout {
+    # A server that never answers is given up on, with a clear error.
+    Invoke-Install @{ RHYTHM_GITHUB_API = "$BaseUrl/hang"; RHYTHM_INSTALL_TIMEOUT = '2' }
+    Assert-Code 1
+    Assert-Out "rhythm install: timed out after 2s waiting for 127.0.0.1 ($BaseUrl/hang/repos/RhythmShahriar/rhythm/releases/latest); set RHYTHM_INSTALL_TIMEOUT to wait longer"
+    Invoke-Install @{ RHYTHM_VERSION = '9.0.5'; RHYTHM_INSTALL_TIMEOUT = '2' }
+    Assert-Code 1
+    Assert-Out "rhythm install: timed out after 2s downloading $BaseUrl/hang/dl/rhythm/v9.0.5/rhythm_windows_amd64.zip; set RHYTHM_INSTALL_TIMEOUT to wait longer"
+    Assert-NoFile 'rhythm.exe'
+
+    foreach ($T in 'abc', '0', '-1', '1.5', ' ') {
+        Remove-Item (Join-Path $script:CaseDir 'mock.log') -ErrorAction SilentlyContinue
+        Invoke-Install @{ RHYTHM_INSTALL_TIMEOUT = $T } $Mock
+        Assert-Code 1
+        Assert-Out "rhythm install: RHYTHM_INSTALL_TIMEOUT must be a whole number of seconds: '$T'"
+        if (Test-Path (Join-Path $script:CaseDir 'mock.log')) { Fail "a request was made with RHYTHM_INSTALL_TIMEOUT=$T" }
+    }
+}
 
 function Case-github_token {
     # api.github.com gets GITHUB_TOKEN.
@@ -945,7 +963,7 @@ function Case-readonly_dir {
 
 if (-not $Cases.Count) {
     $Cases = 'default', 'none', 'some', 'commas', 'typo', 'tool_fails', 'defaults', 'pins', 'locked', 'path_note',
-    'signature_cosign', 'signature_cosign_fails', 'signature_gh', 'signature_none', 'skip_signature', 'router_verify', 'bad_checksum', 'no_checksums', 'missing_dir', 'relative_dir', 'truncated', 'http_refused', 'http_download_refused', 'api_not_plain', 'version_checked', 'github_token', 'rhythm_token',
+    'signature_cosign', 'signature_cosign_fails', 'signature_gh', 'signature_none', 'skip_signature', 'router_verify', 'bad_checksum', 'no_checksums', 'missing_dir', 'relative_dir', 'truncated', 'http_refused', 'http_download_refused', 'api_not_plain', 'version_checked', 'timeout', 'github_token', 'rhythm_token',
     'rate_limit', 'old_router', 'old_router_named', 'router_without_dry_run', 'router_without_tools_block',
     'unknown_tool', 'running_exe', 'swap_fallback', 'swap_restore', 'readonly_dir'
 }

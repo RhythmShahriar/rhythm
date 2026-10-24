@@ -681,7 +681,8 @@ case_proto() {
 	install RHYTHM_GITHUB_API=
 	path=
 	expect_code 1
-	grep -qF -- "--proto =https --tlsv1.2" "$cdir/curl.log" || fail "curl ran without --proto =https --tlsv1.2"
+	grep -qF -- "--proto =https --tlsv1.2 --connect-timeout 30 --speed-limit 1 --speed-time 30 " "$cdir/curl.log" ||
+		fail "curl ran without --proto =https --tlsv1.2 and the timeouts"
 	grep -qF -- "https://api.github.com/repos/RhythmShahriar/rhythm/releases/latest" "$cdir/curl.log" ||
 		fail "the default API isn't api.github.com"
 	expect_out "couldn't reach api.github.com"
@@ -744,6 +745,26 @@ case_version_checked() {
 	expect_out "Installed rhythm 0.6.0 to $cdir/bin"
 }
 
+case_timeout() {
+	# A server that never answers is given up on, with a clear error.
+	install RHYTHM_GITHUB_API="$base/hang" RHYTHM_INSTALL_TIMEOUT=2
+	expect_code 1
+	expect_out "rhythm install: timed out after 2s waiting for 127.0.0.1 ($base/hang/repos/RhythmShahriar/rhythm/releases/latest); set RHYTHM_INSTALL_TIMEOUT to wait longer"
+	install RHYTHM_VERSION=9.0.5 RHYTHM_INSTALL_TIMEOUT=2
+	expect_code 1
+	expect_out "rhythm install: timed out after 2s downloading $base/hang/dl/rhythm/v9.0.5/rhythm_"
+	expect_no_file rhythm
+
+	for t in abc 0 -1 1.5 ' '; do
+		path=$work/fakebin:/usr/bin:/bin
+		rm -f "$cdir/curl.log"
+		install RHYTHM_INSTALL_TIMEOUT="$t"
+		path=
+		expect_code 1
+		expect_out "rhythm install: RHYTHM_INSTALL_TIMEOUT must be a whole number of seconds: '$t'"
+		[ ! -e "$cdir/curl.log" ] || fail "curl ran with RHYTHM_INSTALL_TIMEOUT=$t"
+	done
+}
 
 case_github_token() {
 	# api.github.com gets GITHUB_TOKEN, on curl's stdin and not its argv.
@@ -934,7 +955,7 @@ case_readme_links() {
 }
 
 cases=${*:-default none some commas typo tool_fails defaults pins locked path_hint path_hint_macos path_ok
-signature_cosign signature_cosign_fails signature_gh signature_none skip_signature router_verify bad_checksum no_checksums missing_dir relative_dir unwritable_dir truncated proto http_refused http_download_refused api_not_plain version_checked github_token
+signature_cosign signature_cosign_fails signature_gh signature_none skip_signature router_verify bad_checksum no_checksums missing_dir relative_dir unwritable_dir truncated proto http_refused http_download_refused api_not_plain version_checked timeout github_token
 rhythm_token rate_limit old_router old_router_named router_without_dry_run
 router_without_tools_block unknown_tool readme readme_commands readme_links}
 script='' path=''
