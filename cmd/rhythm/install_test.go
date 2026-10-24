@@ -699,3 +699,29 @@ func TestRedactURL(t *testing.T) {
 		}
 	}
 }
+
+// TestInstallNextToBrewRhythm: with rhythm in a Homebrew Cellar, a plain
+// install asks for --dir rather than blaming a tool that isn't there,
+// and --dir installs as usual.
+func TestInstallNextToBrewRhythm(t *testing.T) {
+	s := newSandbox(t, nil, map[string]string{tools["tuner"]: "0.2.0"})
+	cellar := mkdir(t, filepath.Join(s.dir, "Cellar", "rhythm", "0.5.0", "bin"))
+	self := filepath.Join(cellar, "rhythm")
+	if err := os.WriteFile(self, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fakeSelf(t, self, "0.5.0")
+
+	code, out, errs := runCmd("install", "tuner")
+	want := "rhythm: rhythm is managed by Homebrew, so tools don't go in its folder\n" +
+		"  pick a folder on your PATH: rhythm install tuner --dir <dir>\n"
+	if code != exitUsage || errs != want || out != "" {
+		t.Errorf("exit %d\n%s%s\nwant\n%s", code, out, errs, want)
+	}
+	if _, err := os.Stat(filepath.Join(cellar, "rhythm-tuner")); err == nil {
+		t.Error("installed into the Cellar")
+	}
+	if code, out, errs := runCmd("install", "tuner", "--dir", s.bin); code != 0 || !strings.HasPrefix(out, "Installed rhythm-tuner 0.2.0") {
+		t.Errorf("--dir: exit %d\n%s%s", code, out, errs)
+	}
+}

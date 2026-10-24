@@ -594,6 +594,18 @@ func cmdInstall(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "rhythm:", err)
 			return 1
 		}
+		// A package manager owns the folder it put rhythm in (a Homebrew
+		// Cellar, say): a tool written there would vanish on the next
+		// upgrade and confuse the manager.
+		if m := managedBy(self, selfName); m != nil {
+			var names []string
+			for _, it := range list {
+				names = append(names, it.tool)
+			}
+			fmt.Fprintf(stderr, "rhythm: rhythm is managed by %s, so tools don't go in its folder\n"+
+				"  pick a folder on your PATH: rhythm install %s --dir <dir>\n", m.name, strings.Join(names, " "))
+			return exitUsage
+		}
 		*dir = filepath.Dir(self)
 	}
 	// An absolute path, so the PATH note compares like with like:
@@ -822,8 +834,12 @@ func installTool(ctx context.Context, it installItem, opt installOptions, stdout
 	binary := "rhythm-" + it.tool
 	dest := filepath.Join(opt.dir, exe(binary))
 	writeTo := resolve(dest)
-	if m := managedBy(writeTo, binary); m != nil {
-		return installResult{}, &managedError{binary, m}
+	// Only a binary that is there can belong to a manager; a folder's
+	// path alone says nothing about a tool not yet in it.
+	if _, err := os.Stat(writeTo); err == nil {
+		if m := managedBy(writeTo, binary); m != nil {
+			return installResult{}, &managedError{binary, m}
+		}
 	}
 	if target := filepath.Dir(writeTo); target != opt.dir {
 		if err := prepareDir(opt.dir, target); err != nil {
