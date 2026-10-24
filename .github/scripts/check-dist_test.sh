@@ -35,6 +35,16 @@ PATH="$tmp/stubs:$PATH"
 STUB_LOG="$tmp/schema.log"
 export PATH STUB_LOG
 
+# sums: write checksums.txt for the current directory's dist files, with
+# shasum where sha256sum is missing (older macOS).
+sums() {
+	if command -v sha256sum >/dev/null 2>&1; then
+		sha256sum -- *.tar.gz *.zip *.sbom.json *.deb *.rpm *.apk >checksums.txt
+	else
+		shasum -a 256 -- *.tar.gz *.zip *.sbom.json *.deb *.rpm *.apk >checksums.txt
+	fi
+}
+
 # make_dist DIR: a dist/ that check-dist.sh accepts.
 make_dist() {
 	d=$1
@@ -58,15 +68,16 @@ make_dist() {
 	for t in installer defaultLocale version; do
 		printf 'ManifestType: %s\nManifestVersion: 1.12.0\n' "$t" >"$d/winget/manifests/r/RhythmShahriar/rhythm/1.0.0/RhythmShahriar.rhythm.$t.yaml"
 	done
-	(cd "$d" && sha256sum -- *.tar.gz *.zip *.sbom.json *.deb *.rpm *.apk >checksums.txt)
+	(cd "$d" && sums)
 }
 
 # expect NAME CODE PATTERN DIR: check-dist.sh DIR exits with CODE and its
-# output contains PATTERN.
+# output contains PATTERN. With RUN_PATH set the script runs with that PATH.
+shell=$(command -v sh)
 expect() {
 	name=$1 code=$2 pattern=$3 dir=$4
 	set +e
-	out=$(sh "$script" "$dir" 2>&1)
+	out=$(PATH=${RUN_PATH:-$PATH} "$shell" "$script" "$dir" 2>&1)
 	got=$?
 	set -e
 	if [ "$got" -ne "$code" ] || ! printf '%s\n' "$out" | grep -q -- "$pattern"; then
@@ -106,17 +117,17 @@ expect "tampered archive" 1 "checksums.txt doesn't match" "$d"
 
 fresh
 echo '{"bomFormat": "CycloneDX"}' >"$d/rhythm_linux_amd64.tar.gz.sbom.json"
-(cd "$d" && sha256sum -- *.tar.gz *.zip *.sbom.json *.deb *.rpm *.apk >checksums.txt)
+(cd "$d" && sums)
 expect "SBOM not SPDX" 1 "is not SPDX JSON" "$d"
 
 fresh
 echo /usr/local/bin/rhythm >"$d/rhythm_1.0.0_amd64.deb"
-(cd "$d" && sha256sum -- *.tar.gz *.zip *.sbom.json *.deb *.rpm *.apk >checksums.txt)
+(cd "$d" && sums)
 expect "deb without /usr/bin" 1 "rhythm_1.0.0_amd64.deb doesn't contain /usr/bin/rhythm" "$d"
 
 fresh
 grep -v README "$d/rhythm-1.0.0-1.x86_64.rpm" >"$d/r" && mv "$d/r" "$d/rhythm-1.0.0-1.x86_64.rpm"
-(cd "$d" && sha256sum -- *.tar.gz *.zip *.sbom.json *.deb *.rpm *.apk >checksums.txt)
+(cd "$d" && sums)
 expect "rpm without README" 1 "doesn't contain /usr/share/doc/rhythm/README.md" "$d"
 
 fresh
@@ -149,6 +160,24 @@ STUB_FAIL=1
 export STUB_FAIL
 expect "winget schema mismatch" 1 "doesn't match https://schemas.example" "$d"
 unset WINGET_SCHEMAS STUB_FAIL
+
+# Without sha256sum (older macOS) the checksums are checked with shasum.
+if command -v shasum >/dev/null 2>&1; then
+	RUN_PATH="$tmp/nosha"
+	mkdir -p "$RUN_PATH"
+	for c in grep awk sed tar gzip find sort shasum perl cat; do
+		p=$(command -v "$c") && ln -s "$p" "$RUN_PATH/$c"
+	done
+	ln -s "$tmp/stubs/"* "$RUN_PATH/"
+	fresh
+	expect "shasum fallback passes" 0 " ok (2 archives)" "$d"
+	fresh
+	echo tampered >>"$d/rhythm_linux_amd64.tar.gz"
+	expect "shasum fallback tampered archive" 1 "rhythm_linux_amd64.tar.gz: FAILED" "$d"
+	unset RUN_PATH
+else
+	echo "skip shasum fallback: shasum not installed"
+fi
 
 if [ "$failures" -gt 0 ]; then
 	echo "$failures test(s) failed"

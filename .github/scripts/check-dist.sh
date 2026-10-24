@@ -28,9 +28,22 @@ listed() {
 	grep -q "  $1\$" "$dist/checksums.txt"
 }
 
+# sha256_check FILE: checks the sha256sum-format FILE against the files in
+# the current directory and prints only the mismatches. Older macOS ships
+# shasum but not sha256sum.
+sha256_check() {
+	if command -v sha256sum >/dev/null 2>&1; then
+		sha256sum --quiet -c "$1"
+		return
+	fi
+	out=$(shasum -a 256 -c "$1" 2>&1) && return 0
+	printf '%s\n' "$out" | grep -v ': OK$' >&2
+	return 1
+}
+
 [ -f "$dist/checksums.txt" ] || { echo "check-dist: $dist/checksums.txt not found" >&2; exit 2; }
 
-if ! (cd "$dist" && sha256sum --quiet -c checksums.txt); then
+if ! (cd "$dist" && sha256_check checksums.txt); then
 	fail "checksums.txt doesn't match the files in $dist"
 fi
 
