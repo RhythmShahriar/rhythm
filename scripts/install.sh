@@ -238,7 +238,7 @@ main() {
 			cat "$tmp/verify.out" >&2
 			die "gh found no attestation that $REPO $tag made this checksums.txt; nothing was installed. Releases from before attestations have none: install cosign to check those"
 		fi
-		msg="signature not checked here ($why); rhythm will verify itself and every tool it installs"
+		msg="signature not checked ($why); install cosign or gh to check it before anything runs"
 		if [ -n "$nobundle" ]; then
 			warn "$msg"
 		else

@@ -571,21 +571,21 @@ case_signature_gh() {
 	rm -f "$cdir/sig.log"
 	install FAKE_GH_AUTH=1
 	expect_code 0
-	expect_out "signature not checked here (gh is not logged in); rhythm will verify itself and every tool it installs"
+	expect_out "signature not checked (gh is not logged in); install cosign or gh to check it before anything runs"
 	expect_no_out "no cosign or gh"
 	expect_no_out "warning: signature"
 	[ ! -e "$cdir/sig.log" ] || fail "gh ran without a login"
 	install FAKE_GH_OLD=1
 	path=
 	expect_code 0
-	expect_out "signature not checked here (gh is too old to pin the tag); rhythm will verify itself and every tool it installs"
+	expect_out "signature not checked (gh is too old to pin the tag); install cosign or gh to check it before anything runs"
 	[ ! -e "$cdir/sig.log" ] || fail "gh ran without --source-ref"
 }
 
 case_signature_none() {
 	install
 	expect_code 0
-	expect_out "signature not checked here (no cosign or gh); rhythm will verify itself and every tool it installs"
+	expect_out "signature not checked (no cosign or gh); install cosign or gh to check it before anything runs"
 	expect_tools tuner soundcheck echo
 
 	# cosign can't check a release without a bundle; gh isn't there.
@@ -593,7 +593,7 @@ case_signature_none() {
 	install RHYTHM_VERSION=9.0.4
 	path=
 	expect_code 0
-	expect_out "warning: signature not checked here (the release has no checksums.txt.sigstore.json); rhythm will verify itself and every tool it installs"
+	expect_out "warning: signature not checked (the release has no checksums.txt.sigstore.json); install cosign or gh to check it before anything runs"
 	[ ! -e "$cdir/sig.log" ] || fail "cosign ran without a bundle"
 
 	# The same with a gh that can't be used names both reasons.
@@ -601,7 +601,7 @@ case_signature_none() {
 	install RHYTHM_VERSION=9.0.4 FAKE_GH_AUTH=1
 	path=
 	expect_code 0
-	expect_out "warning: signature not checked here (the release has no checksums.txt.sigstore.json and gh is not logged in);"
+	expect_out "warning: signature not checked (the release has no checksums.txt.sigstore.json and gh is not logged in);"
 
 	# gh still checks a release without a bundle.
 	path=$work/cosignbin:$work/ghbin:$syspath

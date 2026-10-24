@@ -213,7 +213,7 @@
             throw "rhythm install: gh found no attestation that $Repo $Tag made this checksums.txt; nothing was installed. Releases from before attestations have none: install cosign to check those"
         }
         if ($GhWhy -and $GhWhy -ne 'none') { $Why = if ($Why) { "$Why and $GhWhy" } else { $GhWhy } }
-        $Msg = "signature not checked here ($Why); rhythm will verify itself and every tool it installs"
+        $Msg = "signature not checked ($Why); install cosign or gh to check it before anything runs"
         if ($NoBundle) { Write-Host "warning: $Msg" } else { Write-Host $Msg }
     }
 

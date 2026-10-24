@@ -36,7 +36,7 @@ curl -fsSL https://rythm.sh/install | sh
 irm https://rythm.sh/install.ps1 | iex
 ```
 
-This installs `rhythm`, Tuner, Soundcheck and Echo to `~/.local/bin` (`/usr/local/bin` as root; `%LOCALAPPDATA%\Programs\rhythm` on Windows, added to your PATH). Every download is checked against the release's `checksums.txt`. When [cosign](https://docs.sigstore.dev/) is installed, or the GitHub CLI and you're logged in, the installer also checks that `checksums.txt` was signed for this repository and tag (see [Verify a release](#verify-a-release)). Then the new `rhythm` checks itself with `rhythm verify rhythm` and every tool it installs.
+This installs `rhythm`, Tuner, Soundcheck and Echo to `~/.local/bin` (`/usr/local/bin` as root; `%LOCALAPPDATA%\Programs\rhythm` on Windows, added to your PATH). Every download is checked against the release's `checksums.txt`. When [cosign](https://docs.sigstore.dev/) is installed, or the GitHub CLI and you're logged in, the installer also checks that `checksums.txt` was signed for this repository and tag (see [Verify a release](#verify-a-release)). Without either it says the signature wasn't checked; install one of them to have it checked before anything runs.
 
 <details>
 <summary>Installer options</summary>
@@ -74,8 +74,8 @@ Three questions, one for each tool: is my site safe, did my change break anythin
 
 | Tool | What it does | |
 |---|---|---|
-| **[tuner](https://github.com/RhythmShahriar/tuner)** | Finds what's out of tune in WordPress &amp; PHP sites: leaked secrets, exposed files, known CVEs, weak configuration | `rhythm tuner scan yoursite.com` |
-| **[soundcheck](https://github.com/RhythmShahriar/soundcheck)** | Did your change break anything? Snapshots a whole site in a real browser, then shows what broke after an update or deploy: PHP and JS errors, dead buttons, forms, cache leaks, layout and speed | `rhythm soundcheck snapshot yoursite.com` |
+| **[tuner](https://github.com/RhythmShahriar/tuner)** | Finds what's out of tune in WordPress &amp; PHP sites: leaked secrets, exposed files, known CVEs, weak configuration | `rhythm tuner scan ./your-site` |
+| **[soundcheck](https://github.com/RhythmShahriar/soundcheck)** | Did your change break anything? Snapshots a whole site in a real browser, then shows what broke after an update or deploy: PHP and JS errors, dead buttons, forms, cache leaks, layout and speed | `rhythm soundcheck snapshot http://localhost:8080` |
 | **[echo](https://github.com/RhythmShahriar/echo)** | Is your site still saying what it should? Captures every email, SMS, webhook and API call it sends, seals staging so nothing reaches real people and shows what changed after an update. WordPress, Laravel, Next.js | `rhythm echo up` |
 
 More are on the way. Each lives in its own repository and releases on its own schedule; `rhythm <tool>` runs the `rhythm-<tool>` binary, the same extension model as `git` and `gh`. Any other `rhythm-<name>` program on your PATH runs as `rhythm <name>` too.
@@ -93,7 +93,6 @@ More are on the way. Each lives in its own repository and releases on its own sc
 | `rhythm list [--offline] [--json]` | show the installed tools, their versions and paths |
 | `rhythm uninstall <tool>... [--purge] [--all]` | remove tools (with `--purge`, their data too) |
 | `rhythm doctor [--offline] [--json]` | check the install: PATH, versions, data, Chrome and the release API |
-| `rhythm verify [tool...] [--json]` | check the signature of each installed binary's release and that the binary matches it |
 | `rhythm lock` | write `rhythm.lock` from what is installed, to pin a project's versions |
 | `rhythm completion bash\|zsh\|fish\|powershell` | print a shell completion script |
 | `rhythm version` | print rhythm's version (also `-v`, `-V`, `--version`) |
@@ -103,9 +102,9 @@ Sample output from rhythm 0.7.0:
 ```console
 $ rhythm list
 TOOL        VERSION  LATEST  SIGNED  PATH
-rhythm      0.7.0    0.7.0   yes     /home/me/.local/bin/rhythm
-soundcheck  0.2.0    0.2.0   yes     /home/me/.local/bin/rhythm-soundcheck
-tuner       0.3.2    0.3.3   yes     /home/me/.local/bin/rhythm-tuner
+rhythm      0.7.0    0.7.0   -       /home/me/.local/bin/rhythm
+soundcheck  0.2.0    0.2.0   -       /home/me/.local/bin/rhythm-soundcheck
+tuner       0.3.2    0.3.3   -       /home/me/.local/bin/rhythm-tuner
 
 $ rhythm update --check            # exit 10: an update is available
 rhythm             0.7.0 (up to date)
@@ -119,13 +118,10 @@ $ rhythm update tuner
 rhythm-tuner       0.3.2 → 0.3.3 ✔
 
 $ rhythm update --rollback tuner
-Rolled back rhythm-tuner 0.3.3 -> 0.3.2
+Rolled back rhythm-tuner 0.3.3 → 0.3.2
 
 $ rhythm update tuner --to 0.3.1
 rhythm-tuner       0.3.2 → 0.3.1 ✔
-
-$ rhythm verify tuner
-Signature ok  RhythmShahriar/tuner @ refs/tags/v0.3.1 (release-go.yml)
 
 $ rhythm doctor --offline
 ok    rhythm runs from /home/me/.local/bin/rhythm
@@ -192,7 +188,7 @@ Completion covers rhythm's commands, the tools and their flags plus each tool's 
 
 `rhythm update`, `rhythm install` and both installers check every download against the release's `checksums.txt`. That catches a corrupted or cut-off download. It can't tell you who published the release: `checksums.txt` sits on the same release page as the archives, so anyone who can upload there can upload a matching pair.
 
-The signature closes that gap. The release workflow signs `checksums.txt` with keyless [cosign](https://docs.sigstore.dev/). The signing certificate records which repository and which tag the run was for. `rhythm verify` checks it for what you have installed. To check a download by hand, get `checksums.txt` and `checksums.txt.sigstore.json` from the release next to your archive, then run (cosign 2.4 or later):
+The signature closes that gap. The release workflow signs `checksums.txt` with keyless [cosign](https://docs.sigstore.dev/). The signing certificate records which repository and which tag the run was for. A `rhythm verify` command that checks it for what you have installed is coming; until then the installers check it when cosign or gh is there. To check a download by hand, get `checksums.txt` and `checksums.txt.sigstore.json` from the release next to your archive, then run (cosign 2.4 or later):
 
 ```sh
 cosign verify-blob --bundle checksums.txt.sigstore.json \
@@ -210,7 +206,8 @@ Releases published with GitHub artifact attestations can also be checked with th
 
 ```sh
 gh attestation verify checksums.txt --repo RhythmShahriar/rhythm \
-  --signer-workflow RhythmShahriar/.github/.github/workflows/release-go.yml
+  --signer-workflow RhythmShahriar/.github/.github/workflows/release-go.yml \
+  --source-ref refs/tags/v<version>
 ```
 
 Older releases have no attestations; use cosign for those.

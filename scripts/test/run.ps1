@@ -602,32 +602,32 @@ function Case-signature_gh {
     Clear-SigLog
     Invoke-Install @{ PATH = "$GhBin$Sep$SysPath"; FAKE_GH_AUTH = '1' }
     Assert-Code 0
-    Assert-Out 'signature not checked here (gh is not logged in); rhythm will verify itself and every tool it installs'
+    Assert-Out 'signature not checked (gh is not logged in); install cosign or gh to check it before anything runs'
     Assert-NoOut 'no cosign or gh'
     Assert-NoOut 'warning: signature'
     if ((Get-SigLog).Count) { Fail 'gh ran without a login' }
     Invoke-Install @{ PATH = "$GhBin$Sep$SysPath"; FAKE_GH_OLD = '1' }
     Assert-Code 0
-    Assert-Out 'signature not checked here (gh is too old to pin the tag); rhythm will verify itself and every tool it installs'
+    Assert-Out 'signature not checked (gh is too old to pin the tag); install cosign or gh to check it before anything runs'
     if ((Get-SigLog).Count) { Fail 'gh ran without --source-ref' }
 }
 
 function Case-signature_none {
     Invoke-Install
     Assert-Code 0
-    Assert-Out 'signature not checked here (no cosign or gh); rhythm will verify itself and every tool it installs'
+    Assert-Out 'signature not checked (no cosign or gh); install cosign or gh to check it before anything runs'
     Assert-Tools 'tuner', 'soundcheck', 'echo'
 
     # cosign can't check a release without a bundle; gh isn't there.
     Invoke-Install @{ PATH = "$CosignBin$Sep$SysPath"; RHYTHM_VERSION = '9.0.4' }
     Assert-Code 0
-    Assert-Out 'warning: signature not checked here (the release has no checksums.txt.sigstore.json); rhythm will verify itself and every tool it installs'
+    Assert-Out 'warning: signature not checked (the release has no checksums.txt.sigstore.json); install cosign or gh to check it before anything runs'
     if ((Get-SigLog).Count) { Fail 'cosign ran without a bundle' }
 
     # The same with a gh that can't be used names both reasons.
     Invoke-Install @{ PATH = "$CosignBin$Sep$GhBin$Sep$SysPath"; RHYTHM_VERSION = '9.0.4'; FAKE_GH_AUTH = '1' }
     Assert-Code 0
-    Assert-Out 'warning: signature not checked here (the release has no checksums.txt.sigstore.json and gh is not logged in);'
+    Assert-Out 'warning: signature not checked (the release has no checksums.txt.sigstore.json and gh is not logged in);'
 
     # gh still checks a release without a bundle.
     Invoke-Install @{ PATH = "$CosignBin$Sep$GhBin$Sep$SysPath"; RHYTHM_VERSION = '9.0.4' }
