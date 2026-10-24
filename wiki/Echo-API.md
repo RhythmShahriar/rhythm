@@ -144,10 +144,8 @@ The Laravel package's `src/` and the Node package's `src/` in the [Echo reposito
 
 ## Mailpit-style routes
 
-Echo's `catcher` package also has a small read API for email shaped like [Mailpit](https://mailpit.axllent.org)'s, for tests written against Mailpit: `GET /api/v1/messages` (newest first, with `start` and `limit`, default 50), `GET /api/v1/message/{ID}` (`latest` works; adds a `Headers` field Mailpit doesn't have), `GET /api/v1/message/{ID}/headers`, and `DELETE /api/v1/messages` (`{"IDs": […]}`, or every email with an empty body). They cover email only and take the same token as the rest of the API.
+`rhythm echo up` also serves a small read API for email shaped like [Mailpit](https://mailpit.axllent.org)'s, for tests written against Mailpit: `GET /api/v1/messages` (newest first, with `start` and `limit`, default 50), `GET /api/v1/message/{ID}` (`latest` works; adds a `Headers` field Mailpit doesn't have), `GET /api/v1/message/{ID}/headers`, and `DELETE /api/v1/messages` (`{"IDs": […]}`, or every email with an empty body). They cover email only and take the same token as the rest of the API.
 
-> [!NOTE]
-> `rhythm echo up` 1.0.0 doesn't serve these routes: it passes only `/v1/…` and `/` to the catcher, so `/api/v1/…` answers `404 page not found`. They're reachable only from a Go program that serves `catcher.Server` itself. Use the `/v1` routes above.
 
 ## The client package
 

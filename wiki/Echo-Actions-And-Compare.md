@@ -78,7 +78,7 @@ Replays follow the same safety rules as `rhythm echo replay`: sealed Echo, stagi
     expect: {email: 2, sms: 1}
 ```
 
-The action must send at least this many messages per channel; `email`, `sms`, `webhook` and `chat` can be set. When it doesn't, the action gets the error *Sent fewer emails than expected* (`expected 2, got 1`), which is BROKE in a comparison. With `expect`, Echo waits until enough messages arrived before it starts waiting for quiet, so an action that falls short takes the full `timeout`. Its progress line still shows `✓` with what it did send; the failed `expect` is listed with the problems below it.
+The action must send at least this many messages per channel; `email`, `sms`, `webhook` and `chat` can be set. When it doesn't, the action gets the error *Sent fewer emails than expected* (`expected 2, got 1`), which is BROKE in a comparison. With `expect`, Echo waits until enough messages arrived before it starts waiting for quiet, so an action that falls short takes the full `timeout`. Its progress line shows `✗` and ends with `fewer than expected` (`(fewer than expected)` in plain output); the failed `expect` is listed with the problems below it.
 
 ### Test data and environment values
 

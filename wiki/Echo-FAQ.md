@@ -10,7 +10,7 @@ Mailpit, MailHog, Mailtrap and smtp4dev are good mail catchers, and if all you n
 - **Every channel, not only SMTP.** Most of what a modern site sends isn't SMTP at all: API mailers (SendGrid, Postmark, Resend), SMS, WhatsApp, Slack, webhooks, GA4 and Meta events, payment calls. Echo catches them through the connector or its proxy, recognizes 34 services, and answers each one the way the service would, so the site carries on.
 - **It seals.** Pointing the mailer at a catcher stops email. It doesn't stop the SMS plugin, the WooCommerce webhook to the live CRM, or the purchase event that feeds your ads. Echo's seal covers them, and refuses live payment calls in every mode.
 
-`rhythm echo up` serves Echo's own `/v1` API, not Mailpit's, so tools built for Mailpit's API don't work with it; see [API](Echo-API#mailpit-style-routes).
+`rhythm echo up` also answers Mailpit's read routes for email (`/api/v1/messages` and friends), so tests written against Mailpit's API keep working; see [API](Echo-API#mailpit-style-routes).
 
 ### Is it safe to run on production?
 
