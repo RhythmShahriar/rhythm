@@ -1,106 +1,152 @@
 // Copyright (c) 2026 Rhythm Shahriar <me@rhy.io>
 // SPDX-License-Identifier: AGPL-3.0-only
 
-// Package update installs and updates Rhythm binaries from GitHub Releases.
-//
-// Release archives are named <binary>_<os>_<arch>.tar.gz (.zip on Windows)
-// with a checksums.txt alongside, as GoReleaser publishes them. Every
-// download is verified against checksums.txt before anything is replaced,
-// and the binary is swapped atomically so a failed update never leaves a
-// broken install.
 package update
 
 import (
-	"archive/tar"
-	"archive/zip"
-	"bufio"
-	"bytes"
-	"compress/gzip"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"path"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/RhythmShahriar/rhythm/kit/cache"
 	"github.com/RhythmShahriar/rhythm/kit/config"
 )
 
-// Largest archive we'll download.
-const maxArchive = 200 << 20
+// Largest archive we'll download and largest binary we'll unpack from
+// one (a compressed archive may hold a bigger binary, though not an
+// unbounded one).
+const (
+	maxArchive = 200 << 20
+	maxBinary  = 2 * maxArchive
+)
 
+// Updater checks for and installs releases of one binary. The zero
+// value of every field but Repo and Binary is a working default. An
+// Updater is safe for concurrent use as long as its fields are not
+// changed meanwhile.
+//
+// It reads these environment variables:
+//
+//   - GITHUB_TOKEN is sent only when API is api.github.com. It then goes
+//     only to api.github.com and the github.com and
+//     objects.githubusercontent.com download hosts. It lifts the 60
+//     requests an hour anonymous limit in CI.
+//   - RHYTHM_GITHUB_TOKEN is sent to the host named by API (a mirror or
+//     GitHub Enterprise) and takes precedence over GITHUB_TOKEN.
+//   - RHYTHM_OFFLINE, set to anything but "" or "0", works like Offline.
+//   - RHYTHM_NO_UPDATE_CHECK and CI turn off the background check (see
+//     CheckDisabled) but still allow an explicit update.
+//
+// The API base and every download URL must be https; plain http is only
+// accepted for loopback hosts, for tests. A token is never sent on a
+// redirect to another host and never logged.
 type Updater struct {
-	Repo      string // e.g. RhythmShahriar/tuner
-	Binary    string // e.g. rhythm-tuner
-	Current   string // running version; "dev" builds never update
-	UserAgent string
-	HTTP      *http.Client
-	API       string // GitHub API base; default https://api.github.com
-	OS, Arch  string // default runtime.GOOS, runtime.GOARCH
+	Repo      string       // GitHub owner/name, e.g. RhythmShahriar/tuner
+	Binary    string       // binary and archive prefix, e.g. rhythm-tuner
+	Current   string       // running version; "dev" builds never update
+	UserAgent string       // default rhythm-update/<Binary>
+	HTTP      *http.Client // default: 5 minute timeout, proxy from the environment
+	API       string       // GitHub API base; default https://api.github.com (RHYTHM_GITHUB_API in the tools)
+	OS, Arch  string       // platform to install for; default runtime.GOOS, runtime.GOARCH
+
+	// Offline makes the Updater never touch the network: Check and Notice
+	// stay quiet and Latest and Install return ErrOffline. Tools set it
+	// from their --offline flag.
+	Offline bool
+
+	// Progress, when set, is called while Install downloads the archive
+	// with the bytes received so far and the size the server announced
+	// (-1 when it didn't). It is called at most every 100 ms and once at
+	// the end with done == total.
+	Progress func(done, total int64)
+
+	// Verifier, when set, checks the Sigstore bundle over checksums.txt
+	// before Install trusts any checksum in it; Install fails closed
+	// with ErrSignature when the bundle is missing or doesn't verify.
+	// SkipSignature turns the check off for one run; this package prints
+	// nothing about it, so the caller should warn.
+	Verifier      Verifier
+	SkipSignature bool
+
+	// MinAge, when above zero, is a cooldown: Latest and Resolve pick the
+	// newest release published at least MinAge ago and report a newer
+	// one they passed over in Release.SkippedNewer. A release that turns
+	// out to be malicious is usually pulled within days, so waiting keeps
+	// it off machines. ParseAge reads the "3d" form; the tools take it
+	// from RHYTHM_MIN_RELEASE_AGE, which this package doesn't read.
+	MinAge time.Duration
+
+	// CacheDir, when set, keeps every archive Install has verified as
+	// <CacheDir>/<sha256>.tar.gz (or .zip), so a CI runner or a second
+	// machine sharing the dir installs the same release without
+	// downloading it again. A cached archive is hashed again before use
+	// and replaced when it doesn't match; checksums.txt and its signature
+	// are still fetched and checked every time.
+	CacheDir string
+
+	// Source, when set, replaces GitHub as the place releases come from,
+	// such as an offline bundle. Offline and RHYTHM_OFFLINE only stop
+	// the GitHub source; a custom Source decides for itself. Every check
+	// Install makes applies to it all the same.
+	Source Source
 }
 
+// ErrOffline is returned by calls that need the network while offline
+// mode is on.
+var ErrOffline = errors.New("offline mode is on; unset RHYTHM_OFFLINE to download")
+
+// offline reports whether u, or the environment, forbids network access.
+func (u *Updater) offline() bool {
+	return u.Offline || envOffline()
+}
+
+func envOffline() bool {
+	v := os.Getenv("RHYTHM_OFFLINE")
+	return v != "" && v != "0"
+}
+
+// Release is one published release and its downloadable assets, as
+// Latest, ByTag and Resolve return it. Install needs the platform archive
+// and checksums.txt among the Assets. A custom Source may store any
+// locator it understands as an asset's value.
 type Release struct {
-	Version string            // without the leading v
-	Assets  map[string]string // name → download URL
+	Version    string            // without the leading v
+	Tag        string            // the git tag, e.g. v0.3.1
+	Published  time.Time         // when it was published; zero when unknown
+	Prerelease bool              // marked as a prerelease
+	Assets     map[string]string // asset name → https download URL
+
+	// SkippedNewer is the newest release that Updater.MinAge passed over
+	// because it is too young; nil when none was.
+	SkippedNewer *Skipped
 }
 
-func (u *Updater) client() *http.Client {
-	if u.HTTP != nil {
-		return u.HTTP
-	}
-	return &http.Client{Timeout: 5 * time.Minute}
+// Skipped is a release left out for being younger than Updater.MinAge.
+type Skipped struct {
+	Version string        // without the leading v
+	Age     time.Duration // how long ago it was published
 }
 
-// Latest fetches the newest published release.
+// Latest fetches the newest published release, never a draft or a
+// prerelease. The Source picks it, unless MinAge is set: then it is the
+// newest listed release (of the last 100 on GitHub) that is at least
+// MinAge old.
 func (u *Updater) Latest(ctx context.Context) (*Release, error) {
-	api := u.API
-	if api == "" {
-		api = "https://api.github.com"
+	if u.MinAge > 0 {
+		return u.newest(ctx, nil, "")
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, api+"/repos/"+u.Repo+"/releases/latest", nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", u.UserAgent)
-	if tok := os.Getenv("GITHUB_TOKEN"); tok != "" {
-		req.Header.Set("Authorization", "Bearer "+tok) // avoids the 60/hour anonymous limit in CI
-	}
-	resp, err := u.client().Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, fmt.Errorf("%s has no published releases yet", u.Repo)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("checking %s releases: HTTP %d", u.Repo, resp.StatusCode)
-	}
-	var v struct {
-		TagName string `json:"tag_name"`
-		Assets  []struct {
-			Name string `json:"name"`
-			URL  string `json:"browser_download_url"`
-		} `json:"assets"`
-	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&v); err != nil {
-		return nil, fmt.Errorf("checking %s releases: %w", u.Repo, err)
-	}
-	rel := &Release{Version: strings.TrimPrefix(v.TagName, "v"), Assets: map[string]string{}}
-	for _, a := range v.Assets {
-		rel.Assets[a.Name] = a.URL
-	}
-	return rel, nil
+	return u.source().Latest(ctx)
 }
 
 // Newer reports whether latest is a newer release than current. Dev builds
@@ -125,7 +171,93 @@ func Newer(current, latest string) bool {
 	case c.pre == "":
 		return false
 	}
-	return l.pre > c.pre
+	return comparePre(l.pre, c.pre) > 0
+}
+
+// comparePre orders two prerelease labels as SemVer 2.0.0 section 11
+// does: dot-separated identifiers compared left to right, numeric ones
+// numerically and below alphanumeric ones; a label with fewer
+// identifiers lower when the rest are equal. One extension: digit runs
+// inside an alphanumeric identifier also compare numerically, so rc9
+// sorts before rc10 the way people tag releases. Identifiers without
+// digits keep plain ASCII order, as in the spec.
+func comparePre(a, b string) int {
+	as, bs := strings.Split(a, "."), strings.Split(b, ".")
+	for i := range min(len(as), len(bs)) {
+		x, y := as[i], bs[i]
+		xn, yn := isNumeric(x), isNumeric(y)
+		var c int
+		switch {
+		case xn && yn:
+			c = compareDigits(x, y)
+		case xn:
+			c = -1
+		case yn:
+			c = 1
+		default:
+			c = compareNatural(x, y)
+		}
+		if c != 0 {
+			return c
+		}
+	}
+	return cmp.Compare(len(as), len(bs))
+}
+
+func isNumeric(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := range len(s) {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// compareDigits compares two digit strings by value without parsing, so
+// no identifier is too long to compare.
+func compareDigits(a, b string) int {
+	a, b = strings.TrimLeft(a, "0"), strings.TrimLeft(b, "0")
+	if c := cmp.Compare(len(a), len(b)); c != 0 {
+		return c
+	}
+	return strings.Compare(a, b)
+}
+
+// compareNatural compares a and b run by run: digit runs by value, other
+// runs as text.
+func compareNatural(a, b string) int {
+	x, y := a, b
+	for x != "" && y != "" {
+		var rx, ry string
+		rx, x = nextRun(x)
+		ry, y = nextRun(y)
+		var c int
+		if isNumeric(rx) && isNumeric(ry) {
+			c = compareDigits(rx, ry)
+		} else {
+			c = strings.Compare(rx, ry)
+		}
+		if c != 0 {
+			return c
+		}
+	}
+	if c := cmp.Compare(len(x), len(y)); c != 0 {
+		return c
+	}
+	return strings.Compare(a, b) // equal by value, as with rc01 and rc1
+}
+
+// nextRun splits s after its leading run of digits or of non-digits.
+func nextRun(s string) (run, rest string) {
+	digit := s[0] >= '0' && s[0] <= '9'
+	i := 1
+	for i < len(s) && (s[i] >= '0' && s[i] <= '9') == digit {
+		i++
+	}
+	return s[:i], s[i:]
 }
 
 type semver struct {
@@ -173,34 +305,79 @@ func (u *Updater) ArchiveName() string {
 	return fmt.Sprintf("%s_%s_%s%s", u.Binary, goos, arch, ext)
 }
 
-// Install downloads rel for this platform, verifies its checksum and
-// atomically replaces (or creates) the binary at dest.
+// Install downloads rel for this platform, verifies it and atomically
+// replaces (or creates) the binary at dest. It is InstallWith with no
+// options, for callers that don't need the result.
 func (u *Updater) Install(ctx context.Context, rel *Release, dest string) error {
-	name := u.ArchiveName()
-	archiveURL, ok := rel.Assets[name]
-	if !ok {
-		return fmt.Errorf("release %s has no build for this platform (%s)", rel.Version, name)
+	_, err := u.InstallWith(ctx, rel, dest, InstallOptions{})
+	return err
+}
+
+// InstallOptions tunes one InstallWith call. The zero value installs the
+// way Install does.
+type InstallOptions struct {
+	// ExpectSHA256, when set, is the hex sha256 the archive must have,
+	// as a lock file recorded it. The install fails with ErrChecksum when
+	// the archive differs, even if checksums.txt agrees with it: a
+	// release whose assets were replaced after locking is refused.
+	ExpectSHA256 string
+}
+
+// InstallResult describes a finished install.
+type InstallResult struct {
+	Version string // the release installed, without the leading v
+	SHA256  string // hex sha256 of the archive
+	Signer  string // identity the Verifier reported; "" when none ran
+	Cached  bool   // the archive came from Updater.CacheDir, not a download
+}
+
+// InstallWith downloads rel for this platform, checks the signature over
+// checksums.txt when u.Verifier is set, verifies the archive against
+// checksums.txt (and opts.ExpectSHA256) and atomically replaces (or
+// creates) the binary at dest. dest is untouched unless every check
+// passes.
+func (u *Updater) InstallWith(ctx context.Context, rel *Release, dest string, opts InstallOptions) (InstallResult, error) {
+	var res InstallResult
+	if u.Source == nil && u.offline() {
+		return res, ErrOffline
 	}
-	sumsURL, ok := rel.Assets["checksums.txt"]
-	if !ok {
-		return fmt.Errorf("release %s has no checksums.txt; refusing to install unverified binaries", rel.Version)
+	expect := strings.ToLower(strings.TrimSpace(opts.ExpectSHA256))
+	if expect != "" && !isSHA256(expect) {
+		return res, fmt.Errorf("expected sha256 %q is not 64 hex digits", opts.ExpectSHA256)
+	}
+	name := u.ArchiveName()
+	if _, ok := rel.Assets[name]; !ok {
+		return res, fmt.Errorf("release %s has no build for this platform (%s)", rel.Version, name)
 	}
 
-	sums, err := u.download(ctx, sumsURL, 1<<20)
+	removeStaleOld(dest)
+	sums, signer, err := u.checksumsFile(ctx, rel)
 	if err != nil {
-		return fmt.Errorf("downloading checksums: %w", err)
+		return res, err
 	}
-	want, err := checksumFor(sums, name)
-	if err != nil {
-		return err
+	want, ok := parseChecksums(sums)[name]
+	if !ok {
+		return res, fmt.Errorf("checksums.txt has no entry for %s", name)
 	}
-	archive, err := u.download(ctx, archiveURL, maxArchive)
-	if err != nil {
-		return fmt.Errorf("downloading %s: %w", name, err)
+	archive, got, cached := u.fromCache(name, want)
+	if !cached {
+		// The archive goes to a temp file next to dest and is hashed on
+		// the way, so memory stays flat however big the release is.
+		archive, got, err = u.downloadFile(ctx, rel, name, filepath.Dir(dest), "."+filepath.Base(dest)+".download-*", maxArchive)
+		if err != nil {
+			return res, fmt.Errorf("downloading %s: %w", name, err)
+		}
+		defer func() { _ = os.Remove(archive) }()
 	}
-	got := sha256.Sum256(archive)
-	if hex.EncodeToString(got[:]) != want {
-		return fmt.Errorf("%s: checksum mismatch; the download may be corrupt or tampered with, nothing was changed", name)
+	if got != want {
+		return res, &ErrChecksum{Asset: name, Want: want, Got: got}
+	}
+	if expect != "" && got != expect {
+		return res, &ErrChecksum{Asset: name, Want: expect, Got: got, Locked: true}
+	}
+	if !cached {
+		// Only now: the signature and the checksums have both passed.
+		u.toCache(archive, name, got)
 	}
 
 	goos, _ := u.platform()
@@ -208,104 +385,38 @@ func (u *Updater) Install(ctx context.Context, rel *Release, dest string) error 
 	if goos == "windows" {
 		bin += ".exe"
 	}
-	var data []byte
-	if strings.HasSuffix(name, ".zip") {
-		data, err = fromZip(archive, bin)
-	} else {
-		data, err = fromTarGz(archive, bin)
+	info := swapInfo{New: rel.Version}
+	if IsRelease(u.Current) {
+		info.Old = strings.TrimPrefix(u.Current, "v")
 	}
-	if err != nil {
-		return fmt.Errorf("%s: %w", name, err)
+	if err := extract(archive, name, bin, func(r io.Reader) error { return replace(dest, r, info) }); err != nil {
+		return res, err
 	}
-	return replace(dest, data)
+	return InstallResult{Version: rel.Version, SHA256: got, Signer: signer, Cached: cached}, nil
 }
 
-func (u *Updater) download(ctx context.Context, url string, limit int64) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", u.UserAgent)
-	resp, err := u.client().Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
-	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
-	if err != nil {
-		return nil, err
-	}
-	if int64(len(data)) > limit {
-		return nil, errors.New("file is larger than expected")
-	}
-	return data, nil
-}
+// Seams for tests: rename lets them inject failures and useOldSwap
+// forces the Windows path on every OS.
+var (
+	rename     = os.Rename
+	useOldSwap = runtime.GOOS == "windows"
+)
 
-func checksumFor(sums []byte, name string) (string, error) {
-	sc := bufio.NewScanner(bytes.NewReader(sums))
-	for sc.Scan() {
-		f := strings.Fields(sc.Text())
-		if len(f) == 2 && strings.TrimPrefix(f[1], "*") == name && len(f[0]) == 64 {
-			return strings.ToLower(f[0]), nil
-		}
-	}
-	return "", fmt.Errorf("checksums.txt has no entry for %s", name)
-}
-
-func fromTarGz(archive []byte, bin string) ([]byte, error) {
-	zr, err := gzip.NewReader(bytes.NewReader(archive))
+// replace writes data next to dest and renames it into place, keeping
+// the binary it replaces as dest.prev for Rollback. On Unix that one
+// rename is atomic and dest.prev is a hard link (or copy) made before it.
+// On Windows a running executable can't be overwritten but can be renamed
+// away: dest moves to dest.old first, moves back if the new binary can't
+// take its place and becomes dest.prev once it has.
+func replace(dest string, r io.Reader, info swapInfo) error {
+	removeStaleOld(dest)
+	tmp, err := createTemp(filepath.Dir(dest), "."+filepath.Base(dest)+".new-*")
 	if err != nil {
-		return nil, err
-	}
-	tr := tar.NewReader(zr)
-	for {
-		h, err := tr.Next()
-		if err == io.EOF {
-			return nil, fmt.Errorf("no %s in the archive", bin)
-		}
-		if err != nil {
-			return nil, err
-		}
-		if h.Typeflag == tar.TypeReg && path.Base(h.Name) == bin {
-			return io.ReadAll(io.LimitReader(tr, maxArchive))
-		}
-	}
-}
-
-func fromZip(archive []byte, bin string) ([]byte, error) {
-	zr, err := zip.NewReader(bytes.NewReader(archive), int64(len(archive)))
-	if err != nil {
-		return nil, err
-	}
-	for _, f := range zr.File {
-		if path.Base(f.Name) == bin && !f.FileInfo().IsDir() {
-			rc, err := f.Open()
-			if err != nil {
-				return nil, err
-			}
-			defer func() { _ = rc.Close() }()
-			return io.ReadAll(io.LimitReader(rc, maxArchive))
-		}
-	}
-	return nil, fmt.Errorf("no %s in the archive", bin)
-}
-
-// replace writes data next to dest and renames it into place. On Windows a
-// running executable can't be overwritten, but it can be renamed away.
-func replace(dest string, data []byte) error {
-	dir := filepath.Dir(dest)
-	tmp, err := os.CreateTemp(dir, "."+filepath.Base(dest)+".new-*")
-	if err != nil {
-		if errors.Is(err, os.ErrPermission) {
-			return fmt.Errorf("can't write to %s; rerun with sudo, or reinstall to a directory you own", dir)
-		}
 		return err
 	}
 	defer func() { _ = os.Remove(tmp.Name()) }()
-	if _, err := tmp.Write(data); err != nil {
+	h := sha256.New()
+	if _, err := io.Copy(io.MultiWriter(tmp, h), &capReader{r: r, left: maxBinary}); err != nil {
 		_ = tmp.Close()
 		return err
 	}
@@ -315,14 +426,66 @@ func replace(dest string, data []byte) error {
 	if err := os.Chmod(tmp.Name(), 0o755); err != nil { //nolint:gosec // an executable must be executable
 		return err
 	}
-	if runtime.GOOS == "windows" {
-		old := dest + ".old"
-		_ = os.Remove(old)
-		if err := os.Rename(dest, old); err != nil && !errors.Is(err, os.ErrNotExist) {
+	rec := prevRecord{Version: info.Old, ReplacedBy: &binRecord{Version: info.New, SHA256: hex.EncodeToString(h.Sum(nil))}}
+	oldSum, err := hashFile(dest)
+	fresh := errors.Is(err, os.ErrNotExist) // nothing to keep or move away
+	if err != nil && !fresh {
+		return fmt.Errorf("replacing %s: %w", dest, err)
+	}
+	rec.SHA256 = oldSum
+
+	if !useOldSwap {
+		var keep string
+		if !fresh {
+			if keep, err = snapshot(dest); err != nil {
+				dropPrev(dest) // no rollback this time; never a stale one
+				keep = ""
+			} else {
+				defer func() { _ = os.Remove(keep) }()
+			}
+		}
+		if err := rename(tmp.Name(), dest); err != nil {
 			return err
 		}
+		if keep != "" {
+			rec.ReplacedAt = time.Now().UTC()
+			keepPrev(dest, keep, rec)
+		}
+		return nil
 	}
-	return os.Rename(tmp.Name(), dest)
+	old := dest + ".old"
+	_ = os.Remove(old)
+	moved := !fresh
+	if moved {
+		if err := rename(dest, old); err != nil {
+			return fmt.Errorf("replacing %s: %w", dest, err)
+		}
+	}
+	if err := rename(tmp.Name(), dest); err != nil {
+		if moved {
+			if rerr := rename(old, dest); rerr != nil {
+				return fmt.Errorf("replacing %s: %w", dest, errors.Join(err, fmt.Errorf("restoring %s: %w", old, rerr)))
+			}
+		}
+		return fmt.Errorf("replacing %s: %w", dest, err)
+	}
+	if moved {
+		// .old is the running binary when a tool updates itself. Windows
+		// lets it be renamed; if that fails, removeStaleOld clears it
+		// next time.
+		rec.ReplacedAt = time.Now().UTC()
+		keepPrev(dest, old, rec)
+	}
+	return nil
+}
+
+// removeStaleOld deletes the dest.old a previous Windows update left
+// behind. It only does so while dest exists, so it never deletes the last
+// copy of a binary.
+func removeStaleOld(dest string) {
+	if _, err := os.Stat(dest); err == nil {
+		_ = os.Remove(dest + ".old")
+	}
 }
 
 // IsRelease reports whether v is a release version (not "dev").
@@ -332,12 +495,17 @@ func IsRelease(v string) bool {
 }
 
 // CheckDisabled reports whether update checks are off: dev builds, CI,
-// or RHYTHM_NO_UPDATE_CHECK set.
+// RHYTHM_NO_UPDATE_CHECK set, or RHYTHM_OFFLINE set to anything but ""
+// or "0".
 func CheckDisabled(current string) bool {
 	if !IsRelease(current) {
 		return true
 	}
-	return os.Getenv("RHYTHM_NO_UPDATE_CHECK") != "" || os.Getenv("CI") != ""
+	return os.Getenv("RHYTHM_NO_UPDATE_CHECK") != "" || os.Getenv("CI") != "" || envOffline()
+}
+
+func (u *Updater) checkDisabled() bool {
+	return u.Offline || CheckDisabled(u.Current)
 }
 
 type checkState struct {
@@ -346,9 +514,11 @@ type checkState struct {
 }
 
 // Check returns the latest version if it is newer than Current. It asks
-// GitHub at most once a day and remembers the answer in the config dir.
+// GitHub at most once a day and remembers the answer in the config dir;
+// a state file that is missing, corrupt or dated in the future counts as
+// stale.
 func (u *Updater) Check(ctx context.Context) (latest string, newer bool) {
-	if CheckDisabled(u.Current) {
+	if u.checkDisabled() {
 		return "", false
 	}
 	dir, err := config.Dir()
@@ -357,28 +527,39 @@ func (u *Updater) Check(ctx context.Context) (latest string, newer bool) {
 	}
 	statePath := filepath.Join(dir, "update-check", u.Binary+".json")
 	var st checkState
-	if data, err := os.ReadFile(statePath); err == nil { //nolint:gosec // path is built from the config dir
-		_ = json.Unmarshal(data, &st)
+	fresh := false
+	if err := cache.ReadJSON(statePath, &st); err == nil {
+		// A state from the future (a clock that was wrong, or a copied
+		// config dir) would otherwise silence checks until that date.
+		age := time.Since(st.Checked)
+		fresh = age >= 0 && age < 24*time.Hour
 	}
-	if time.Since(st.Checked) > 24*time.Hour {
+	if !fresh {
+		// A missing or corrupt state ends up here and is rewritten.
 		rel, err := u.Latest(ctx)
 		if err != nil {
 			return "", false
 		}
 		st = checkState{Checked: time.Now().UTC(), Latest: rel.Version}
-		if data, err := json.Marshal(st); err == nil && os.MkdirAll(filepath.Dir(statePath), 0o700) == nil {
-			_ = os.WriteFile(statePath, data, 0o600)
-		}
+		// Atomic, so tools starting together never leave a torn file.
+		_ = cache.WriteJSON(statePath, st)
 	}
 	return st.Latest, Newer(u.Current, st.Latest)
 }
 
-// Notice checks for a newer release in the background and delivers a
-// one-line notice on the returned channel, or closes it when there's
-// nothing to say. Run it alongside the tool's real work and read it at
-// the end without waiting long, so it never delays the user.
+// Notice is the one way a tool should check for updates. It checks for a
+// newer release in the background and delivers a one-line notice on the
+// returned channel, or closes it when there's nothing to say. Run it
+// alongside the tool's real work and read it at the end without waiting
+// long, so it never delays the user. When u.Offline is set or
+// CheckDisabled is true the channel is closed at once and nothing is
+// sent over the network.
 func Notice(ctx context.Context, u *Updater) <-chan string {
 	ch := make(chan string, 1)
+	if u.checkDisabled() {
+		close(ch)
+		return ch
+	}
 	go func() {
 		defer close(ch)
 		cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
