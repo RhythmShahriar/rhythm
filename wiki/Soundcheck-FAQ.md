@@ -127,7 +127,7 @@ Forms that are hidden, have a password field, are search forms, comment forms, t
 
 ### Where are my test submissions?
 
-Every value Soundcheck types contains `soundcheck-test`. Search your inbox, CRM, form plugin entries or database for it to find and delete them.
+Every value Soundcheck types contains `soundcheck-test`. Search your inbox, CRM, form plugin entries or database for it to find and delete them. With [Echo](Echo) sealing staging, the emails and webhooks those submits trigger never leave: they're in Echo, tied to each form, and `--echo` compares them between runs. See [With Soundcheck](Echo-With-Soundcheck).
 
 ## Reporting a bug
 

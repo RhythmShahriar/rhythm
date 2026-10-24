@@ -1,7 +1,7 @@
 How Soundcheck tests that forms still send (level 3, `submit`), the form plugins it knows, the test data it types, the YAML flow format for scripted journeys (level 4, `flows`), and logging in with a test account.
 
 > [!WARNING]
-> Submitting is real. With the `submit` level or a flow that sends a form, messages arrive, sign-ups are created, orders may be placed. Use it on staging, route mail to a catcher such as Mailpit, and list your live site under `production` so Soundcheck refuses to submit there. See [Interactions](Soundcheck-Interactions#the-production-guard).
+> Submitting is real. With the `submit` level or a flow that sends a form, messages arrive, sign-ups are created, orders may be placed. Use it on staging, with [Echo](Echo) sealing it so the messages stop there, and list your live site under `production` so Soundcheck refuses to submit there. See [Interactions](Soundcheck-Interactions#the-production-guard).
 
 ## Submitting forms
 
@@ -37,6 +37,8 @@ The detail is the message the plugin showed. A successful submit isn't reported 
 {"kind": "submit", "selector": "form.wpcf7-form", "label": "Contact Form 7 #12", "outcome": "validation", "detail": "One or more fields have an error. Please check and try again."}
 {"kind": "submit", "selector": "form.wpcf7-form", "label": "Contact Form 7 #12", "outcome": "success", "detail": "Thank you for your message. It has been sent."}
 ```
+
+A form can show "sent" and still email nobody. With [Echo](Echo) running, `--echo` records what each successful submit sent, adds it to the detail (`… · sent 2 emails, 1 chat message`), reports *Form says sent, but no message went out*, and compares each form's messages with the snapshot's. See [With Soundcheck](Echo-With-Soundcheck).
 
 ### Forms that are never submitted
 
@@ -169,10 +171,12 @@ The detail says what went wrong (`.wpcf7 form.sent not found`). A failed action 
 | `url` | the current URL contains it |
 | `status` | the last page load answered this HTTP status |
 | `absent: true` | turns `text` and `selector` around: they must **not** be there |
+| `message` | with Echo running and `--echo`, the flow made the site send this message: `{channel, to, subject, text, count}`; see [Flows: expect a message](Echo-With-Soundcheck#flows-expect-a-message) |
 
 ```yaml
   - expect: {url: /order-received/, text: Thank you}
   - expect: {selector: .woocommerce-error, absent: true}
+  - expect: {message: {channel: email, to: "${fake:email}", subject: Your order}}
 ```
 
 Each step waits up to the run's `timeout` (default 30 s) for its element.

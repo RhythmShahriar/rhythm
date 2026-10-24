@@ -24,6 +24,9 @@ Pass the same levels to `compare`, or keep them in the config file; otherwise th
 
 Levels 1 to 3 run on every page while it's open at desktop size, before the mobile reload. Level 4 runs once, after all pages. Nothing is clicked or submitted on `/wp-admin` or `/wp-login.php` pages. Submitting and flows are covered in [Forms and flows](Soundcheck-Forms-And-Flows).
 
+> [!TIP]
+> A form can say "sent" while no email goes out: the confirmation is on the page, the mailer behind it is broken. Soundcheck alone can't see that. Add `--echo` with [Echo](Echo) running, and each submit records the emails, SMS and webhooks it caused; a form that sent nothing gets *Form says sent, but no message went out*, and a message the snapshot had is BROKE when it's gone. See [With Soundcheck](Echo-With-Soundcheck).
+
 ## Level 1: inspect
 
 | Check | Level | Title | Finds |
