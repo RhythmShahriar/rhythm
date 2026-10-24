@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -137,5 +138,24 @@ func TestExitCodeMapping(t *testing.T) {
 		if got := exitCode(c.code, c.sig); got != c.want {
 			t.Errorf("exitCode(%#x, %d) = %d, want %d", c.code, c.sig, got, c.want)
 		}
+	}
+}
+
+func TestToolSeesInvokedAs(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("PATH", dir)
+	t.Setenv("RHYTHM_INVOKED_AS", "stale")
+	stub(t, dir, "soundcheck", `echo "$RHYTHM_INVOKED_AS"`)
+	var out, errb bytes.Buffer
+	if code := run([]string{"sc"}, &out, &errb); code != 0 || out.String() != "rhythm sc\n" {
+		t.Errorf("exit %d: %q %s", code, out.String(), errb.String())
+	}
+}
+
+func TestToolEnvReplacesInheritedValue(t *testing.T) {
+	got := toolEnv([]string{"A=1", "RHYTHM_INVOKED_AS=old", "RHYTHM_INVOKED_ASX=keep"}, "rhythm tuner")
+	want := []string{"A=1", "RHYTHM_INVOKED_ASX=keep", "RHYTHM_INVOKED_AS=rhythm tuner"}
+	if !slices.Equal(got, want) {
+		t.Errorf("toolEnv = %q", got)
 	}
 }

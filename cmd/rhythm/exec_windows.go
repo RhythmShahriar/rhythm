@@ -13,4 +13,4 @@ var forwardSignals []os.Signal
 
 // execTool does nothing on Windows, which cannot replace a running
 // process; the caller runs the tool as a child.
-func execTool(string, []string) {}
+func execTool(string, []string, []string) {}

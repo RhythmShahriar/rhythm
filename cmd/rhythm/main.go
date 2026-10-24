@@ -94,24 +94,41 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cli.ExitUsage
 	}
 
+	env := toolEnv(os.Environ(), "rhythm "+args[0])
 	// rhythm can only become the tool when the tool would write to
 	// rhythm's own streams; tests pass buffers and take the child path.
 	if stdout == os.Stdout && stderr == os.Stderr {
-		execTool(bin, args[1:]) // returns only if the exec failed
+		execTool(bin, args[1:], env) // returns only if the exec failed
 	}
-	code, err := runChild(bin, args[1:], stdout, stderr)
+	code, err := runChild(bin, args[1:], env, stdout, stderr)
 	if err != nil {
 		return startFailed(stderr, tool, known, err)
 	}
 	return code
 }
 
+// toolEnv returns environ with RHYTHM_INVOKED_AS set to invokedAs, so
+// the tool's usage lines and hints name the command the user typed
+// ("rhythm sc") rather than its binary. An inherited value is dropped,
+// not shadowed, because C programs read the first match in the
+// environment and Go reads the last.
+func toolEnv(environ []string, invokedAs string) []string {
+	env := make([]string, 0, len(environ)+1)
+	for _, kv := range environ {
+		if !strings.HasPrefix(kv, cli.InvokedAsEnv+"=") {
+			env = append(env, kv)
+		}
+	}
+	return append(env, cli.InvokedAsEnv+"="+invokedAs)
+}
+
 // runChild runs a tool as a child process, for Windows (which has no
 // exec) and for when exec fails. It returns the tool's exit code mapped
 // the way a shell reports it, and an error only when the tool could not
 // start.
-func runChild(bin string, args []string, stdout, stderr io.Writer) (int, error) {
+func runChild(bin string, args, env []string, stdout, stderr io.Writer) (int, error) {
 	cmd := exec.Command(bin, args...) //nolint:gosec // running rhythm-<tool> from PATH is the extension model
+	cmd.Env = env
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, stdout, stderr
 
 	// Catch signals while the child runs, so rhythm waits for the tool to
