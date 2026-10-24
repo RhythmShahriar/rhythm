@@ -97,7 +97,7 @@ More are on the way. Each lives in its own repository and releases on its own sc
 |---|---|
 | `rhythm <tool> [args]` | run a tool, by name or short name (`rhythm t scan …`, `rhythm sc compare`, `rhythm e watch`) |
 | `rhythm help [tool\|command]` | help for rhythm, a tool (`rhythm help tuner` shows Tuner's own commands and flags) or a command |
-| `rhythm install <tool>... [flags]` | download tools. Names may be comma lists and `tool@version`. `--defaults` adds the tools a fresh setup gets, `--dry-run` checks the names without installing, `--locked` installs exactly what `rhythm.lock` says, `--force` reinstalls, `--quiet` prints only the Installed lines and errors, `--dir` picks the folder |
+| `rhythm install <tool>... [flags]` | download tools. Names may be comma lists and `tool@version`. `--defaults` adds the tools a fresh setup gets, `--dry-run` checks the names without installing, `--locked` installs exactly what `rhythm.lock` says, `--force` reinstalls, `--quiet` prints only the Installed lines and errors, `--dir` picks the folder, `--from <bundle>` installs from an offline bundle, `--skip-signature` installs without the signature check (with a warning), `--cache` keeps verified archives for reuse |
 | `rhythm update [tool...] [flags]` | update rhythm, the installed tools and their data, or only the ones named. `--check` only reports, `--self-only` updates rhythm alone, `--no-data` skips the data refresh, `--min-age 3d` skips releases younger than that, `--json` (with `--check`) prints a report |
 | `rhythm update --rollback <tool>` | go back to the version the last update replaced |
 | `rhythm update <tool> --to <version>` | install exactly that version, an older one included |
@@ -105,6 +105,7 @@ More are on the way. Each lives in its own repository and releases on its own sc
 | `rhythm uninstall <tool>... [--purge] [--all]` | remove tools (with `--purge`, their data too) |
 | `rhythm doctor [--offline] [--json]` | check the install: PATH, versions, data, Chrome and the release API |
 | `rhythm lock` | write `rhythm.lock` from what is installed, to pin a project's versions |
+| `rhythm bundle --locked -o <file> [--platform os/arch,...]` | pack what `rhythm.lock` pins (archives, checksums and signatures) into one file for networks without GitHub; install from it with `rhythm install --from <file> --locked` |
 | `rhythm verify [tool...] [--json]` | check that each installed binary is byte for byte the one its signed release published |
 | `rhythm completion bash\|zsh\|fish\|powershell` | print a shell completion script |
 | `rhythm version` | print rhythm's version (also `-v`, `-V`, `--version`) |
@@ -174,6 +175,18 @@ rhythm: unknown tool "tunr"
 ### Pin versions with rhythm.lock
 
 `rhythm lock` writes `rhythm.lock` in the current folder: each installed tool's version, repository and the sha256 of every platform's archive. Commit it so every laptop and pipeline gets the same versions with `rhythm install --locked`, which refuses an archive whose hash differs and a version named with it that the lock doesn't pin. `rhythm update --lock` moves the lock to the latest releases and prints what changed (`~ tuner 0.3.1 → 0.3.2`); with `--check` it only prints the changes and exits 10 when the lock is behind. rhythm looks for `rhythm.lock` in the current folder and its parents, up to the root of the git repository. The installers take `RHYTHM_LOCKED=1` to do the same on a fresh machine or CI runner, from the folder that holds the lock.
+
+### Offline installs
+
+For a client network that can't reach GitHub, build a bundle where you can and carry it over:
+
+```sh
+rhythm bundle --locked -o rhythm-bundle.tar.gz --platform linux/amd64,windows/amd64
+# on the machine without GitHub, in the folder with the same rhythm.lock:
+rhythm install --from rhythm-bundle.tar.gz --locked
+```
+
+The bundle holds each locked release's archives for the platforms named (default this machine's), its `checksums.txt` and the signature over it, plus a manifest (`rhythm-bundle/v1`) with the lock and the sha256 of every file. `rhythm bundle` checks every signature and hash before writing it. `install --from` makes no network request: it checks the signatures again with the Sigstore root built into rhythm and every archive against `rhythm.lock`. A bundle with a changed file, a name that points outside it or no archives for this machine's platform is refused with a message that says which.
 
 ### Shell completion
 

@@ -40,7 +40,12 @@ const debugEnv = "RHYTHM_DEBUG"
 // or the releases come from a bundle (then the root built into rhythm is
 // used, so nothing goes to the network).
 func defaultVerifier() (signatureVerifier, error) {
-	opts := sigverify.Options{
+	return buildVerifier(verifierOptions())
+}
+
+// verifierOptions are defaultVerifier's settings for this run.
+func verifierOptions() sigverify.Options {
+	return sigverify.Options{
 		Offline: offlineOn(os.Getenv(offlineEnv)) || thisRun.bundle != "",
 		OnFallback: func(err error) {
 			if os.Getenv(debugEnv) != "" {
@@ -48,7 +53,6 @@ func defaultVerifier() (signatureVerifier, error) {
 			}
 		},
 	}
-	return buildVerifier(opts)
 }
 
 // buildVerifier pins each release to who may sign it. rhythm and the
