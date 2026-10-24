@@ -48,6 +48,9 @@ const maxArchive = 200 << 20
 //     in CI.
 //   - RHYTHM_GITHUB_TOKEN is sent to the host named by API (a mirror or
 //     GitHub Enterprise) and takes precedence over GITHUB_TOKEN.
+//   - RHYTHM_OFFLINE, set to anything but "" or "0", works like Offline.
+//   - RHYTHM_NO_UPDATE_CHECK and CI turn off the background check (see
+//     CheckDisabled) but still allow an explicit update.
 //
 // The API base and every download URL must be https; plain http is only
 // accepted for loopback hosts, for tests. A token is never sent on a
@@ -60,6 +63,25 @@ type Updater struct {
 	HTTP      *http.Client
 	API       string // GitHub API base; default https://api.github.com
 	OS, Arch  string // default runtime.GOOS, runtime.GOARCH
+
+	// Offline makes the Updater never touch the network: Check and Notice
+	// stay quiet and Latest and Install return ErrOffline. Tools set it
+	// from their --offline flag.
+	Offline bool
+}
+
+// ErrOffline is returned by calls that need the network while offline
+// mode is on.
+var ErrOffline = errors.New("offline mode is on; unset RHYTHM_OFFLINE to download")
+
+// offline reports whether u, or the environment, forbids network access.
+func (u *Updater) offline() bool {
+	return u.Offline || envOffline()
+}
+
+func envOffline() bool {
+	v := os.Getenv("RHYTHM_OFFLINE")
+	return v != "" && v != "0"
 }
 
 // Release is one published release and its downloadable assets.
@@ -70,6 +92,9 @@ type Release struct {
 
 // Latest fetches the newest published release.
 func (u *Updater) Latest(ctx context.Context) (*Release, error) {
+	if u.offline() {
+		return nil, ErrOffline
+	}
 	api := u.apiBase()
 	if err := checkURL(api); err != nil {
 		return nil, fmt.Errorf("refusing to use the release API: %w", err)
@@ -180,6 +205,9 @@ func (u *Updater) ArchiveName() string {
 // Install downloads rel for this platform, verifies its checksum and
 // atomically replaces (or creates) the binary at dest.
 func (u *Updater) Install(ctx context.Context, rel *Release, dest string) error {
+	if u.offline() {
+		return ErrOffline
+	}
 	name := u.ArchiveName()
 	archiveURL, ok := rel.Assets[name]
 	if !ok {
@@ -371,12 +399,17 @@ func IsRelease(v string) bool {
 }
 
 // CheckDisabled reports whether update checks are off: dev builds, CI,
-// or RHYTHM_NO_UPDATE_CHECK set.
+// RHYTHM_NO_UPDATE_CHECK set, or RHYTHM_OFFLINE set to anything but ""
+// or "0".
 func CheckDisabled(current string) bool {
 	if !IsRelease(current) {
 		return true
 	}
-	return os.Getenv("RHYTHM_NO_UPDATE_CHECK") != "" || os.Getenv("CI") != ""
+	return os.Getenv("RHYTHM_NO_UPDATE_CHECK") != "" || os.Getenv("CI") != "" || envOffline()
+}
+
+func (u *Updater) checkDisabled() bool {
+	return u.Offline || CheckDisabled(u.Current)
 }
 
 type checkState struct {
@@ -387,7 +420,7 @@ type checkState struct {
 // Check returns the latest version if it is newer than Current. It asks
 // GitHub at most once a day and remembers the answer in the config dir.
 func (u *Updater) Check(ctx context.Context) (latest string, newer bool) {
-	if CheckDisabled(u.Current) {
+	if u.checkDisabled() {
 		return "", false
 	}
 	dir, err := config.Dir()
@@ -412,12 +445,19 @@ func (u *Updater) Check(ctx context.Context) (latest string, newer bool) {
 	return st.Latest, Newer(u.Current, st.Latest)
 }
 
-// Notice checks for a newer release in the background and delivers a
-// one-line notice on the returned channel, or closes it when there's
-// nothing to say. Run it alongside the tool's real work and read it at
-// the end without waiting long, so it never delays the user.
+// Notice is the one way a tool should check for updates. It checks for a
+// newer release in the background and delivers a one-line notice on the
+// returned channel, or closes it when there's nothing to say. Run it
+// alongside the tool's real work and read it at the end without waiting
+// long, so it never delays the user. When u.Offline is set or
+// CheckDisabled is true the channel is closed at once and nothing is
+// sent over the network.
 func Notice(ctx context.Context, u *Updater) <-chan string {
 	ch := make(chan string, 1)
+	if u.checkDisabled() {
+		close(ch)
+		return ch
+	}
 	go func() {
 		defer close(ch)
 		cctx, cancel := context.WithTimeout(ctx, 5*time.Second)

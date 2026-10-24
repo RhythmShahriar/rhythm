@@ -89,7 +89,13 @@ func (u *Updater) newRequest(ctx context.Context, raw string) (*http.Request, er
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", u.UserAgent)
+	// Always the Updater's own agent: a tool's scan user agent would make
+	// update checks look like part of a scan.
+	ua := u.UserAgent
+	if ua == "" {
+		ua = "rhythm-update/" + u.Binary
+	}
+	req.Header.Set("User-Agent", ua)
 	if tok := u.token(req.URL); tok != "" {
 		req.Header.Set("Authorization", "Bearer "+tok)
 	}
@@ -106,7 +112,7 @@ func (u *Updater) client() *http.Client {
 	if u.HTTP != nil {
 		c = *u.HTTP
 	} else {
-		c = http.Client{Timeout: 5 * time.Minute}
+		c = http.Client{Timeout: 5 * time.Minute, Transport: defaultTransport()}
 	}
 	next := c.CheckRedirect
 	c.CheckRedirect = func(req *http.Request, via []*http.Request) error {
@@ -125,4 +131,17 @@ func (u *Updater) client() *http.Client {
 		return nil
 	}
 	return &c
+}
+
+// defaultTransport is Go's default transport with the proxy read from
+// HTTPS_PROXY, HTTP_PROXY and NO_PROXY, stated here so it doesn't depend on
+// http.DefaultTransport, which a program may have replaced.
+func defaultTransport() http.RoundTripper {
+	t, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return &http.Transport{Proxy: http.ProxyFromEnvironment}
+	}
+	t = t.Clone()
+	t.Proxy = http.ProxyFromEnvironment
+	return t
 }
