@@ -1,0 +1,23 @@
+# Copyright (c) 2026 Rhythm Shahriar <me@rhy.io>
+# SPDX-License-Identifier: AGPL-3.0-only
+
+name: release-dry-run
+# A manual dry run of the shared release workflow: GoReleaser builds a
+# snapshot, cosign signs it and the attestation step attests it, but
+# nothing is published. It proves the steps and permissions work before a
+# real tag does. The attestations it creates name a snapshot version, so
+# they never match a published file.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  release:
+    uses: RhythmShahriar/.github/.github/workflows/release-go.yml@master
+    with:
+      snapshot: true
+    # The reusable workflow asks for these; a caller must grant them all.
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
