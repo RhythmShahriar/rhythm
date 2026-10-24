@@ -106,6 +106,7 @@ More are on the way. Each lives in its own repository and releases on its own sc
 | `rhythm doctor [--offline] [--json]` | check the install: PATH, versions, data, Chrome and the release API |
 | `rhythm lock` | write `rhythm.lock` from what is installed, to pin a project's versions |
 | `rhythm bundle --locked -o <file> [--platform os/arch,...]` | pack what `rhythm.lock` pins (archives, checksums and signatures) into one file for networks without GitHub; install from it with `rhythm install --from <file> --locked` |
+| `rhythm ext search\|install\|list\|remove` | find, install and remove third-party extensions (`owner/rhythm-<name>` repositories with the topic `rhythm-extension`), signature checked |
 | `rhythm verify [tool...] [--json]` | check that each installed binary is byte for byte the one its signed release published |
 | `rhythm completion bash\|zsh\|fish\|powershell` | print a shell completion script |
 | `rhythm version` | print rhythm's version (also `-v`, `-V`, `--version`) |
@@ -175,6 +176,25 @@ rhythm: unknown tool "tunr"
 ### Pin versions with rhythm.lock
 
 `rhythm lock` writes `rhythm.lock` in the current folder: each installed tool's version, repository and the sha256 of every platform's archive. Commit it so every laptop and pipeline gets the same versions with `rhythm install --locked`, which refuses an archive whose hash differs and a version named with it that the lock doesn't pin. `rhythm update --lock` moves the lock to the latest releases and prints what changed (`~ tuner 0.3.1 → 0.3.2`); with `--check` it only prints the changes and exits 10 when the lock is behind. rhythm looks for `rhythm.lock` in the current folder and its parents, up to the root of the git repository. The installers take `RHYTHM_LOCKED=1` to do the same on a fresh machine or CI runner, from the folder that holds the lock.
+
+### Extensions
+
+Anyone can publish a tool that `rhythm <name>` runs: a GitHub repository `owner/rhythm-<name>` with the topic `rhythm-extension`, whose releases follow the same layout as rhythm's tools (`rhythm-<name>_<os>_<arch>` archives, `checksums.txt` and a keyless Sigstore bundle over it, `checksums.txt.sigstore.json`).
+
+```console
+$ rhythm ext search pdf
+NAME  REPO                 STARS  DESCRIPTION
+pdf   someone/rhythm-pdf   12     export Tuner reports as PDF
+Install one with: rhythm ext install someone/rhythm-pdf
+
+$ rhythm ext install someone/rhythm-pdf
+Installed rhythm-pdf 1.0.0 to /home/me/.local/bin/rhythm-pdf
+  Signature ok  someone/rhythm-pdf @ refs/tags/v1.0.0 (release.yml)
+  Checksum ok   sha256:<archive sha256>
+Run it with: rhythm pdf
+```
+
+An extension's releases must be signed by a workflow of its own repository, or by rhythm's shared release workflow called from it; an unsigned or wrongly signed release is refused. The first install records the signing workflow in `extensions.json` (in rhythm's config folder) and `rhythm update` refuses any later release signed by another. Names rhythm uses for its own tools, their short names and its commands can't be taken. `rhythm lock` pins extensions too (`"source": "extension"` with their signer), so `rhythm install --locked` brings them back on a fresh machine. `rhythm ext list` shows them and `rhythm ext remove <name>` deletes one.
 
 ### Offline installs
 

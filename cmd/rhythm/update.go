@@ -610,6 +610,9 @@ func updateLock(want map[string]bool, checkOnly bool, age minAge, stdout, stderr
 			continue
 		}
 		u := updater(e.Repo, binary, e.Version)
+		if et, ok := u.HTTP.Transport.(*explainTransport); ok {
+			et.signer = e.Signer // the next release must carry the locked signer
+		}
 		rel, err := resolveSpec(ctx, u, "", age.d)
 		var tooNew *tooNewError
 		switch {
@@ -639,6 +642,9 @@ func updateLock(want map[string]bool, checkOnly bool, age minAge, stdout, stderr
 			continue
 		}
 		bumped.Data, bumped.Source = e.Data, e.Source
+		if bumped.Signer == "" {
+			bumped.Signer = e.Signer // --skip-signature checked nothing; keep what was locked
+		}
 		*e = bumped
 		rep.updated++
 	}

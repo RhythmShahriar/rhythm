@@ -563,6 +563,12 @@ type installItem struct {
 	spec   string
 	rel    *pickedRelease
 	locked *lockedDownload // install --locked: the bytes checked against rhythm.lock
+
+	// An extension (rhythm ext install, or one rhythm.lock lists) names
+	// its own repo and the signer its releases must carry, if known.
+	extension bool
+	repo      string
+	signer    string
 }
 
 // lockedDownload is a locked release's checksums.txt and this platform's
@@ -736,6 +742,9 @@ func cmdInstall(args []string, stdout, stderr io.Writer) int {
 			continue
 		}
 		installed = append(installed, binary)
+		if it.extension {
+			recordExtension(it, res.signer, stderr)
+		}
 		switch {
 		case opt.quiet || res.note == "":
 		case res.note == noteOffPath:
@@ -874,6 +883,7 @@ const noteOffPath = "off-path"
 type installResult struct {
 	note    string // the PATH note for the new binary, if any
 	already bool   // the latest release was there already; nothing was downloaded
+	signer  string // who signed the release installed; "" when no signature was checked
 }
 
 // installTool downloads the release it names into opt.dir and prints the
@@ -900,9 +910,14 @@ func installTool(ctx context.Context, it installItem, opt installOptions, stdout
 	if _, err := os.Stat(writeTo); err == nil {
 		current, _, _ = probeVersion(ctx, dest)
 	}
-	u := updater(repoOf(it.tool), binary, current)
-	if t, ok := u.HTTP.Transport.(*explainTransport); ok {
-		t.locked = it.locked
+	repo := it.repo
+	if repo == "" {
+		repo = repoOf(it.tool)
+	}
+	u := updater(repo, binary, current)
+	t, _ := u.HTTP.Transport.(*explainTransport)
+	if t != nil {
+		t.locked, t.signer = it.locked, it.signer
 	}
 	rel := it.rel
 	if rel == nil {
@@ -925,7 +940,14 @@ func installTool(ctx context.Context, it installItem, opt installOptions, stdout
 	}
 	fmt.Fprintf(stdout, "Installed %s %s to %s\n", binary, rel.Version, dest)
 	reportTrust(stdout, u, rel.Release, writeTo, opt.quiet)
-	return installResult{note: pathNote(binary, dest)}, nil
+	res := installResult{note: pathNote(binary, dest)}
+	if t != nil {
+		res.signer = t.verifiedBy
+		if t.locked != nil {
+			res.signer = t.locked.signer
+		}
+	}
+	return res, nil
 }
 
 // pinData brings an installed tool's data to the versions rhythm.lock
@@ -962,6 +984,14 @@ func lockedScope(named []installItem, stdout, stderr io.Writer) (*lockFile, stri
 	bad := false
 	var list []installItem
 	pin := func(e *lockEntry) {
+		if e.Source == sourceExtension {
+			if it, ok := lockedExtension(e, stderr); ok {
+				list = append(list, it)
+			} else {
+				bad = true
+			}
+			return
+		}
 		switch repo, known := toolRepo(e.Name); {
 		case !known:
 			fmt.Fprintf(stderr, "rhythm: %s locks %s, which this rhythm doesn't know; update rhythm first\n", lockFileName, e.Name)

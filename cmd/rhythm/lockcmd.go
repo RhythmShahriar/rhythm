@@ -36,6 +36,9 @@ type (
 
 const lockFileName = lock.FileName
 
+// sourceExtension marks an extension's entry in rhythm.lock.
+const sourceExtension = lock.SourceExtension
+
 // errNoLock is findLock's answer when no rhythm.lock applies.
 var errNoLock = lock.ErrNotFound
 
@@ -109,6 +112,12 @@ func cmdLock(args []string, stdout, stderr io.Writer) int {
 	ctx, stop := signalContext()
 	defer stop()
 	targets, _ := findTargets(ctx, nil)
+	if exts, err := readExtensions(); err != nil {
+		fmt.Fprintf(stderr, "rhythm: %v; extensions not locked\n", err)
+	} else {
+		more, _ := extensionTargets(ctx, exts, nil)
+		targets = append(targets, more...)
+	}
 	f := &lockFile{}
 	var nets netReport
 	failed := false
@@ -133,6 +142,9 @@ func cmdLock(args []string, stdout, stderr io.Writer) int {
 			continue
 		}
 		u := updater(t.repo, t.binary, t.current)
+		if et, ok := u.HTTP.Transport.(*explainTransport); ok {
+			et.signer = t.signer // an extension's recorded signer must sign this release too
+		}
 		e, err := lockTarget(ctx, u, t)
 		if err != nil {
 			if ctx.Err() == nil && !nets.add(t.binary, err) {
@@ -145,6 +157,12 @@ func cmdLock(args []string, stdout, stderr io.Writer) int {
 			if e.Data, err = lockData(ctx, t, stdout, stderr); err != nil {
 				failed = true
 				continue
+			}
+		}
+		if t.extension {
+			e.Source = sourceExtension
+			if e.Signer == "" {
+				e.Signer = t.signer
 			}
 		}
 		if t.tool == selfName {
