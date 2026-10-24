@@ -5,6 +5,7 @@ package main
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
@@ -45,6 +46,20 @@ type releaseAPI struct {
 	data  map[string]string
 	kit   map[string]bool
 	paths []string
+	// onRequest, when set, runs with mu held once each request has been
+	// answered, so it can change what the next one gets.
+	onRequest func(path string)
+}
+
+// count is how many times path was asked for.
+func (f *releaseAPI) count(path string) int {
+	n := 0
+	for _, p := range f.requests() {
+		if p == path {
+			n++
+		}
+	}
+	return n
 }
 
 // newReleaseAPI serves repos and points rhythm at it.
@@ -137,6 +152,13 @@ func (f *releaseAPI) serve(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	f.paths = append(f.paths, r.URL.Path)
 	f.mu.Unlock()
+	defer func() {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if f.onRequest != nil {
+			f.onRequest(r.URL.Path)
+		}
+	}()
 	p := r.URL.Path
 	repoVersion := func(prefix string) (string, string) {
 		rest := strings.TrimPrefix(p, prefix)
@@ -487,7 +509,7 @@ func TestInstallLockedTamperedInstallsNothing(t *testing.T) {
 			f.tampered[tools["soundcheck"]+"@0.4.1"] = true
 			if keepSums {
 				// Only the archive changed: the lock still matches
-				// checksums.txt and the archive check catches it.
+				// checksums.txt and the archive's own hash catches it.
 				f.tampered[tools["soundcheck"]+"@0.4.1/keep-sums"] = true
 			}
 			f.mu.Unlock()
@@ -496,25 +518,105 @@ func TestInstallLockedTamperedInstallsNothing(t *testing.T) {
 			if code != 1 {
 				t.Fatalf("exit %d\n%s%s", code, out, errs)
 			}
-			if !keepSums {
-				want := "rhythm-soundcheck  rhythm-soundcheck_" + thisPlatform() + ".tar.gz: sha256 differs from the locked one; the release may have been replaced or tampered with, nothing was changed"
-				if !strings.Contains(errs, want) || !strings.Contains(errs, "Nothing was installed: the releases don't match rhythm.lock.") {
-					t.Errorf("stderr:\n%s", errs)
+			want := "rhythm-soundcheck  rhythm-soundcheck_" + thisPlatform() + ".tar.gz: sha256 differs from the locked one; the release may have been replaced or tampered with, nothing was changed"
+			if !strings.Contains(errs, want) || !strings.Contains(errs, "Nothing was installed: the releases don't match rhythm.lock.") {
+				t.Errorf("stderr:\n%s", errs)
+			}
+			// Not even the tools that matched were installed.
+			for b, c := range before {
+				if s.content(b) != c {
+					t.Errorf("%s was replaced", b)
 				}
-				for b, c := range before {
-					if s.content(b) != c {
-						t.Errorf("%s was replaced", b)
-					}
+			}
+		})
+	}
+}
+
+// TestInstallLockedServesWhatWasChecked swaps the release after the
+// first look at it. The lock check reads checksums.txt and the archive
+// once; the install must use those bytes, not fetch the files again.
+func TestInstallLockedServesWhatWasChecked(t *testing.T) {
+	for _, after := range []string{"/sums/", "/dl/"} {
+		t.Run(strings.Trim(after, "/"), func(t *testing.T) {
+			s, f := pinSandbox(t)
+			s.stub(t, "rhythm-tuner", "0.3.1", "")
+			writeLock(t)
+			s.stub(t, "rhythm-tuner", "0.4.0", "")
+			before := s.content("rhythm-tuner")
+			f.onRequest = func(p string) {
+				if strings.HasPrefix(p, after+tools["tuner"]+"/0.3.1") {
+					f.tampered[tools["tuner"]+"@0.3.1"] = true
+				}
+			}
+
+			code, out, errs := runCmd("install", "--locked", "--dir", s.bin)
+			if strings.Contains(s.content("rhythm-tuner"), "# tampered") {
+				t.Fatalf("the swapped archive was installed: exit %d\n%s%s", code, out, errs)
+			}
+			if after == "/sums/" {
+				// The archive downloaded next is the swapped one.
+				if code != 1 || !strings.Contains(errs, "sha256 differs from the locked one") || s.content("rhythm-tuner") != before {
+					t.Errorf("exit %d\n%s%s", code, out, errs)
 				}
 				return
 			}
-			if !strings.Contains(errs, "checksum mismatch") {
-				t.Errorf("stderr:\n%s", errs)
+			if code != 0 || !strings.Contains(s.content("rhythm-tuner"), "rhythm-tuner 0.3.1") {
+				t.Errorf("exit %d\n%s%s", code, out, errs)
 			}
-			if s.content("rhythm-soundcheck") != before["rhythm-soundcheck"] {
-				t.Error("the tampered soundcheck was installed")
+			for _, p := range f.requests() {
+				if strings.HasPrefix(p, "/dl/") && f.count(p) > 1 {
+					t.Errorf("%s was downloaded more than once", p)
+				}
 			}
 		})
+	}
+}
+
+// TestInstallLockedChecksTheInstalledBinary edits the installed binary
+// so it still reports the locked version: --locked replaces it.
+func TestInstallLockedChecksTheInstalledBinary(t *testing.T) {
+	s, _ := pinSandbox(t)
+	if code, out, errs := runCmd("install", "tuner@0.3.1", "--dir", s.bin); code != 0 {
+		t.Fatalf("install: exit %d\n%s%s", code, out, errs)
+	}
+	writeLock(t)
+	code, out, errs := runCmd("install", "--locked", "--dir", s.bin)
+	if code != 0 || !strings.Contains(out, "rhythm-tuner 0.3.1 is already installed") {
+		t.Fatalf("the locked binary wasn't kept: exit %d\n%s%s", code, out, errs)
+	}
+	p := filepath.Join(s.bin, "rhythm-tuner")
+	if err := os.WriteFile(p, []byte(s.content("rhythm-tuner")+"# edited\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errs = runCmd("install", "--locked", "--dir", s.bin)
+	if code != 0 || !strings.Contains(out, "Installed rhythm-tuner 0.3.1") || strings.Contains(s.content("rhythm-tuner"), "# edited") {
+		t.Errorf("exit %d\n%s%s", code, out, errs)
+	}
+}
+
+func TestLockedBinary(t *testing.T) {
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, err := zw.Create("dist/rhythm-tuner.exe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = w.Write([]byte("MZ"))
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := lockedBinary(buf.Bytes(), "rhythm-tuner.exe"); err != nil || string(got) != "MZ" {
+		t.Errorf("zip: %q %v", got, err)
+	}
+	if _, err := lockedBinary(buf.Bytes(), "rhythm-echo.exe"); err == nil {
+		t.Error("zip: found a binary that isn't there")
+	}
+	f := &releaseAPI{s: &sandbox{}, data: map[string]string{}, kit: map[string]bool{}}
+	if got, err := lockedBinary(f.build(tools["tuner"], "1.0.0", false), "rhythm-tuner"); err != nil || !strings.Contains(string(got), "rhythm-tuner 1.0.0") {
+		t.Errorf("tar.gz: %q %v", got, err)
+	}
+	if _, err := lockedBinary([]byte("not an archive"), "rhythm-tuner"); err == nil {
+		t.Error("read a binary from junk")
 	}
 }
 

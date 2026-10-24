@@ -144,10 +144,14 @@ type explainTransport struct {
 	trust  *runOptions
 	signer string // the signer an extension's releases must carry; "" for any
 
-	// pinned answers these URLs from memory instead of the network: the
-	// checksums.txt whose signature was checked, so kit/update tests the
-	// archive against exactly those bytes, and a cached archive.
+	// pinned answers these URLs from memory instead of the network. It
+	// holds the checksums.txt whose signature was checked (so kit/update
+	// tests the archive against exactly those bytes) and a cached archive.
 	pinned map[string][]byte
+
+	// locked, when set, is what the install must use: the checksums.txt
+	// and archive checked against rhythm.lock (install --locked).
+	locked *lockedDownload
 
 	// source, when set, serves the releases instead of the release API
 	// (install --from). sourceErr is why it couldn't be opened.
@@ -464,9 +468,19 @@ type installOptions struct {
 // installItem is one tool to install: its registry name, the version
 // asked for ("" for the latest) and, once looked up, the release.
 type installItem struct {
-	tool string
-	spec string
-	rel  *pickedRelease
+	tool   string
+	spec   string
+	rel    *pickedRelease
+	locked *lockedDownload // install --locked: the bytes checked against rhythm.lock
+}
+
+// lockedDownload is a locked release's checksums.txt and this platform's
+// archive, downloaded once and checked against rhythm.lock. The install
+// is served these bytes, so a server that answers a second request with
+// other files can't slip an unlocked archive past the lock.
+type lockedDownload struct {
+	sums    []byte
+	archive []byte
 }
 
 // String is the item as the user would write it: tuner or tuner@0.3.1.
@@ -569,7 +583,7 @@ func cmdInstall(args []string, stdout, stderr io.Writer) int {
 	if lock != nil {
 		// Every tool is matched against the lock before any is installed,
 		// so a mismatch never leaves a project half on the locked versions.
-		if !checkAgainstLock(ctx, list, lock, &nets, stderr) {
+		if !checkAgainstLock(ctx, list, lock, &nets, opt.progress, stderr) {
 			if ctx.Err() != nil {
 				fmt.Fprintln(stderr, "rhythm: install interrupted")
 				return exitInterrupted
@@ -776,6 +790,9 @@ func installTool(ctx context.Context, it installItem, opt installOptions, stdout
 		current, _, _ = probeVersion(ctx, dest)
 	}
 	u := updater(tools[it.tool], binary, current)
+	if t, ok := u.HTTP.Transport.(*explainTransport); ok {
+		t.locked = it.locked
+	}
 	rel := it.rel
 	if rel == nil {
 		var err error
@@ -786,7 +803,9 @@ func installTool(ctx context.Context, it installItem, opt installOptions, stdout
 			fmt.Fprintln(stdout, opt.minAge.skipNote(binary, rel.skippedNewer, "installing "+rel.Version))
 		}
 	}
-	if !opt.force && current == rel.Version {
+	// With --locked the version string isn't enough: the binary must be
+	// the one in the locked archive.
+	if !opt.force && current == rel.Version && (it.locked == nil || matchesLocked(it.locked, writeTo, exe(binary))) {
 		fmt.Fprintf(stdout, "%s %s is already installed at %s (use --force to reinstall)\n", binary, current, dest)
 		return installResult{already: true}, nil
 	}
@@ -864,10 +883,13 @@ func lockedScope(named []installItem, stdout, stderr io.Writer) (*lockFile, stri
 	return lock, path, list, 0
 }
 
-// checkAgainstLock looks up each item's locked release and checks that
-// this platform's archive in it is the one locked. It reports every
-// mismatch and returns whether all matched; items get their releases.
-func checkAgainstLock(ctx context.Context, list []installItem, lock *lockFile, nets *netReport, stderr io.Writer) bool {
+// checkAgainstLock looks up each item's locked release, downloads this
+// platform's archive and checks both checksums.txt and the archive
+// against the lock. It reports every mismatch and returns whether all
+// matched. Items get their releases and the checked bytes, so nothing
+// is installed until every archive is known to be the locked one.
+// progress, when not nil, shows each download.
+func checkAgainstLock(ctx context.Context, list []installItem, lock *lockFile, nets *netReport, progress, stderr io.Writer) bool {
 	ok := true
 	for i := range list {
 		it := &list[i]
@@ -885,8 +907,9 @@ func checkAgainstLock(ctx context.Context, list []installItem, lock *lockFile, n
 		}
 		u := updater(e.Repo, binary, "")
 		rel, err := resolveSpec(ctx, u, e.Version, 0)
+		var dl *lockedDownload
 		if err == nil {
-			err = checkLocked(ctx, u, rel.Release, want)
+			dl, err = checkLocked(ctx, u, rel.Release, want, progress)
 		}
 		if ctx.Err() != nil {
 			return false
@@ -898,7 +921,7 @@ func checkAgainstLock(ctx context.Context, list []installItem, lock *lockFile, n
 			ok = false
 			continue
 		}
-		it.rel = rel
+		it.rel, it.locked = rel, dl
 	}
 	return ok
 }
@@ -1306,18 +1329,41 @@ func (e *lockedMismatchError) Error() string {
 }
 
 // checkLocked fails unless rel's checksums.txt gives this platform's
-// archive the sha256 want. Install then checks the archive against
-// checksums.txt, so a download that differs from the lock is refused.
-func checkLocked(ctx context.Context, u *update.Updater, rel *update.Release, want string) error {
-	sums, err := releaseChecksums(ctx, u, rel)
+// archive the sha256 want and the archive itself hashes to want. It
+// returns the bytes it checked, for the install to use instead of a
+// second download.
+func checkLocked(ctx context.Context, u *update.Updater, rel *update.Release, want string, progress io.Writer) (*lockedDownload, error) {
+	sums, err := verifiedChecksums(ctx, u, rel)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if got, ok := sums[u.ArchiveName()]; !ok || got != strings.ToLower(want) {
-		return &lockedMismatchError{archive: u.ArchiveName()}
+	want = strings.ToLower(want)
+	name := u.ArchiveName()
+	if got, ok := parseChecksums(sums)[name]; !ok || got != want {
+		return nil, &lockedMismatchError{archive: name}
 	}
-	return nil
+	archiveURL, ok := rel.Assets[name]
+	if !ok {
+		return nil, fmt.Errorf("release %s has no %s", rel.Version, name)
+	}
+	if t, ok := u.HTTP.Transport.(*explainTransport); ok && progress != nil {
+		line := &progressLine{w: progress, label: fmt.Sprintf("Downloading %s %s", u.Binary, rel.Version)}
+		t.archiveURL, t.progress = archiveURL, line.update
+		defer func() { line.clear(); t.archiveURL, t.progress = "", nil }()
+	}
+	archive, err := releaseFile(ctx, u, archiveURL, name, maxArchive)
+	if err != nil {
+		return nil, err
+	}
+	if got := sha256.Sum256(archive); hex.EncodeToString(got[:]) != want {
+		return nil, &lockedMismatchError{archive: name}
+	}
+	return &lockedDownload{sums: sums, archive: archive}, nil
 }
+
+// maxArchive is the largest archive checkLocked downloads, kit/update's
+// own limit.
+const maxArchive = 200 << 20
 
 // ageUnit matches one number-and-unit step of an age such as 1w2d.
 var ageUnit = regexp.MustCompile(`^(\d+(?:\.\d+)?)(ns|us|µs|ms|s|m|h|d|w)`)
@@ -1572,8 +1618,15 @@ func verifiedChecksums(ctx context.Context, u *update.Updater, rel *update.Relea
 
 // prepare runs the trust steps before kit/update downloads rel: the
 // signature check, then the cache lookup. want is the archive's sha256
-// when the cache is on, and cached reports a cache hit.
+// when the cache is on; cached reports that nothing will be downloaded
+// (a cache hit or the bytes install --locked already checked).
 func (t *explainTransport) prepare(ctx context.Context, u *update.Updater, rel *update.Release) (want string, cached bool, err error) {
+	if t.locked != nil {
+		// Both files were checked against the lock already: kit/update
+		// gets exactly those bytes, with nothing left to download.
+		t.pinned = map[string][]byte{rel.Assets["checksums.txt"]: t.locked.sums, t.archiveURL: t.locked.archive}
+		return "", true, nil
+	}
 	if t.trust == nil {
 		return "", false, nil
 	}

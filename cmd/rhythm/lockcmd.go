@@ -4,7 +4,10 @@
 package main
 
 import (
+	"archive/tar"
+	"archive/zip"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,6 +16,7 @@ import (
 	"io/fs"
 	"maps"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -448,4 +452,48 @@ func lockData(ctx context.Context, t target, stdout, stderr io.Writer) ([]dataPa
 // platformList is "darwin_arm64, linux_amd64, windows_amd64".
 func platformList(platforms map[string]string) string {
 	return strings.Join(slices.Sorted(maps.Keys(platforms)), ", ")
+}
+
+// lockedBinary returns the binary bin inside a locked archive, read the
+// way kit/update reads it: the first regular file of that base name.
+func lockedBinary(archive []byte, bin string) ([]byte, error) {
+	if zr, err := zip.NewReader(bytes.NewReader(archive), int64(len(archive))); err == nil {
+		for _, f := range zr.File {
+			if path.Base(f.Name) == bin && !f.FileInfo().IsDir() {
+				rc, err := f.Open()
+				if err != nil {
+					return nil, err
+				}
+				defer func() { _ = rc.Close() }()
+				return io.ReadAll(io.LimitReader(rc, maxArchive))
+			}
+		}
+		return nil, fmt.Errorf("no %s in the archive", bin)
+	}
+	zr, err := gzip.NewReader(bytes.NewReader(archive))
+	if err != nil {
+		return nil, err
+	}
+	tr := tar.NewReader(zr)
+	for {
+		h, err := tr.Next()
+		if err != nil {
+			return nil, err
+		}
+		if h.Typeflag == tar.TypeReg && path.Base(h.Name) == bin {
+			return io.ReadAll(io.LimitReader(tr, maxArchive))
+		}
+	}
+}
+
+// matchesLocked reports whether the file at dest is the binary in the
+// locked archive, byte for byte. A binary that only reports the locked
+// version, such as one rebuilt or edited in place, doesn't match.
+func matchesLocked(dl *lockedDownload, dest, bin string) bool {
+	want, err := lockedBinary(dl.archive, bin)
+	if err != nil {
+		return false
+	}
+	got, err := os.ReadFile(dest) //nolint:gosec // the binary rhythm is about to replace
+	return err == nil && bytes.Equal(got, want)
 }
