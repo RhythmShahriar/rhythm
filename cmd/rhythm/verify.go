@@ -329,7 +329,7 @@ func cmdVerify(args []string, stdout, stderr io.Writer) int {
 	if extErr != nil {
 		fmt.Fprintf(stderr, "rhythm: %v; extensions not checked\n", extErr)
 	}
-	want, code := updateScope(names, false, exts, stderr)
+	want, code := updateScope("rhythm verify", names, false, exts, stderr)
 	if code != 0 {
 		return code
 	}

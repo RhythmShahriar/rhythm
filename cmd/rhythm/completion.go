@@ -76,9 +76,7 @@ func cmdCompletion(args []string, stdout, stderr io.Writer) int {
 	script, ok := shells[pos[0]]
 	if !ok {
 		fmt.Fprintf(stderr, "rhythm: unknown shell %q; want bash, zsh, fish or powershell\n", pos[0])
-		if s := cli.Suggest(pos[0], shellNames); s != "" {
-			fmt.Fprintf(stderr, "  did you mean: rhythm completion %s\n", s)
-		}
+		cli.DidYouMean(stderr, "rhythm completion", pos[0], shellNames)
 		return cli.ExitUsage
 	}
 	fmt.Fprint(stdout, script)

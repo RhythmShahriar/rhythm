@@ -252,7 +252,9 @@ case_typo() {
 	: >"$work/requests.log"
 	install RHYTHM_TOOLS='tuner sondcheck'
 	expect_code 1
-	expect_out 'rhythm: unknown tool "sondcheck" (did you mean soundcheck?)'
+	expect_out 'rhythm: unknown tool "sondcheck"'
+	expect_out '  did you mean: rhythm install soundcheck'
+	expect_no_out '(did you mean'
 	expect_out '  known: echo, soundcheck, tuner'
 	expect_out "rhythm install: rhythm 0.7.0 doesn't know sondcheck; run '$cdir/bin/rhythm help' to see the tools"
 	expect_file rhythm
@@ -262,7 +264,8 @@ case_typo() {
 
 	install RHYTHM_TOOLS='tunr,sondcheck,nope'
 	expect_code 1
-	expect_out 'rhythm: unknown tool "tunr" (did you mean tuner?)'
+	expect_out 'rhythm: unknown tool "tunr"'
+	expect_out '  did you mean: rhythm install tuner'
 	expect_out 'rhythm: unknown tool "nope"'
 	expect_out "rhythm install: rhythm 0.7.0 doesn't know tunr, sondcheck, nope;"
 }

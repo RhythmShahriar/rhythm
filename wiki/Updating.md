@@ -53,7 +53,7 @@ rhythm update --self-only           # rhythm alone
 | `--lock` | move `rhythm.lock` forward instead of the binaries; see [Pinning and locking](Pinning-And-Locking#move-the-lock-forward) |
 | `--skip-signature`, `--cache` | as for [`rhythm install`](Command-Reference#install) |
 
-A name that isn't installed counts as a failure: `rhythm-echo        isn't installed; install it with: rhythm install echo`. A misspelt one stops before any request: `rhythm: unknown tool "tunr" (did you mean tuner?)`.
+A name that isn't installed counts as a failure: `rhythm-echo        isn't installed; install it with: rhythm install echo`. A misspelt one stops before any request: `rhythm: unknown tool "tunr"`, then `  did you mean: rhythm update tuner` and the known names.
 
 After a run without failures, rhythm mentions a default tool you haven't installed, once per machine: `New tool available: echo (rhythm install echo)`.
 

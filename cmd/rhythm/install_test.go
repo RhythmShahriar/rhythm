@@ -70,7 +70,7 @@ func TestUsesFlag(t *testing.T) {
 
 func TestInstallSuggestsName(t *testing.T) {
 	code, _, errs := runCmd("install", "soundchek", "--dir", t.TempDir())
-	if code != 2 || !strings.Contains(errs, `unknown tool "soundchek" (did you mean soundcheck?)`) {
+	if code != 2 || !strings.Contains(errs, "unknown tool \"soundchek\"\n  did you mean: rhythm install soundcheck\n") {
 		t.Errorf("exit %d: %s", code, errs)
 	}
 	// rhythm installs tools; it doesn't install itself.
@@ -79,17 +79,48 @@ func TestInstallSuggestsName(t *testing.T) {
 	}
 }
 
-func TestSuggest(t *testing.T) {
+// Every command says a near miss the way the router does: the error,
+// then "did you mean:" with what to run.
+func TestUnknownName(t *testing.T) {
 	for in, want := range map[string]string{
-		"tunr":         " (did you mean tuner?)",
-		"rhythm-tunre": " (did you mean tuner?)",
-		"rhytm":        " (did you mean rhythm?)",
-		"ecoh":         " (did you mean echo?)",
+		"tunr":         "  did you mean: rhythm update tuner\n",
+		"TUNR":         "  did you mean: rhythm update tuner\n",
+		"rhythm-tunre": "  did you mean: rhythm update rhythm-tuner\n",
+		"rhytm":        "  did you mean: rhythm update rhythm\n",
+		"ecoh":         "  did you mean: rhythm update echo\n",
+		"zapp":         "  did you mean: rhythm update zap\n", // an extension
 		"zzzzzzzz":     "",
 		"x":            "",
 	} {
-		if got := suggest(in); got != want {
-			t.Errorf("suggest(%q) = %q, want %q", in, got, want)
+		var b bytes.Buffer
+		unknownName(&b, "rhythm update", in, true, "zap")
+		if got := b.String(); got != fmt.Sprintf("rhythm: unknown tool %q\n", in)+want {
+			t.Errorf("unknownName(%q) = %q", in, got)
+		}
+	}
+	// Without rhythm itself, as for install, it isn't suggested.
+	var b bytes.Buffer
+	unknownName(&b, "rhythm install", "rhytm", false)
+	if strings.Contains(b.String(), "did you mean") {
+		t.Errorf("install suggested rhythm: %q", b.String())
+	}
+	// The router, install, update, uninstall, verify and ext all use the
+	// same form.
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"tunr"}, "  did you mean: rhythm tuner\n"},
+		{[]string{"install", "--dry-run", "tunr"}, "  did you mean: rhythm install tuner\n"},
+		{[]string{"update", "tunr"}, "  did you mean: rhythm update tuner\n"},
+		{[]string{"uninstall", "tunr"}, "  did you mean: rhythm uninstall tuner\n"},
+		{[]string{"verify", "tunr"}, "  did you mean: rhythm verify tuner\n"},
+		{[]string{"ext", "lst"}, "  did you mean: rhythm ext list\n"},
+		{[]string{"completion", "zhs"}, "  did you mean: rhythm completion zsh\n"},
+	} {
+		_, _, errs := runCmd(c.args...)
+		if !strings.Contains(errs, c.want) || strings.Contains(errs, "(did you mean") {
+			t.Errorf("%v: %q, want %q", c.args, errs, c.want)
 		}
 	}
 }
@@ -237,7 +268,7 @@ func TestInstallDryRunChecksEveryName(t *testing.T) {
 	_, latest := allTools()
 	s := newSandbox(t, nil, latest)
 	code, out, errs := runCmd("install", "--dry-run", "tuner", "sondcheck", "nope")
-	want := "rhythm: unknown tool \"sondcheck\" (did you mean soundcheck?)\nrhythm: unknown tool \"nope\"\n  known: echo, soundcheck, tuner\n"
+	want := "rhythm: unknown tool \"sondcheck\"\n  did you mean: rhythm install soundcheck\nrhythm: unknown tool \"nope\"\n  known: echo, soundcheck, tuner\n"
 	if code != 2 || out != "" || errs != want {
 		t.Errorf("exit %d\n%q\n%q", code, out, errs)
 	}

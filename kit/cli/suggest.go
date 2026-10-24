@@ -3,6 +3,29 @@
 
 package cli
 
+import (
+	"fmt"
+	"io"
+)
+
+// DidYouMean writes the hint for a mistyped name when an option is close
+// to input (see Suggest) and reports whether it wrote one. The hint is a
+// line of its own under the error, indented by two spaces, naming what to
+// run instead:
+//
+//	did you mean: rhythm install tuner
+//
+// command is what goes before the option, such as "rhythm install". Every
+// rhythm program says it this way, so a script or a reader sees one form.
+func DidYouMean(w io.Writer, command, input string, options []string) bool {
+	s := Suggest(input, options)
+	if s == "" {
+		return false
+	}
+	fmt.Fprintf(w, "  did you mean: %s %s\n", command, s)
+	return true
+}
+
 // Suggest returns the option closest to input, for a "did you mean"
 // hint, or "" when nothing is close. Close means at most two edits
 // (insertions, deletions or substitutions) and fewer edits than input

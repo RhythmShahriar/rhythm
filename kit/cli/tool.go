@@ -205,9 +205,7 @@ func (t Tool) main(args []string, stdout, stderr io.Writer) int {
 		c, _ = t.command(t.Default)
 	default:
 		fmt.Fprintf(stderr, "%s: unknown command %q\n", prog, args[0])
-		if s := Suggest(args[0], t.names()); s != "" {
-			fmt.Fprintf(stderr, "  did you mean: %s %s\n", prog, s)
-		}
+		DidYouMean(stderr, prog, args[0], t.names())
 		fmt.Fprintf(stderr, "  run '%s help' to see the commands\n", prog)
 		return ExitUsage
 	}
@@ -494,9 +492,7 @@ func (t Tool) help(ctx context.Context, prog string, args []string, stdout, stde
 	c, ok := t.command(args[0])
 	if !ok {
 		fmt.Fprintf(stderr, "%s: unknown command %q\n", prog, args[0])
-		if s := Suggest(args[0], t.names()); s != "" {
-			fmt.Fprintf(stderr, "  did you mean: %s help %s\n", prog, s)
-		}
+		DidYouMean(stderr, prog+" help", args[0], t.names())
 		return ExitUsage
 	}
 	return exitFor(stderr, prog, c.Name, c.Run(ctx, []string{"--help"}, stdout, stderr))

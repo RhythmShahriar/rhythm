@@ -62,11 +62,9 @@ func cmdExt(args []string, stdout, stderr io.Writer) int {
 	case "remove":
 		return extRemove(args[1:], stdout, stderr)
 	}
-	near := ""
-	if n := cli.Suggest(args[0], []string{"search", "install", "list", "remove"}); n != "" {
-		near = " (did you mean " + n + "?)"
-	}
-	fmt.Fprintf(stderr, "rhythm: unknown ext command %q%s\n  use one of: search, install, list, remove\n", args[0], near)
+	fmt.Fprintf(stderr, "rhythm: unknown ext command %q\n", args[0])
+	cli.DidYouMean(stderr, "rhythm ext", args[0], []string{"search", "install", "list", "remove"})
+	fmt.Fprintln(stderr, "  use one of: search, install, list, remove")
 	return exitUsage
 }
 

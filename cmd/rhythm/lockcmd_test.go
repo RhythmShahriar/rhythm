@@ -377,7 +377,7 @@ func TestInstallBadSpecs(t *testing.T) {
 		{"tuner@", `rhythm: tuner: invalid version ""`},
 		{"tuner@01.2", `invalid version "01.2"`},
 		{"tuner@0.3 t@0.4", "rhythm: tuner is named twice with different versions: tuner@0.3 and tuner@0.4"},
-		{"tunr@0.3", `rhythm: unknown tool "tunr" (did you mean tuner?)`},
+		{"tunr@0.3", "rhythm: unknown tool \"tunr\"\n  did you mean: rhythm install tuner\n"},
 		{"tuner@0.3 --locked", "rhythm: --locked installs the versions in rhythm.lock; name an exact version or none in tuner@0.3"},
 		{"--locked --defaults", "rhythm: --locked installs the tools in rhythm.lock; drop --defaults"},
 	} {

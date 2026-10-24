@@ -83,7 +83,7 @@ func uninstallScope(names []string, all bool, stderr io.Writer) ([]string, int) 
 		tool, ok := resolveName(n)
 		switch {
 		case !ok:
-			fmt.Fprintf(stderr, "rhythm: unknown tool %q%s\n", n, suggest(n))
+			unknownName(stderr, "rhythm uninstall", n, true)
 			bad = true
 		case tool == selfName:
 			self = true

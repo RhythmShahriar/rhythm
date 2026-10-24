@@ -3,7 +3,21 @@
 
 package cli
 
-import "testing"
+import (
+	"bytes"
+	"testing"
+)
+
+func TestDidYouMean(t *testing.T) {
+	var b bytes.Buffer
+	if !DidYouMean(&b, "rhythm install", "tunr", []string{"echo", "tuner"}) || b.String() != "  did you mean: rhythm install tuner\n" {
+		t.Errorf("close: %q", b.String())
+	}
+	b.Reset()
+	if DidYouMean(&b, "rhythm install", "zzzzz", []string{"echo", "tuner"}) || b.Len() != 0 {
+		t.Errorf("nothing close: %q", b.String())
+	}
+}
 
 func TestSuggest(t *testing.T) {
 	opts := []string{"tuner", "t", "soundcheck", "sc", "echo", "e", "install", "update", "version"}

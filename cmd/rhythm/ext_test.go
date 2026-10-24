@@ -331,7 +331,7 @@ func TestExtUsage(t *testing.T) {
 	freshConfig(t)
 	for _, c := range []struct{ args, want string }{
 		{"", "usage: rhythm ext search|install|list|remove"},
-		{"serch", `unknown ext command "serch" (did you mean search?)`},
+		{"serch", "unknown ext command \"serch\"\n  did you mean: rhythm ext search\n  use one of: search, install, list, remove\n"},
 		{"install", "name one extension"},
 		{"install a/rhythm-b c/rhythm-d", "name one extension"},
 		{"remove", "name one extension"},
