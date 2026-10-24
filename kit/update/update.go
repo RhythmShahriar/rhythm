@@ -99,7 +99,7 @@ func (u *Updater) Latest(ctx context.Context) (*Release, error) {
 	}
 	api := u.apiBase()
 	if err := checkURL(api); err != nil {
-		return nil, fmt.Errorf("refusing to use the release API: %w", err)
+		return nil, fmt.Errorf("release API: %w", err)
 	}
 	req, err := u.newRequest(ctx, api+"/repos/"+u.Repo+"/releases/latest")
 	if err != nil {
