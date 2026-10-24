@@ -370,7 +370,9 @@ var datedVersion = regexp.MustCompile(`^(\d{4})-?(\d{2})-?(\d{2})`)
 func checkData(ctx context.Context, env doctorEnv, targets []target) []check {
 	var checks []check
 	for _, t := range targets {
-		if t.tool == selfName || t.hung || ctx.Err() != nil {
+		// A refresh is a whole data update, so only a tool that speaks
+		// kit/cli's update --json is asked for one.
+		if t.tool == selfName || t.hung || !t.kitCLI || ctx.Err() != nil {
 			continue
 		}
 		id := "data." + t.binary

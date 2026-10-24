@@ -185,7 +185,9 @@ func TestCheckUpdateState(t *testing.T) {
 }
 
 func TestCheckData(t *testing.T) {
-	targets := []target{{tool: selfName, binary: "rhythm"}, {tool: "tuner", binary: "rhythm-tuner", path: "/bin/rhythm-tuner"}}
+	// soundcheck isn't on kit/cli.Main, so it is never asked to refresh.
+	targets := []target{{tool: selfName, binary: "rhythm"}, {tool: "tuner", binary: "rhythm-tuner", path: "/bin/rhythm-tuner", kitCLI: true},
+		{tool: "soundcheck", binary: "rhythm-soundcheck", path: "/bin/rhythm-soundcheck"}}
 	for _, tc := range []struct {
 		name string
 		out  string
@@ -386,7 +388,8 @@ func useDoctorEnv(t *testing.T, env doctorEnv) {
 }
 
 func TestDoctorCommand(t *testing.T) {
-	s := newSandbox(t, map[string]string{"rhythm-tuner": "0.3.1"}, nil)
+	s := newSandbox(t, nil, nil)
+	s.kitTool(t, "rhythm-tuner", "0.3.1", "")
 	fakeSelf(t, s.stub(t, "rhythm", "0.5.0", ""), "0.5.0")
 	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	t.Cleanup(srv.Close)
