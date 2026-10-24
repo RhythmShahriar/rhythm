@@ -108,14 +108,19 @@ func (u *Updater) Latest(ctx context.Context) (*Release, error) {
 	req.Header.Set("Accept", "application/vnd.github+json")
 	resp, err := u.client().Do(req)
 	if err != nil {
-		return nil, err
+		return nil, netError(req, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusNotFound {
-		return nil, fmt.Errorf("%s has no published releases yet", u.Repo)
+		return nil, &ErrNoRelease{Repo: u.Repo, API: api, Err: &StatusError{Code: resp.StatusCode}}
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("checking %s releases: HTTP %d", u.Repo, resp.StatusCode)
+		err := u.statusError(req, resp)
+		var rl *ErrRateLimited
+		if errors.As(err, &rl) {
+			return nil, err // already one plain line
+		}
+		return nil, fmt.Errorf("checking %s releases: %w", u.Repo, err)
 	}
 	var v struct {
 		TagName string `json:"tag_name"`
@@ -319,9 +324,9 @@ func (u *Updater) Install(ctx context.Context, rel *Release, dest string) error 
 	if err != nil {
 		return fmt.Errorf("downloading %s: %w", name, err)
 	}
-	got := sha256.Sum256(archive)
-	if hex.EncodeToString(got[:]) != want {
-		return fmt.Errorf("%s: checksum mismatch; the download may be corrupt or tampered with, nothing was changed", name)
+	sum := sha256.Sum256(archive)
+	if got := hex.EncodeToString(sum[:]); got != want {
+		return &ErrChecksum{Asset: name, Want: want, Got: got}
 	}
 
 	goos, _ := u.platform()
@@ -351,11 +356,11 @@ func (u *Updater) download(ctx context.Context, url string, limit int64) ([]byte
 	}
 	resp, err := u.client().Do(req)
 	if err != nil {
-		return nil, err
+		return nil, netError(req, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+		return nil, u.statusError(req, resp)
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err != nil {
