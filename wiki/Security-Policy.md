@@ -22,7 +22,8 @@ Not sure which repository? Pick the closest one and say so in the report.
 
 Report it privately if it's a weakness in Rhythm's own code or release process, for example:
 
-- A way to make `rhythm update`, `rhythm install` or the installers accept a binary that doesn't match the release checksums.
+- A way to make `rhythm update`, `rhythm install` or the installers accept a binary that doesn't match the release checksums, or a release whose Sigstore signature is missing, invalid or from another workflow, repository or tag.
+- A way to make `rhythm` send `GITHUB_TOKEN` or `RHYTHM_GITHUB_TOKEN` to a host it shouldn't, or install from a bundle or `rhythm.lock` something other than what they pin.
 - A way for a check pack, a scanned site or vulnerability data to make Tuner run code, read or write files outside its cache, or send requests it shouldn't.
 - A secret printed unmasked in any output format.
 - A path in a local scan that changes files or runs site code.

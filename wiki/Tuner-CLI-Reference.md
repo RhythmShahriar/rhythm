@@ -183,17 +183,20 @@ The mirror variables are covered in [Known Vulnerabilities](Tuner-Known-Vulnerab
 | Variable | Used by | Description |
 |---|---|---|
 | `RHYTHM_INSTALL_DIR` | install scripts | Where to install. Default `~/.local/bin` (or `/usr/local/bin` as root) on Linux and macOS; `%LOCALAPPDATA%\Programs\rhythm` on Windows. |
-| `RHYTHM_VERSION` | install scripts | Install a specific version, e.g. `0.1.0`. Default: latest. |
-| `RHYTHM_TOOLS` | install scripts | Tools to install along with rhythm. Default `tuner`; set it empty for none. |
-| `RHYTHM_GITHUB_API` | install scripts, `rhythm` | GitHub API base, for mirrors. Default `https://api.github.com`. |
+| `RHYTHM_VERSION` | install scripts | Install a specific rhythm version, e.g. `0.5.0`. Default: latest. |
+| `RHYTHM_TOOLS` | install scripts | Tools to install along with rhythm, separated by spaces or commas; `tuner@0.3.1` pins one, `none` installs none. Default: the tools a fresh setup gets (`tuner soundcheck echo`). |
+| `RHYTHM_LOCKED` | install scripts | `1` installs the versions in `./rhythm.lock` instead. |
+| `RHYTHM_GITHUB_API` | install scripts, `rhythm` | GitHub API base, for mirrors. Default `https://api.github.com`. Must be `https` (plain `http` only for loopback). |
+| `RHYTHM_GITHUB_TOKEN` | install scripts, `rhythm` | Token sent to the `RHYTHM_GITHUB_API` host; wins over `GITHUB_TOKEN`. |
 | `RHYTHM_ARCH` | `install.ps1` | CPU architecture to use when Windows reports one the script doesn't recognize (`amd64` or `arm64`). |
-| `GITHUB_TOKEN` | `rhythm update` | As above. |
+| `GITHUB_TOKEN` | install scripts, `rhythm` | Sent to `api.github.com` only, never to a mirror. |
+| `RHYTHM_MIN_RELEASE_AGE` | `rhythm` | Skip releases younger than this, such as `3d`; the default for `--min-age`. |
 
 ```sh
 curl -fsSL https://rythm.sh/install | RHYTHM_INSTALL_DIR=/opt/bin sh
 ```
 
-See [Install](Install) and [Updating](Updating).
+See [Install](Install), [Updating](Updating) and the [Command reference](Command-Reference#environment).
 
 ## Files and locations
 

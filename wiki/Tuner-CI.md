@@ -33,6 +33,9 @@ jobs:
           sarif_file: tuner.sarif
 ```
 
+> [!TIP]
+> On GitHub Actions, `uses: RhythmShahriar/rhythm/setup@v0.7.0` with `tools: tuner` installs rhythm and Tuner with signatures checked, caches the downloads and puts them on `PATH`; it can also install the versions a `rhythm.lock` pins. See [CI setup](CI-Setup).
+
 > [!NOTE]
 > Code scanning is free for public repositories. For private ones it needs GitHub Advanced Security; without it, keep the report as an artifact instead (see [Keeping reports](#keeping-reports)).
 
