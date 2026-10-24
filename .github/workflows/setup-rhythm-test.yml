@@ -5,7 +5,8 @@
 # against a fake release API on 127.0.0.1, so nothing reaches GitHub's
 # releases. The rhythm it installs is the stand-in from scripts/test/stub
 # that the installer tests use. It checks that the tools land on PATH,
-# that a second job restores the download cache, that a version
+# that the tools step leaves out rhythm's note that the folder isn't on
+# PATH yet, that a second job restores the download cache, that a version
 # rhythm.lock doesn't pin fails the step and that skip-signature is read
 # the same way on every runner, a bad value failing before anything is
 # installed.
@@ -67,6 +68,33 @@ jobs:
           # The stand-in caches nothing, so leave a file for the next job to find.
           mkdir -p "$CACHE_DIR"
           echo "${{ github.run_id }}" >"$CACHE_DIR/marker"
+      - name: Check the tools step leaves out rhythm's PATH note
+        shell: bash
+        env:
+          INSTALL_DIR: ${{ steps.setup.outputs.install-dir }}
+        run: |
+          set -eu
+          # A folder that isn't on PATH, with the stand-in rhythm in it.
+          exe=
+          [ "$RUNNER_OS" != Windows ] || exe=.exe
+          dir=$RUNNER_TEMP/pathnote
+          mkdir -p "$dir"
+          cp "$INSTALL_DIR/rhythm$exe" "$dir/"
+          # rhythm itself says the folder isn't on PATH...
+          "$dir/rhythm$exe" install echo --dir "$dir" | grep "isn't on your PATH"
+          rm -f "$dir/rhythm-echo$exe"
+          # ...and the step, which adds it to PATH for the next steps, leaves that out.
+          out=$(INPUT_TOOLS=echo INPUT_INSTALL_DIR="$dir" GITHUB_PATH="$RUNNER_TEMP/pathnote.path" \
+            GITHUB_OUTPUT="$RUNNER_TEMP/pathnote.out" bash setup/setup.sh tools 2>&1)
+          printf '%s\n' "$out"
+          case $out in
+          *"isn't on your PATH"*) echo "the tools step printed rhythm's PATH note"; exit 1 ;;
+          esac
+          case $out in
+          *"Installed rhythm-echo "*) ;;
+          *) echo "the tools step lost the Installed line"; exit 1 ;;
+          esac
+          grep -qx 'tool-versions=echo@0.0.0-test' "$RUNNER_TEMP/pathnote.out" || { cat "$RUNNER_TEMP/pathnote.out"; exit 1; }
 
   cached:
     needs: install

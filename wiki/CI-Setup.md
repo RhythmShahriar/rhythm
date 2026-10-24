@@ -19,7 +19,7 @@ The action ships in the `rhythm` repository (in `setup/`) and is versioned with 
 4. runs `rhythm install --dir <folder> <tools>` (or `--locked`) with the download cache on and signatures checked;
 5. puts the folder on `PATH` for the steps that follow.
 
-The install step prints rhythm's own lines, so the log shows what was checked. From a run of the step's script, with a runner's paths:
+The install step prints rhythm's own lines, so the log shows what was checked. It leaves out rhythm's `Note: <dir> isn't on your PATH.`, since the step puts the folder on `PATH` itself. From a run of the step's script, with a runner's paths:
 
 ```text
 Installed rhythm-tuner 0.3.2 to /home/runner/work/_temp/setup-rhythm/bin/rhythm-tuner
