@@ -111,15 +111,18 @@ while [ $# -gt 0 ]; do
 	esac
 done
 known=$(printf '%s' "$tools" | tr -d '()')
+# Aliases install the tool under its name, as rhythm does.
+names=
 for n in $want; do
-	case " $known " in
-	*" $n "*) ;;
-	*)
+	set -- $tools
+	while [ $# -gt 1 ] && [ "$n" != "$1" ] && [ "($n)" != "$2" ]; do shift 2; done
+	if [ $# -lt 2 ]; then
 		printf 'rhythm: unknown tool "%s"; known tools: %s\n' "$n" "$known" >&2
 		exit 2
-		;;
-	esac
+	fi
+	names="$names $1"
 done
+want=$names
 if [ -n "$dry" ]; then
 	for n in $want; do echo "would install $n"; done
 	exit 0

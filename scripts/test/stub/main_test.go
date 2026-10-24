@@ -44,7 +44,7 @@ func TestVersionAndHelp(t *testing.T) {
 
 func TestDryRun(t *testing.T) {
 	stubAs(t, "0.6.0", "tuner:t,echo:e", "yes", "yes")
-	if code, out, _ := call("install", "--dry-run", "tuner", "e"); code != 0 || out != "would install tuner\nwould install e\n" {
+	if code, out, _ := call("install", "--dry-run", "tuner", "e"); code != 0 || out != "would install tuner\nwould install echo\n" {
 		t.Fatalf("dry run = %d %q", code, out)
 	}
 	if code, _, errOut := call("install", "--dry-run", "bogus"); code != 2 || !strings.Contains(errOut, `unknown tool "bogus"`) {
@@ -75,6 +75,10 @@ func TestInstallCopiesItselfAndLogs(t *testing.T) {
 	got, err := os.ReadFile(log)
 	if err != nil || string(got) != "rhythm install tuner --dir "+dir+"\n" {
 		t.Fatalf("log = %q, %v", got, err)
+	}
+	// An alias installs the tool under its name.
+	if code, out, errOut := call("install", "t", "--dir", dir); code != 0 || !strings.Contains(out, "Installed rhythm-tuner ") {
+		t.Fatalf("install t = %d %q %q", code, out, errOut)
 	}
 	if code, _, _ := call("bogus"); code != 1 {
 		t.Fatalf("unknown command = %d", code)

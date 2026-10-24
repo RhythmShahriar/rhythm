@@ -96,16 +96,18 @@ func install(args []string, stdout, stderr io.Writer) int {
 			want = append(want, args[i])
 		}
 	}
-	known := map[string]bool{}
+	// known maps each name and alias to the tool's name, as rhythm does.
+	known := map[string]string{}
 	for _, t := range strings.Split(tools, ",") {
 		name, alias, _ := strings.Cut(t, ":")
-		known[name], known[alias] = true, true
+		known[name], known[alias] = name, name
 	}
-	for _, name := range want {
-		if !known[name] {
+	for i, name := range want {
+		if known[name] == "" {
 			fmt.Fprintf(stderr, "rhythm: unknown tool %q; known tools: %s\n", name, tools)
 			return 2
 		}
+		want[i] = known[name]
 	}
 	for _, name := range want {
 		if dry {
