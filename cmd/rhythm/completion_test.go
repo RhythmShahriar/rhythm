@@ -448,6 +448,7 @@ func TestCompleteRealCommands(t *testing.T) {
 	has([]string{"verify", "--"}, "--json")
 	has([]string{"verify", "tuner", "e"}, "echo") // verify takes several
 	has([]string{"bundle", "--"}, "--locked", "--output", "--platform")
+	has([]string{"bundle", "-"}, "-o")
 	has([]string{"ext", ""}, "install", "list", "remove", "search")
 	if got := complete(t, "list", ""); len(got) != 0 {
 		t.Errorf("list takes no names, got %q", got)

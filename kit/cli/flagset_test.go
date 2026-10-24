@@ -30,6 +30,7 @@ func TestNewFlagSetUsage(t *testing.T) {
 	fs.Duration("timeout", time.Minute, "give up after this long")
 	var tags ListFlag
 	fs.Var(&tags, "tag", "only these `tags`")
+	fs.String("o", "", "short for --output `file`")
 
 	_, err := ParseArgs(fs, []string{"--help"})
 	if !errors.Is(err, ErrHelp) {
@@ -39,6 +40,7 @@ func TestNewFlagSetUsage(t *testing.T) {
 Flags:
   --dir dir            install into dir
   --force              replace an existing install
+  -o file              short for --output file
   --retries int        attempts per download (default 3)
   --tag tags           only these tags
   --timeout duration   give up after this long (default 1m0s)

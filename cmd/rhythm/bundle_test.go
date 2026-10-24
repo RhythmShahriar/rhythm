@@ -262,6 +262,10 @@ func TestBundleUsage(t *testing.T) {
 	if code, out, _ := runCmd("bundle", "--help"); code != 0 || !strings.Contains(out, "rhythm install --from rhythm-bundle.tar.gz --locked") {
 		t.Errorf("help: exit %d\n%s", code, out)
 	}
+	// The short flag is shown the way it is typed.
+	if _, out, _ := runCmd("bundle", "--help"); !strings.Contains(out, "\n  -o file              short for --output file\n") || strings.Contains(out, "--o ") {
+		t.Errorf("help doesn't show -o file:\n%s", out)
+	}
 }
 
 // A bundle only carries releases whose signature was checked.

@@ -179,6 +179,10 @@ Usage of update:
 	if got := FlagWords(want[:2]); !slices.Equal(got, []string{"--check", "--dir", "--help"}) {
 		t.Errorf("FlagWords = %q", got)
 	}
+	// A one-letter flag is typed with one dash, as its help shows it.
+	if got := FlagWords(want[3:]); !slices.Equal(got, []string{"--to", "-x", "--help"}) {
+		t.Errorf("FlagWords = %q", got)
+	}
 	for word, takes := range map[string]bool{"--dir": true, "-dir": true, "--dir=x": false, "--check": false, "dir": false, "--nope": false} {
 		if got := TakesValue(want, word); got != takes {
 			t.Errorf("TakesValue(%q) = %v, want %v", word, got, takes)

@@ -144,10 +144,15 @@ func SetFlags(fs *flag.FlagSet) []HelpFlag {
 	return flags
 }
 
-// FlagWords returns flags as the user types them, "--dir", plus --help.
+// FlagWords returns flags as the user types them, "--dir" or "-o" for a
+// one-letter flag, plus --help.
 func FlagWords(flags []HelpFlag) []string {
 	words := make([]string, 0, len(flags)+1)
 	for _, f := range flags {
+		if len(f.Name) == 1 {
+			words = append(words, "-"+f.Name)
+			continue
+		}
 		words = append(words, "--"+f.Name)
 	}
 	return append(words, "--help")
