@@ -15,6 +15,7 @@
 #   RHYTHM_SKIP_SIGNATURE  1 skips the signature checks, for a mirror you trust
 #   RHYTHM_GITHUB_API    GitHub API base, for mirrors (default https://api.github.com).
 #                        It must be https; plain http is accepted only for 127.0.0.1, ::1 and localhost.
+#                        It is a plain base URL: no user info, query or fragment.
 #   GITHUB_TOKEN         sent to api.github.com only, to lift the anonymous rate limit
 #   RHYTHM_GITHUB_TOKEN  sent to the RHYTHM_GITHUB_API host, whatever it is; wins over GITHUB_TOKEN
 #
@@ -53,10 +54,11 @@ main() {
 	}
 
 	# url_host prints the lower-case host of a URL, without user info, port or
-	# IPv6 brackets.
+	# IPv6 brackets. The authority ends at the first '/', '?' or '#', as it
+	# does for curl, so "https://x.invalid?@api.github.com" is x.invalid.
 	url_host() {
 		_h=${1#*://}
-		_h=${_h%%/*}
+		_h=${_h%%[/?#]*}
 		_h=${_h##*@}
 		case $_h in
 		\[*)
@@ -284,6 +286,11 @@ main() {
 
 	API=${RHYTHM_GITHUB_API:-https://api.github.com}
 	API=${API%/}
+	# A mirror base needs none of these. Each one can make the host
+	# curl connects to differ from the host the token rules see.
+	case $API in
+	*[@?#\\]*) die "RHYTHM_GITHUB_API must be a plain base URL, without user info, query or fragment: $API" ;;
+	esac
 	proto='=https'
 	case $(lower "${API%%://*}") in
 	https) ;;
@@ -325,8 +332,23 @@ main() {
 	trap 'exit 130' INT
 	trap 'exit 143' TERM
 
+	# good_tag reports whether $1 looks like a release tag: v, a digit, then
+	# only [0-9A-Za-z.+-], so it is safe in a URL path and a cosign flag.
+	good_tag() {
+		case $1 in
+		v[0-9]*[!0-9A-Za-z.+-]*) return 1 ;;
+		v[0-9]*) return 0 ;;
+		esac
+		return 1
+	}
+
+	# The tag the signature must name. A pinned version is what the user
+	# asked for, so a mirror can't answer with another one. It is checked
+	# before it goes into the release URL.
 	if [ -n "${RHYTHM_VERSION:-}" ]; then
-		release_url="$API/repos/$REPO/releases/tags/v${RHYTHM_VERSION#v}"
+		tag=v${RHYTHM_VERSION#v}
+		good_tag "$tag" || die "RHYTHM_VERSION isn't a version: '$RHYTHM_VERSION'"
+		release_url="$API/repos/$REPO/releases/tags/$tag"
 	else
 		release_url="$API/repos/$REPO/releases/latest"
 	fi
@@ -338,18 +360,10 @@ main() {
 	*) die "couldn't fetch the release from GitHub ($release_url): HTTP $status" ;;
 	esac
 
-	# The tag the signature must name. A pinned version is what the user
-	# asked for, so a mirror can't answer with another one.
-	if [ -n "${RHYTHM_VERSION:-}" ]; then
-		tag=v${RHYTHM_VERSION#v}
-	else
+	if [ -z "${RHYTHM_VERSION:-}" ]; then
 		tag=$(tr ',' '\n' <"$tmp/release.json" | sed -n 's/.*"tag_name"[^"]*"\([^"]*\)".*/\1/p' | head -n 1)
+		good_tag "$tag" || die "the release has an odd tag: '$tag'"
 	fi
-	case $tag in
-	v[0-9]*[!0-9A-Za-z.+-]* | v) die "the release has an odd tag: '$tag'" ;;
-	v[0-9]*) ;;
-	*) die "the release has an odd tag: '$tag'" ;;
-	esac
 
 	name="rhythm_${os}_${arch}.tar.gz"
 	archive_url=$(asset "$name")

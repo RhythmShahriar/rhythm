@@ -35,6 +35,8 @@
 #   9.0.2           checksums.txt has a wrong sum for every archive
 #   9.0.3           has no checksums.txt
 #   9.0.4           has no checksums.txt.sigstore.json
+#   9.0.5           downloads point at server.py's /hang route
+#   9.0.6           downloads point at http://example.invalid?@127.0.0.1
 set -eu
 
 root=${1:?usage: mkfake.sh ROOT}
@@ -317,7 +319,8 @@ all="tuner (t) soundcheck (sc) echo (e)"
 new="dry-run verify defaults pins locked"
 for spec in "0.7.0|$all|$new|yes" "0.6.0|$all|dry-run|yes" "0.5.0|$all||yes" \
 	"0.4.0|tuner (t) soundcheck (sc)||yes" "0.3.5|$all||no" \
-	"9.0.1|$all|$new|yes" "9.0.2|$all|$new|yes" "9.0.3|$all|$new|yes" "9.0.4|$all|$new|yes"; do
+	"9.0.1|$all|$new|yes" "9.0.2|$all|$new|yes" "9.0.3|$all|$new|yes" "9.0.4|$all|$new|yes" "9.0.5|$all|$new|yes" \
+	"9.0.6|$all|$new|yes"; do
 	IFS='|' read -r v tools features block <<EOF
 $spec
 EOF
@@ -332,6 +335,8 @@ release rhythm 9.0.1 http://example.invalid/dl/rhythm/v9.0.1
 release rhythm 9.0.2 "{{BASE}}/dl/rhythm/v9.0.2" badsum
 release rhythm 9.0.3 "{{BASE}}/dl/rhythm/v9.0.3" nosums
 release rhythm 9.0.4 "{{BASE}}/dl/rhythm/v9.0.4" nobundle
+release rhythm 9.0.5 "{{BASE}}/hang/dl/rhythm/v9.0.5"
+release rhythm 9.0.6 "http://example.invalid?@127.0.0.1/dl/rhythm/v9.0.6"
 cp "$root/repos/$owner/rhythm/releases/tags/v0.7.0" "$root/repos/$owner/rhythm/releases/latest"
 
 for t in tuner soundcheck echo; do

@@ -704,7 +704,46 @@ case_http_download_refused() {
 	expect_code 1
 	expect_out "refusing to download over http: http://example.invalid/dl/rhythm/v9.0.1/"
 	expect_no_file rhythm
+
+	# The host ends at '?' or '#', as curl reads it, so loopback text after
+	# them doesn't make another host loopback.
+	install RHYTHM_VERSION=9.0.6
+	expect_code 1
+	expect_out "refusing to download over http: http://example.invalid?@127.0.0.1/dl/rhythm/v9.0.6/"
+	expect_no_file rhythm
 }
+
+case_api_not_plain() {
+	# Anything after '?' or '#' isn't the host curl connects to, so these
+	# would send GITHUB_TOKEN, or plain http, to x.invalid. They are refused
+	# before any request, with user info and backslashes.
+	for api in 'https://x.invalid?@api.github.com' 'https://x.invalid#@api.github.com' \
+		'http://x.invalid?@127.0.0.1' 'http://x.invalid#@localhost' 'https://user@api.github.com' \
+		'https://api.github.com\@x.invalid' "$base?x=1"; do
+		path=$work/fakebin:/usr/bin:/bin
+		rm -f "$cdir/curl.log"
+		install RHYTHM_GITHUB_API="$api" GITHUB_TOKEN=gh-test-secret
+		path=
+		expect_code 1
+		expect_out "rhythm install: RHYTHM_GITHUB_API must be a plain base URL, without user info, query or fragment: $api"
+		[ ! -e "$cdir/curl.log" ] || fail "curl ran for $api"
+	done
+}
+
+case_version_checked() {
+	# RHYTHM_VERSION goes into the release URL only once it looks like one.
+	for v in '../../x' '0.5.0?x=1' '0.5.0#x' '0.5.0/../../latest' 'x1' 'V0.5.0' '0.5 .0'; do
+		: >"$work/requests.log"
+		install RHYTHM_VERSION="$v"
+		expect_code 1
+		expect_out "rhythm install: RHYTHM_VERSION isn't a version: '$v'"
+		[ ! -s "$work/requests.log" ] || fail "RHYTHM_VERSION=$v made a request"
+	done
+	install RHYTHM_VERSION=v0.6.0 RHYTHM_TOOLS=none
+	expect_code 0
+	expect_out "Installed rhythm 0.6.0 to $cdir/bin"
+}
+
 
 case_github_token() {
 	# api.github.com gets GITHUB_TOKEN, on curl's stdin and not its argv.
@@ -895,7 +934,7 @@ case_readme_links() {
 }
 
 cases=${*:-default none some commas typo tool_fails defaults pins locked path_hint path_hint_macos path_ok
-signature_cosign signature_cosign_fails signature_gh signature_none skip_signature router_verify bad_checksum no_checksums missing_dir relative_dir unwritable_dir truncated proto http_refused http_download_refused github_token
+signature_cosign signature_cosign_fails signature_gh signature_none skip_signature router_verify bad_checksum no_checksums missing_dir relative_dir unwritable_dir truncated proto http_refused http_download_refused api_not_plain version_checked github_token
 rhythm_token rate_limit old_router old_router_named router_without_dry_run
 router_without_tools_block unknown_tool readme readme_commands readme_links}
 script='' path=''

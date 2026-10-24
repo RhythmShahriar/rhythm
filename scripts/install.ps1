@@ -14,6 +14,7 @@
 #   RHYTHM_SKIP_SIGNATURE  1 skips the signature checks, for a mirror you trust
 #   RHYTHM_GITHUB_API    GitHub API base, for mirrors (default https://api.github.com).
 #                        It must be https; plain http is accepted only for 127.0.0.1, ::1 and localhost.
+#                        It is a plain base URL: no user info, query or fragment.
 #   GITHUB_TOKEN         sent to api.github.com only, to lift the anonymous rate limit
 #   RHYTHM_GITHUB_TOKEN  sent to the RHYTHM_GITHUB_API host, whatever it is; wins over GITHUB_TOKEN
 #
@@ -57,6 +58,11 @@
         throw "rhythm install: refusing to download over http: $Url"
     }
 
+    # A mirror base needs none of these. [Uri] reads them as curl does, but
+    # install.sh refuses them, so both installers take the same values.
+    if ($Api -match '[@?#\\]') {
+        throw "rhythm install: RHYTHM_GITHUB_API must be a plain base URL, without user info, query or fragment: $Api"
+    }
     $ApiUri = $null
     if (-not [Uri]::TryCreate($Api, [UriKind]::Absolute, [ref]$ApiUri) -or ($ApiUri.Scheme -ne 'https' -and $ApiUri.Scheme -ne 'http')) {
         throw "rhythm install: RHYTHM_GITHUB_API must be an https URL: $Api"
@@ -81,7 +87,20 @@
         default { if ($env:RHYTHM_ARCH) { $env:RHYTHM_ARCH } else { throw "rhythm install: unsupported CPU '$env:PROCESSOR_ARCHITECTURE'" } }
     }
 
-    $ReleaseUrl = if ($env:RHYTHM_VERSION) { "$Api/repos/$Repo/releases/tags/v$($env:RHYTHM_VERSION.TrimStart('v'))" } else { "$Api/repos/$Repo/releases/latest" }
+    # The tag the signature must name: v, a digit, then only [0-9A-Za-z.+-],
+    # so it is safe in a URL path and a cosign flag. A pinned version is what
+    # the user asked for, so a mirror can't answer with another one. It is
+    # checked before it goes into the release URL.
+    $TagPattern = '^v[0-9][0-9A-Za-z.+-]*$'
+    if ($env:RHYTHM_VERSION) {
+        # One leading v at most, as install.sh's ${RHYTHM_VERSION#v}.
+        $Tag = "v$($env:RHYTHM_VERSION -creplace '^v', '')"
+        if ($Tag -cnotmatch $TagPattern) { throw "rhythm install: RHYTHM_VERSION isn't a version: '$env:RHYTHM_VERSION'" }
+        $ReleaseUrl = "$Api/repos/$Repo/releases/tags/$Tag"
+    }
+    else {
+        $ReleaseUrl = "$Api/repos/$Repo/releases/latest"
+    }
     try {
         $Release = Invoke-RestMethod -Uri $ReleaseUrl -Headers $Headers -UseBasicParsing
     }
@@ -92,11 +111,10 @@
         if ($Status) { throw "rhythm install: couldn't fetch the release from GitHub ($ReleaseUrl): HTTP $Status" }
         throw "rhythm install: couldn't reach $($ApiUri.Host) ($ReleaseUrl): $($_.Exception.Message)"
     }
-
-    # The tag the signature must name. A pinned version is what the user
-    # asked for, so a mirror can't answer with another one.
-    $Tag = if ($env:RHYTHM_VERSION) { "v$($env:RHYTHM_VERSION.TrimStart('v'))" } else { "$($Release.tag_name)" }
-    if ($Tag -notmatch '^v[0-9][0-9A-Za-z.+-]*$') { throw "rhythm install: the release has an odd tag: '$Tag'" }
+    if (-not $env:RHYTHM_VERSION) {
+        $Tag = "$($Release.tag_name)"
+        if ($Tag -cnotmatch $TagPattern) { throw "rhythm install: the release has an odd tag: '$Tag'" }
+    }
 
     $Name = "rhythm_windows_$Arch.zip"
     $Archive = $Release.assets | Where-Object { $_.name -eq $Name }

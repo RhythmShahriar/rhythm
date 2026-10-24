@@ -120,10 +120,17 @@ foreach ($R in @(
         @('9.0.1', $All, $New, 'yes'),
         @('9.0.2', $All, $New, 'yes', 'badsum'),
         @('9.0.3', $All, $New, 'yes', 'nosums'),
-        @('9.0.4', $All, $New, 'yes', 'nobundle'))) {
+        @('9.0.4', $All, $New, 'yes', 'nobundle'),
+        @('9.0.5', $All, $New, 'yes'),
+        @('9.0.6', $All, $New, 'yes'))) {
     $Binary = Join-Path $Build "$($R[0])/rhythm$Exe"
     New-Stub $R[0] $R[1] $R[2] $R[3] $Binary
-    $Base = if ($R[0] -eq '9.0.1') { 'http://example.invalid/dl/rhythm/v9.0.1' } else { "{{BASE}}/dl/rhythm/v$($R[0])" }
+    $Base = switch ($R[0]) {
+        '9.0.1' { 'http://example.invalid/dl/rhythm/v9.0.1' }
+        '9.0.5' { '{{BASE}}/hang/dl/rhythm/v9.0.5' }
+        '9.0.6' { 'http://example.invalid?@127.0.0.1/dl/rhythm/v9.0.6' }
+        default { "{{BASE}}/dl/rhythm/v$($R[0])" }
+    }
     New-Release $R[0] $Binary $Base $(if ($R.Count -gt 4) { $R[4] } else { '' })
 }
 Copy-Item (Join-Path $Srv 'repos/RhythmShahriar/rhythm/releases/tags/v0.7.0') (Join-Path $Srv 'repos/RhythmShahriar/rhythm/releases/latest')
@@ -738,7 +745,41 @@ function Case-http_download_refused {
     Assert-Code 1
     Assert-Out 'refusing to download over http: http://example.invalid/dl/rhythm/v9.0.1/'
     Assert-NoFile 'rhythm.exe'
+
+    # [Uri] ends the host at '?' or '#', so loopback text after them doesn't
+    # make another host loopback.
+    Invoke-Install @{ RHYTHM_VERSION = '9.0.6' }
+    Assert-Code 1
+    Assert-Out 'refusing to download over http: http://example.invalid?@127.0.0.1/dl/rhythm/v9.0.6/'
+    Assert-NoFile 'rhythm.exe'
 }
+
+function Case-api_not_plain {
+    # Anything after '?' or '#' isn't the host the request goes to. [Uri]
+    # reads these right but install.sh refuses them, so this does too,
+    # before any request, with user info and backslashes.
+    foreach ($Api in 'https://x.invalid?@api.github.com', 'https://x.invalid#@api.github.com',
+        'http://x.invalid?@127.0.0.1', 'http://x.invalid#@localhost', 'https://user@api.github.com',
+        'https://api.github.com\@x.invalid', "$($BaseUrl)?x=1") {
+        Remove-Item (Join-Path $script:CaseDir 'mock.log') -ErrorAction SilentlyContinue
+        Invoke-Install @{ RHYTHM_GITHUB_API = $Api; GITHUB_TOKEN = 'gh-test-secret' } $Mock
+        Assert-Code 1
+        Assert-Out "rhythm install: RHYTHM_GITHUB_API must be a plain base URL, without user info, query or fragment: $Api"
+        if (Test-Path (Join-Path $script:CaseDir 'mock.log')) { Fail "a request was made for $Api" }
+    }
+}
+
+function Case-version_checked {
+    # RHYTHM_VERSION goes into the release URL only once it looks like one.
+    foreach ($V in '../../x', '0.5.0?x=1', '0.5.0#x', '0.5.0/../../latest', 'x1', 'V0.5.0', '0.5 .0') {
+        Clear-Requests
+        Invoke-Install @{ RHYTHM_VERSION = $V }
+        Assert-Code 1
+        Assert-Out "rhythm install: RHYTHM_VERSION isn't a version: '$V'"
+        if (Get-Requests) { Fail "RHYTHM_VERSION=$V made a request" }
+    }
+}
+
 
 function Case-github_token {
     # api.github.com gets GITHUB_TOKEN.
@@ -904,7 +945,7 @@ function Case-readonly_dir {
 
 if (-not $Cases.Count) {
     $Cases = 'default', 'none', 'some', 'commas', 'typo', 'tool_fails', 'defaults', 'pins', 'locked', 'path_note',
-    'signature_cosign', 'signature_cosign_fails', 'signature_gh', 'signature_none', 'skip_signature', 'router_verify', 'bad_checksum', 'no_checksums', 'missing_dir', 'relative_dir', 'truncated', 'http_refused', 'http_download_refused', 'github_token', 'rhythm_token',
+    'signature_cosign', 'signature_cosign_fails', 'signature_gh', 'signature_none', 'skip_signature', 'router_verify', 'bad_checksum', 'no_checksums', 'missing_dir', 'relative_dir', 'truncated', 'http_refused', 'http_download_refused', 'api_not_plain', 'version_checked', 'github_token', 'rhythm_token',
     'rate_limit', 'old_router', 'old_router_named', 'router_without_dry_run', 'router_without_tools_block',
     'unknown_tool', 'running_exe', 'swap_fallback', 'swap_restore', 'readonly_dir'
 }
