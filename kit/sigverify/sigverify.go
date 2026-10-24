@@ -89,7 +89,7 @@ type Options struct {
 	HTTPClient *http.Client
 	// OnFallback, when set, is called once with the reason the TUF refresh
 	// failed, just before the embedded root is used instead. The fallback
-	// is otherwise silent, and someone who blocks the TUF CDN keeps a
+	// is otherwise silent: someone who blocks the TUF CDN keeps a
 	// client on the embedded root, which can't learn of key rotation or
 	// revocation, so callers can use it to say "using the built-in
 	// Sigstore root". It is not called when Offline is set.
@@ -179,7 +179,7 @@ func (v *Verifier) verifyEntity(ctx context.Context, entity verify.SignedEntity,
 
 // RootSource reports where the trusted root came from: RootTUF or
 // RootEmbedded. It is empty until the first VerifyChecksums call has loaded
-// the root, and stays empty when a test or caller never needed one.
+// the root. It stays empty when a test or caller never needed one.
 func (v *Verifier) RootSource() string {
 	if !v.loaded.Load() {
 		return ""
