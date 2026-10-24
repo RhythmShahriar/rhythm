@@ -902,7 +902,7 @@ func TestRouterLookupRefusesCleartextAPI(t *testing.T) {
 		{"update", "tuner", "--to", "0.1.0"},
 	} {
 		code, out, errs := runCmd(args...)
-		if code == 0 || !strings.Contains(errs, "release API: refusing to download over http: http://mirror.invalid") {
+		if code == 0 || !strings.Contains(errs, "release API: refusing plain http: http://mirror.invalid; use https") {
 			t.Errorf("%v: exit %d\n%s%s", args, code, out, errs)
 		}
 	}
