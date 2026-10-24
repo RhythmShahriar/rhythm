@@ -12,6 +12,9 @@ a free port. Once listening, the server writes its port to ROOT/.port.
 Routes:
   /status/<code>/...  answers <code>; 403 and 429 carry GitHub's rate-limit headers
   /hang/...           never answers, for timeout tests
+  /redirect/<host:port>/...
+                      answers 302 to plain http://<host:port>/..., for the
+                      redirect tests
   anything else       the file under ROOT. In files under repos/ the text
                       {{BASE}} becomes this server's URL, so the release JSON
                       points at its own downloads whatever the port.
@@ -59,6 +62,13 @@ def handler(root, log, lock):
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
+                return
+            if len(parts) > 2 and parts[1] == "redirect":
+                rest = self.path.split("/", 3)[3] if self.path.count("/") >= 3 else ""
+                self.send_response(302)
+                self.send_header("Location", f"http://{parts[2]}/{rest}")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
                 return
             if len(parts) > 1 and parts[1] == "hang":
                 time.sleep(3600)

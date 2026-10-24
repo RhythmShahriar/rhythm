@@ -698,8 +698,8 @@ case_proto() {
 	install RHYTHM_GITHUB_API=
 	path=
 	expect_code 1
-	grep -qF -- "--proto =https --tlsv1.2 --connect-timeout 30 --speed-limit 1 --speed-time 30 " "$cdir/curl.log" ||
-		fail "curl ran without --proto =https --tlsv1.2 and the timeouts"
+	grep -qF -- "--proto =https --proto-redir =https --tlsv1.2 --connect-timeout 30 --speed-limit 1 --speed-time 30 " "$cdir/curl.log" ||
+		fail "curl ran without --proto =https --proto-redir =https --tlsv1.2 and the timeouts"
 	grep -qF -- "https://api.github.com/repos/RhythmShahriar/rhythm/releases/latest" "$cdir/curl.log" ||
 		fail "the default API isn't api.github.com"
 	expect_out "couldn't reach api.github.com"
@@ -729,6 +729,22 @@ case_http_download_refused() {
 	expect_code 1
 	expect_out "refusing to download over http: http://example.invalid?@127.0.0.1/dl/rhythm/v9.0.6/"
 	expect_no_file rhythm
+}
+
+case_redirect_to_http() {
+	# A loopback mirror may use plain http itself; a redirect from it
+	# to plain http elsewhere (here localhost on the same port, which is
+	# another host to curl) is refused, so nothing reaches that host.
+	port=${base##*:}
+	before=$(requests | wc -l)
+	install RHYTHM_GITHUB_API="$base/redirect/localhost:$port" RHYTHM_GITHUB_TOKEN=mirror-test-secret
+	expect_code 1
+	expect_out "rhythm install: 127.0.0.1 redirected to a URL that isn't https ($base/redirect/localhost:$port/repos/RhythmShahriar/rhythm/releases/latest)"
+	expect_no_out mirror-test-secret
+	expect_no_file rhythm
+	got=$(requests | tail -n +$((before + 1)))
+	[ "$got" = "GET /redirect/localhost:$port/repos/RhythmShahriar/rhythm/releases/latest auth=Bearer mirror-test-secret" ] ||
+		fail "requests were: $got"
 }
 
 case_api_not_plain() {
@@ -975,7 +991,7 @@ case_readme_links() {
 }
 
 cases=${*:-default none some commas typo tool_fails defaults pins locked path_hint path_hint_quote path_hint_macos path_ok
-signature_cosign signature_cosign_fails signature_gh signature_none skip_signature router_verify bad_checksum no_checksums missing_dir relative_dir unwritable_dir truncated proto http_refused http_download_refused api_not_plain version_checked timeout github_token
+signature_cosign signature_cosign_fails signature_gh signature_none skip_signature router_verify bad_checksum no_checksums missing_dir relative_dir unwritable_dir truncated proto http_refused http_download_refused redirect_to_http api_not_plain version_checked timeout github_token
 rhythm_token rate_limit old_router old_router_named router_without_dry_run
 router_without_tools_block unknown_tool readme readme_commands readme_links}
 script='' path=''

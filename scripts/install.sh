@@ -94,9 +94,10 @@ main() {
 	fetch() {
 		check_url "$1"
 		# shellcheck disable=SC2086 # $limits is several flags
-		curl -fsSL --proto "$proto" --tlsv1.2 $limits -o "$2" "$1" || {
+		curl -fsSL --proto "$proto" --proto-redir =https --tlsv1.2 $limits -o "$2" "$1" || {
 			_rc=$?
 			[ $_rc -ne 28 ] || die "timed out after ${timeout}s downloading $1; set RHYTHM_INSTALL_TIMEOUT to wait longer"
+			[ $_rc -ne 1 ] || die "refusing to follow a redirect that isn't https from $1"
 			return $_rc
 		}
 	}
@@ -107,10 +108,10 @@ main() {
 		# shellcheck disable=SC2086 # $limits is several flags
 		if [ -n "$token" ]; then
 			printf 'header = "Authorization: Bearer %s"\n' "$token" |
-				curl -sSL --proto "$proto" --tlsv1.2 $limits -K - -H 'Accept: application/vnd.github+json' \
+				curl -sSL --proto "$proto" --proto-redir =https --tlsv1.2 $limits -K - -H 'Accept: application/vnd.github+json' \
 					-o "$2" -w '%{http_code}' "$1"
 		else
-			curl -sSL --proto "$proto" --tlsv1.2 $limits -H 'Accept: application/vnd.github+json' \
+			curl -sSL --proto "$proto" --proto-redir =https --tlsv1.2 $limits -H 'Accept: application/vnd.github+json' \
 				-o "$2" -w '%{http_code}' "$1"
 		fi
 	}
@@ -301,6 +302,8 @@ main() {
 	case $API in
 	*[@?#\\]*) die "RHYTHM_GITHUB_API must be a plain base URL, without user info, query or fragment: $API" ;;
 	esac
+	# $proto is what the first URL may use. Redirects must be https in
+	# every mode (--proto-redir), since check_url sees only the first URL.
 	proto='=https'
 	case $(lower "${API%%://*}") in
 	https) ;;
@@ -381,6 +384,7 @@ main() {
 	case $rc in
 	0) ;;
 	28) die "timed out after ${timeout}s waiting for $(url_host "$API") ($release_url); set RHYTHM_INSTALL_TIMEOUT to wait longer" ;;
+	1) die "$(url_host "$API") redirected to a URL that isn't https ($release_url)" ;;
 	*) die "couldn't reach $(url_host "$API") ($release_url)" ;;
 	esac
 	case $status in
