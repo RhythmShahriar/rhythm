@@ -29,11 +29,17 @@ import (
 
 // TestMain points the config and cache folders at a temp folder, so no
 // test reads or writes the real ~/.config/rhythm (first-run markers,
-// update-check state) or ~/.cache/rhythm.
+// update-check state) or ~/.cache/rhythm. It also clears the settings a
+// developer may have exported, so the tests see rhythm's defaults; tests
+// that need one set it themselves.
 func TestMain(m *testing.M) {
 	home, err := os.MkdirTemp("", "rhythm-test-home-*")
 	if err != nil {
 		panic(err)
+	}
+	for _, v := range []string{"RHYTHM_MIN_RELEASE_AGE", "RHYTHM_DOWNLOAD_CACHE", "RHYTHM_OFFLINE", "RHYTHM_GITHUB_API",
+		"GITHUB_TOKEN", "RHYTHM_GITHUB_TOKEN", "CI", "RHYTHM_NO_UPDATE_CHECK"} {
+		_ = os.Unsetenv(v)
 	}
 	for _, v := range []string{"HOME", "USERPROFILE", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "APPDATA", "LOCALAPPDATA", "RHYTHM_CONFIG_DIR"} {
 		_ = os.Setenv(v, filepath.Join(home, strings.ToLower(v)))
