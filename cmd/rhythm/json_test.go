@@ -36,7 +36,7 @@ func golden(t *testing.T, name, got string, replace ...string) {
 	}
 }
 
-// decodeStrict decodes data into v, refusing unknown fields, and returns
+// decodeStrict decodes data into v, refusing unknown fields. It returns
 // the keys of every object in arrays under field, to check that each
 // required key is present.
 func decodeStrict(t *testing.T, data string, v any, field string) []map[string]any {

@@ -18,7 +18,7 @@ import (
 )
 
 func init() {
-	addRouterCommand(routerCommand{name: "uninstall", args: "<tool>... [--purge] [--all]", summary: "remove tools, and with --purge their data", run: cmdUninstall})
+	addRouterCommand(routerCommand{name: "uninstall", args: "<tool>... [--purge] [--all]", summary: "remove tools (with --purge, their data too)", run: cmdUninstall})
 }
 
 const uninstallSynopsis = `Usage: rhythm uninstall <tool>... [flags]
@@ -141,7 +141,7 @@ func uninstallOne(tool string, purge, quietMissing bool, stdout, stderr io.Write
 		return errNotInstalled
 	}
 	if m := managedBy(real, binary); m != nil {
-		// The manager's records would still list the tool, and its next
+		// The manager's records would still list the tool. Its next
 		// upgrade would put it back.
 		fmt.Fprintf(stderr, "%s is managed by %s; remove it with: %s\n", binary, m.name, m.remove)
 		return &managedError{binary, m}
@@ -155,7 +155,7 @@ func uninstallOne(tool string, purge, quietMissing bool, stdout, stderr io.Write
 	for i, f := range files {
 		err := os.Remove(f)
 		if err != nil && runtime.GOOS == "windows" && tool == selfName && f == real {
-			// Windows can't delete a running program, but it can rename it.
+			// Windows can't delete a running program. It can rename it.
 			if err = os.Rename(f, f+".old"); err == nil {
 				fmt.Fprintf(stdout, "Removed %s (%s.old is left; delete it once this command ends)\n", f, filepath.Base(f))
 				continue

@@ -365,7 +365,7 @@ const staleData = 14 * 24 * time.Hour
 var datedVersion = regexp.MustCompile(`^(\d{4})-?(\d{2})-?(\d{2})`)
 
 // checkData refreshes each tool's data through `update --json`, the
-// rhythm-data/v1 answer of tools built on kit/cli, and reports what they
+// rhythm-data/v1 answer of tools built on kit/cli. It reports what they
 // hold. A tool that doesn't answer in that form isn't reported: its data
 // can't be judged from outside.
 func checkData(ctx context.Context, env doctorEnv, targets []target) []check {
