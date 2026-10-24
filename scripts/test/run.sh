@@ -18,7 +18,10 @@ set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 installer=$here/../install.sh
 shell=${RHYTHM_TEST_SH:-sh}
-work=$(mktemp -d)
+# The physical path: macOS's temp folder is under /var, a link to
+# /private/var, and the installer runs under env -i, where pwd prints the
+# physical path.
+work=$(cd "$(mktemp -d)" && pwd -P)
 server=
 
 cleanup() {

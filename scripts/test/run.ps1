@@ -287,8 +287,15 @@ function Get-Requests { if (Test-Path $RequestLog) { @(Get-Content $RequestLog) 
 function Clear-Requests { [IO.File]::WriteAllText($RequestLog, '') }
 
 function Assert-Code([int]$Want) { if ($script:Code -ne $Want) { Fail "exit code $($script:Code), want $Want" } }
-function Assert-Out([string]$Text) { if (-not $script:Out.Contains($Text)) { Fail "output lacks: $Text" } }
-function Assert-NoOut([string]$Text) { if ($script:Out.Contains($Text)) { Fail "output has: $Text" } }
+# Test-Out looks for $Text in the output as it is and with its lines
+# joined: Windows PowerShell 5.1 wraps an error message at the console
+# width, with or without the space it broke at.
+function Test-Out([string]$Text) {
+    $script:Out.Contains($Text) -or ($script:Out -replace '\r?\n', '').Contains($Text) -or
+    ($script:Out -replace '\s*\r?\n\s*', ' ').Contains($Text)
+}
+function Assert-Out([string]$Text) { if (-not (Test-Out $Text)) { Fail "output lacks: $Text" } }
+function Assert-NoOut([string]$Text) { if (Test-Out $Text) { Fail "output has: $Text" } }
 function Get-Bin([string]$Name) { Join-Path (Join-Path $script:CaseDir 'bin') $Name }
 function Assert-File([string]$Name) { if (-not (Test-Path (Get-Bin $Name))) { Fail "$Name wasn't installed" } }
 function Assert-NoFile([string]$Name) { if (Test-Path (Get-Bin $Name)) { Fail "$Name was installed" } }
