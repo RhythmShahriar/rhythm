@@ -115,14 +115,19 @@ func (e *ErrTagMismatch) Error() string {
 // ErrTooNew means every release that would match is younger than
 // Updater.MinAge, so none was picked.
 type ErrTooNew struct {
-	Repo   string
-	Newest string        // the newest matching version
-	Age    time.Duration // how old it is
-	MinAge time.Duration
+	Repo    string
+	Newest  string        // the newest matching version
+	Age     time.Duration // how old it is; zero when Undated
+	Undated bool          // the API gave the newest no publish date
+	MinAge  time.Duration
 }
 
 // Error names the newest release, its age and the cooldown.
 func (e *ErrTooNew) Error() string {
+	if e.Undated {
+		return fmt.Sprintf("no release of %s is old enough: the newest, %s, has no publish date (min age %s)",
+			e.Repo, e.Newest, FormatAge(e.MinAge))
+	}
 	return fmt.Sprintf("no release of %s is old enough: the newest, %s, is %s old (min age %s)",
 		e.Repo, e.Newest, FormatAge(e.Age), FormatAge(e.MinAge))
 }

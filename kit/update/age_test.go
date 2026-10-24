@@ -120,3 +120,24 @@ func TestMinAgeWithNothingOldEnough(t *testing.T) {
 		t.Errorf("message = %q", err)
 	}
 }
+
+func TestMinAgeWithAnUndatedRelease(t *testing.T) {
+	u := newReleaseAPI(t,
+		fakeRel{tag: "v0.3.2", published: time.Now().Add(-10 * day)},
+		fakeRel{tag: "v0.3.3", undated: true},
+	).updater()
+	u.MinAge = 3 * day
+	rel, err := u.Resolve(context.Background(), "latest")
+	if err != nil || rel.Version != "0.3.2" || rel.SkippedNewer == nil || rel.SkippedNewer.Version != "0.3.3" || rel.SkippedNewer.Age != 0 {
+		t.Fatalf("Resolve = %+v (%+v), %v", rel, rel.SkippedNewer, err)
+	}
+	u.MinAge = 20 * day
+	_, err = u.Resolve(context.Background(), "latest")
+	var tn *ErrTooNew
+	if !errors.As(err, &tn) || !tn.Undated || tn.Age != 0 {
+		t.Fatalf("err = %#v", err)
+	}
+	if want := "no release of RhythmShahriar/tuner is old enough: the newest, 0.3.3, has no publish date (min age 20 days)"; err.Error() != want {
+		t.Errorf("message = %q", err)
+	}
+}

@@ -26,6 +26,7 @@ type fakeRel struct {
 	tag        string
 	draft, pre bool
 	published  time.Time // zero: an hour ago
+	undated    bool      // served without published_at
 }
 
 // releaseAPI plays the GitHub release API for RhythmShahriar/tuner. Each
@@ -107,7 +108,7 @@ func newReleaseAPI(t *testing.T, rels ...fakeRel) *releaseAPI {
 			{name, api.URL + "/dl/" + fr.tag + "/archive"},
 			{"checksums.txt", api.URL + "/dl/" + fr.tag + "/sums"},
 		}}
-		if !fr.draft {
+		if !fr.draft && !fr.undated {
 			rel.Published = &published
 		}
 		list = append(list, rel)

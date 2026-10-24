@@ -135,7 +135,7 @@ type Release struct {
 // Skipped is a release left out for being younger than Updater.MinAge.
 type Skipped struct {
 	Version string        // without the leading v
-	Age     time.Duration // how long ago it was published
+	Age     time.Duration // how long ago it was published; zero when the API didn't say
 }
 
 // Latest fetches the newest published release, never a draft or a
@@ -359,16 +359,17 @@ func (u *Updater) InstallWith(ctx context.Context, rel *Release, dest string, op
 	if !ok {
 		return res, fmt.Errorf("checksums.txt has no entry for %s", name)
 	}
-	archive, got, cached := u.fromCache(name, want)
+	tmpPattern := "." + filepath.Base(dest) + ".download-*"
+	archive, got, cached := u.fromCache(name, want, filepath.Dir(dest), tmpPattern)
 	if !cached {
 		// The archive goes to a temp file next to dest and is hashed on
 		// the way, so memory stays flat however big the release is.
-		archive, got, err = u.downloadFile(ctx, rel, name, filepath.Dir(dest), "."+filepath.Base(dest)+".download-*", maxArchive)
+		archive, got, err = u.downloadFile(ctx, rel, name, filepath.Dir(dest), tmpPattern, maxArchive)
 		if err != nil {
 			return res, fmt.Errorf("downloading %s: %w", name, err)
 		}
-		defer func() { _ = os.Remove(archive) }()
 	}
+	defer func() { _ = os.Remove(archive) }()
 	if got != want {
 		return res, &ErrChecksum{Asset: name, Want: want, Got: got}
 	}

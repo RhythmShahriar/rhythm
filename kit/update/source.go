@@ -5,6 +5,8 @@ package update
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -22,7 +24,7 @@ type Source interface {
 	// ByTag returns the release with this version, given without the
 	// leading v; a missing one is an ErrNoRelease.
 	ByTag(ctx context.Context, version string) (*Release, error)
-	// Open streams one of rel's assets, named as in rel.Assets, and
+	// Open streams one of rel's assets (named as in rel.Assets) and
 	// returns its size, or -1 when unknown. The caller closes it.
 	Open(ctx context.Context, rel *Release, asset string) (io.ReadCloser, int64, error)
 }
@@ -106,23 +108,42 @@ func (u *Updater) cachePath(name, sum string) string {
 	return filepath.Join(u.CacheDir, sum+ext)
 }
 
-// fromCache returns the cached archive with sha256 want and its hash,
-// computed again now: the cache dir may be shared, so its contents are
-// never trusted by name. A file that doesn't match is removed.
-func (u *Updater) fromCache(name, want string) (path, sum string, ok bool) {
+// fromCache copies the cached archive with sha256 want into a private
+// temp file in dir and returns that copy and its hash, computed on the
+// copy as it is written. The cache dir may be shared and writable by
+// others, so its contents are never trusted by name. The file that was
+// hashed is the file that gets extracted: swapping the cached file
+// afterwards changes nothing. A cached file that doesn't match is
+// removed. The caller removes the copy.
+func (u *Updater) fromCache(name, want, dir, pattern string) (path, sum string, ok bool) {
 	if u.CacheDir == "" {
 		return "", "", false
 	}
-	path = u.cachePath(name, want)
-	sum, err := hashFile(path)
+	cached := u.cachePath(name, want)
+	src, err := os.Open(cached) //nolint:gosec // checked by hash below
 	if err != nil {
 		return "", "", false
 	}
-	if sum != want {
-		_ = os.Remove(path)
+	defer func() { _ = src.Close() }()
+	dst, err := os.CreateTemp(dir, pattern)
+	if err != nil {
 		return "", "", false
 	}
-	return path, sum, true
+	h := sha256.New()
+	_, err = io.Copy(io.MultiWriter(dst, h), &capReader{r: src, left: maxArchive})
+	if cerr := dst.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		_ = os.Remove(dst.Name())
+		return "", "", false
+	}
+	if sum = hex.EncodeToString(h.Sum(nil)); sum != want {
+		_ = os.Remove(dst.Name())
+		_ = os.Remove(cached)
+		return "", "", false
+	}
+	return dst.Name(), sum, true
 }
 
 // toCache stores a verified archive under its sha256, by a hard link when

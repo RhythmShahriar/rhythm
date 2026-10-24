@@ -250,3 +250,38 @@ func TestCustomSourceListing(t *testing.T) {
 		t.Errorf("Latest with MinAge = %+v, %v", rel, err)
 	}
 }
+
+// TestCacheExtractsWhatWasHashed checks that the archive extracted is
+// the one hashed: fromCache hands back a private copy, so a cached file
+// swapped after the check changes nothing.
+func TestCacheExtractsWhatWasHashed(t *testing.T) {
+	good := []byte("the archive that was checked")
+	sum := sha256.Sum256(good)
+	want := hex.EncodeToString(sum[:])
+	u := &Updater{CacheDir: t.TempDir()}
+	cached := u.cachePath("rhythm-tuner_linux_amd64.tar.gz", want)
+	if err := os.WriteFile(cached, good, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	copyPath, got, ok := u.fromCache("rhythm-tuner_linux_amd64.tar.gz", want, dir, ".x.download-*")
+	if !ok || got != want || filepath.Dir(copyPath) != dir {
+		t.Fatalf("fromCache = %q, %s, %v", copyPath, got, ok)
+	}
+	if err := os.WriteFile(cached, []byte("swapped in after the check"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := os.ReadFile(copyPath); err != nil || !bytes.Equal(b, good) {
+		t.Errorf("copy = %q, %v", b, err)
+	}
+	// A cached file that doesn't match is removed and leaves no copy.
+	if _, _, ok := u.fromCache("rhythm-tuner_linux_amd64.tar.gz", want, dir, ".x.download-*"); ok {
+		t.Error("a swapped cache file was used")
+	}
+	if _, err := os.Stat(cached); !os.IsNotExist(err) {
+		t.Errorf("bad cache file kept: %v", err)
+	}
+	if names := dirNames(t, dir); len(names) != 1 {
+		t.Errorf("temp files left: %v", names)
+	}
+}

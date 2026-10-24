@@ -151,11 +151,20 @@ func (u *Updater) newest(ctx context.Context, prefix []int, want string) (*Relea
 	case top == nil:
 		return nil, &ErrNoRelease{Repo: u.Repo, API: u.apiBase(), Version: want}
 	case best == nil:
-		return nil, &ErrTooNew{Repo: u.Repo, Newest: top.Version, Age: now.Sub(top.Published), MinAge: u.MinAge}
+		return nil, &ErrTooNew{Repo: u.Repo, Newest: top.Version, Age: ageOf(now, top.Published), Undated: top.Published.IsZero(), MinAge: u.MinAge}
 	case best != top:
-		best.SkippedNewer = &Skipped{Version: top.Version, Age: now.Sub(top.Published)}
+		best.SkippedNewer = &Skipped{Version: top.Version, Age: ageOf(now, top.Published)}
 	}
 	return best, nil
+}
+
+// ageOf is how long before now a release was published, or zero when
+// the API gave no publish time.
+func ageOf(now, published time.Time) time.Duration {
+	if published.IsZero() {
+		return 0
+	}
+	return now.Sub(published)
 }
 
 // parseSpec splits a version spec without its leading v into the numbers
