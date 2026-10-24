@@ -1191,6 +1191,26 @@ func TestUpdateExtensionNeedsItsSigner(t *testing.T) {
 	}
 }
 
+// TestUpdateExtensionSignerWithoutVerifier: a rhythm that can't check
+// signatures refuses an extension that requires a signer, unless
+// --skip-signature says to go ahead without it.
+func TestUpdateExtensionSignerWithoutVerifier(t *testing.T) {
+	installed := map[string]string{"rhythm-zap": "1.0.0"}
+	s := newSandbox(t, installed, map[string]string{"someone/zap": "1.1.0"})
+	signer := "https://github.com/someone/zap/.github/workflows/release.yml@refs/heads/main"
+	writeExtensions(t, `{"schema":"rhythm-extensions/v1","extensions":[{"name":"zap","repo":"someone/zap","signer":"`+signer+`"}]}`)
+
+	code, _, errs := runCmd("update", "zap")
+	want := "refusing to install someone/zap 1.1.0: its releases must be signed by " + signer + " and this rhythm can't check signatures; update rhythm, or install without the check with --skip-signature"
+	if code != 1 || !strings.Contains(errs, want) || !strings.Contains(s.content("rhythm-zap"), "1.0.0") {
+		t.Errorf("exit %d: %s", code, errs)
+	}
+	code, out, errs := runCmd("update", "zap", "--skip-signature")
+	if code != 0 || !strings.Contains(errs, "warning: signature check skipped") || !strings.Contains(s.content("rhythm-zap"), "1.1.0") {
+		t.Errorf("exit %d\n%s%s", code, out, errs)
+	}
+}
+
 func TestUpdateBadExtensionsFile(t *testing.T) {
 	installed, latest := allTools()
 	s := newSandbox(t, installed, latest)

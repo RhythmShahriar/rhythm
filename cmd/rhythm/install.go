@@ -1573,7 +1573,8 @@ func (r *runOptions) activeVerifier() (signatureVerifier, error) {
 // verifiedChecksums downloads rel's checksums.txt and, when this run has
 // a signature check, refuses it unless its Sigstore bundle verifies (and
 // names the signer an extension requires). It fails closed: a missing
-// bundle or a verifier that can't be built refuses the release.
+// bundle, a verifier that can't be built or a required signer with no
+// signature check at all refuses the release.
 func verifiedChecksums(ctx context.Context, u *update.Updater, rel *update.Release) ([]byte, error) {
 	sumsURL, ok := rel.Assets["checksums.txt"]
 	if !ok {
@@ -1595,6 +1596,10 @@ func verifiedChecksums(ctx context.Context, u *update.Updater, rel *update.Relea
 	switch {
 	case err != nil:
 		return nil, refuse("signature check unavailable: %v", err)
+	case v == nil && t != nil && t.signer != "" && !trust.skipSignature:
+		// The extension asks for a signer this rhythm can't check:
+		// installing anyway would drop the guarantee without a word.
+		return nil, refuse("its releases must be signed by %s and this rhythm can't check signatures; update rhythm, or install without the check with --skip-signature", t.signer)
 	case v == nil:
 		return sums, nil
 	}
@@ -1631,7 +1636,7 @@ func (t *explainTransport) prepare(ctx context.Context, u *update.Updater, rel *
 		return "", false, nil
 	}
 	v, verr := t.trust.activeVerifier()
-	if v == nil && verr == nil && t.trust.cacheDir == "" {
+	if v == nil && verr == nil && t.trust.cacheDir == "" && (t.signer == "" || t.trust.skipSignature) {
 		return "", false, nil // checksums only: kit/update does it all
 	}
 	sums, err := verifiedChecksums(ctx, u, rel)
