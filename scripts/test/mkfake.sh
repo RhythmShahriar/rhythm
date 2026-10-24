@@ -20,8 +20,10 @@
 # did-you-mean lines. The rhythm versions differ the way real releases do:
 #   0.7.0 (latest)  knows tuner, soundcheck and echo; has install --dry-run
 #                   and --quiet; says once that --dir isn't on PATH; has
-#                   verify (which fails when RHYTHM_TEST_VERIFY=fail)
-#   0.6.0           the same without verify
+#                   verify (which fails when RHYTHM_TEST_VERIFY=fail),
+#                   install --defaults (answering $RHYTHM_TEST_DEFAULTS when
+#                   set), tool@version and install --locked
+#   0.6.0           the same without verify, --defaults, pins or --locked
 #   0.5.0           knows all three, no --dry-run or --quiet; says for each
 #                   tool that --dir isn't on PATH
 #   0.4.0           knows tuner and soundcheck, no --dry-run
@@ -59,9 +61,11 @@ EOF
 # router writes a rhythm stand-in to $1: version $2, tools $3 (with their
 # aliases in parentheses), features $4 and help with a "Tools:" block $5
 # (yes or no). Features, separated by spaces: "dry-run" (install --dry-run
-# and --quiet, which came together) and "verify" (the verify command; it
-# fails when RHYTHM_TEST_VERIFY is "fail"). The tools it writes are tool
-# stand-ins.
+# and --quiet, which came together), "verify" (the verify command; it fails
+# when RHYTHM_TEST_VERIFY is "fail"), "defaults" (install --defaults, which
+# adds $RHYTHM_TEST_DEFAULTS or else echo, soundcheck and tuner), "pins"
+# (tool@version) and "locked" (install --locked, from ./rhythm.lock). The
+# tools it writes are tool stand-ins that report the pinned version.
 router() {
 	cat >"$1" <<EOF
 #!/bin/sh
@@ -147,7 +151,7 @@ verify)
 	exit 1
 	;;
 esac
-dir=. dry= quiet= want=
+dir=. dry= quiet= want= defaults= locked=
 while [ $# -gt 0 ]; do
 	case $1 in
 	--dir)
@@ -161,14 +165,21 @@ while [ $# -gt 0 ]; do
 			exit 2
 		fi
 		printf 'Usage: rhythm install <tool>... [flags]\n\nFlags:\n'
+		! has defaults || printf '  --defaults       also install the tools a fresh setup gets\n'
 		printf '  --dir dir        install into dir (default: next to rhythm)\n'
 		printf '  --dry-run        check the names and print the tools, one per line, without installing\n'
+		! has locked || printf '  --locked         install the versions in rhythm.lock\n'
 		printf '  --quiet          print only the Installed lines and errors\n'
 		exit 0
 		;;
 	--quiet | --dry-run)
 		has dry-run || bad_flag "$1"
 		if [ "$1" = --quiet ]; then quiet=1; else dry=1; fi
+		shift
+		;;
+	--defaults | --locked)
+		has "${1#--}" || bad_flag "$1"
+		if [ "$1" = --defaults ]; then defaults=1; else locked=1; fi
 		shift
 		;;
 	-*) bad_flag "$1" ;;
@@ -178,16 +189,32 @@ while [ $# -gt 0 ]; do
 		;;
 	esac
 done
+# The defaults come after any named tools, as in rhythm.
+[ -z "$defaults" ] || want="$want ${RHYTHM_TEST_DEFAULTS-echo soundcheck tuner}"
+# --locked takes the tools and versions from ./rhythm.lock, written by
+# rhythm lock: "name" and "version" keys in order, rhythm's own left out.
+if [ -n "$locked" ]; then
+	if [ ! -f rhythm.lock ]; then
+		echo 'rhythm: no rhythm.lock found' >&2
+		exit 1
+	fi
+	want=$(grep -oE '"(name|version)": *"[^"]*"' rhythm.lock | sed 's/.*"\([^"]*\)"$/\1/' |
+		awk 'NR % 2 { n = $0; next } n != "rhythm" { print n "@" $0 }')
+fi
 # Every name is checked before anything is installed. Aliases install the
-# tool under its name, as rhythm does.
+# tool under its name, as rhythm does. A pin (tuner@0.3.1) keeps its version.
 names= bad=
-for n in $want; do
+for spec in $want; do
+	n=${spec%%@*} pin=
+	case $spec in
+	*@*) has pins && pin=${spec#*@} || n=$spec ;;
+	esac
 	set -- $tools
 	while [ $# -gt 1 ] && [ "$n" != "$1" ] && [ "($n)" != "$2" ]; do shift 2; done
 	if [ $# -lt 2 ]; then
 		bad="$bad $n"
 	else
-		names="$names $1"
+		names="$names $1@$pin"
 	fi
 done
 if [ -n "$bad" ]; then
@@ -200,13 +227,15 @@ if [ -n "$bad" ]; then
 	exit 2
 fi
 if [ -n "$dry" ]; then
-	for n in $names; do echo "$n"; done
+	for n in $names; do echo "${n%@}"; done
 	exit 0
 fi
 os=$(uname -s | tr ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz)
 case $(uname -m) in aarch64 | arm64) arch=arm64 ;; *) arch=amd64 ;; esac
-ok=0 failed=
-for n in $names; do
+ok=0 failed= count=0
+for spec in $names; do
+	n=${spec%@*} v=${spec#*@}
+	count=$((count + 1))
 	# The archive is fetched from the fake API, so a test can make it 404.
 	if [ -n "${RHYTHM_GITHUB_API:-}" ]; then
 		archive=${n}_${os}_${arch}.tar.gz
@@ -217,22 +246,20 @@ for n in $names; do
 			continue
 		fi
 	fi
-	cat >"$dir/rhythm-$n" <<'TOOL'
-#!/bin/sh
-version=0.0.0-test
+	printf '#!/bin/sh\nversion=%s\n' "${v:-0.0.0-test}" >"$dir/rhythm-$n"
+	cat >>"$dir/rhythm-$n" <<'TOOL'
 name=${0##*/}
 [ -z "${RHYTHM_TEST_LOG:-}" ] || printf '%s %s\n' "$name" "$*" >>"$RHYTHM_TEST_LOG"
 echo "$name $version"
 TOOL
 	chmod 0755 "$dir/rhythm-$n"
 	ok=$((ok + 1))
-	echo "Installed rhythm-$n 0.0.0-test to $dir/rhythm-$n"
+	echo "Installed rhythm-$n ${v:-0.0.0-test} to $dir/rhythm-$n"
 	has dry-run || on_path "$dir" || echo "Note: $dir isn't on your PATH."
 done
 ! has dry-run || [ -n "$quiet" ] || on_path "$dir" || echo "Note: $dir isn't on your PATH."
 if [ -n "$failed" ]; then
-	set -- $names
-	[ $# -lt 2 ] || printf 'Installed %s, failed %s:%s\n' "$ok" "$(echo $failed | wc -w)" "$(echo "$failed" | sed 's/ /, /g; s/^,//')" >&2
+	[ "$count" -lt 2 ] || printf 'Installed %s, failed %s:%s\n' "$ok" "$(echo $failed | wc -w)" "$(echo "$failed" | sed 's/ /, /g; s/^,//')" >&2
 	exit 1
 fi
 EOF
@@ -276,7 +303,7 @@ release() {
 }
 
 all="tuner (t) soundcheck (sc) echo (e)"
-new="dry-run verify"
+new="dry-run verify defaults pins locked"
 for spec in "0.7.0|$all|$new|yes" "0.6.0|$all|dry-run|yes" "0.5.0|$all||yes" \
 	"0.4.0|tuner (t) soundcheck (sc)||yes" "0.3.5|$all||no" \
 	"9.0.1|$all|$new|yes" "9.0.2|$all|$new|yes" "9.0.3|$all|$new|yes" "9.0.4|$all|$new|yes"; do

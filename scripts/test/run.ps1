@@ -109,7 +109,7 @@ function New-Release([string]$Version, [string]$Binary, [string]$Base, [string]$
 
 # The same releases as mkfake.sh builds for install.sh.
 $All = 'tuner:t,soundcheck:sc,echo:e'
-$New = 'dry-run,verify'
+$New = 'dry-run,verify,defaults,pins,locked'
 $Build = Join-Path $Work 'build'
 foreach ($R in @(
         @('0.7.0', $All, $New, 'yes'),
@@ -194,7 +194,7 @@ New-Item -ItemType Directory -Force -Path $NoGh | Out-Null
 $Vars = 'RHYTHM_GITHUB_API', 'RHYTHM_INSTALL_DIR', 'RHYTHM_VERSION', 'RHYTHM_TOOLS', 'RHYTHM_ARCH',
 'RHYTHM_TEST_LOG', 'GITHUB_TOKEN', 'RHYTHM_GITHUB_TOKEN', 'MOCK_LOG', 'TEMP', 'TMP', 'TMPDIR',
 'PATH', 'GH_TOKEN', 'GH_CONFIG_DIR', 'RHYTHM_SKIP_SIGNATURE', 'RHYTHM_TEST_VERIFY',
-'FAKE_SIG_LOG', 'FAKE_COSIGN_EXIT', 'FAKE_GH_AUTH', 'FAKE_GH_EXIT'
+'FAKE_SIG_LOG', 'FAKE_COSIGN_EXIT', 'FAKE_GH_AUTH', 'FAKE_GH_EXIT', 'RHYTHM_TEST_DEFAULTS', 'RHYTHM_LOCKED'
 
 # Set-Var sets an environment variable, or deletes it for $null. PowerShell
 # would pass $null to .NET as '', which .NET 9 and later keep as a value.
@@ -296,10 +296,10 @@ function Case-default {
     Assert-File 'rhythm.exe'
     Assert-Tools 'tuner', 'soundcheck', 'echo'
     Assert-Out "Installed rhythm 0.7.0 to $(Join-Path $script:CaseDir 'bin')"
-    if ((Get-Content (Join-Path $script:CaseDir 'argv.log')) -notcontains 'rhythm install --dry-run tuner soundcheck echo') {
-        Fail "the router wasn't asked about every tool at once"
+    if ((Get-Content (Join-Path $script:CaseDir 'argv.log')) -notcontains 'rhythm install --defaults --dry-run') {
+        Fail "the router wasn't asked for its defaults"
     }
-    Assert-Started 'tuner', 'soundcheck', 'echo'
+    Assert-Started 'echo', 'soundcheck', 'tuner'
 }
 
 function Case-none {
@@ -380,8 +380,8 @@ function Case-tool_fails {
     Assert-Tools 'tuner', 'echo'
     Assert-Out 'rhythm-soundcheck  downloading soundcheck_'
     Assert-Out ': HTTP 404'
-    Assert-Started 'tuner', 'echo'
-    Assert-Out 'Installed: tuner, echo. Failed: soundcheck (see above).'
+    Assert-Started 'echo', 'tuner'
+    Assert-Out 'Installed: echo, tuner. Failed: soundcheck (see above).'
 
     Rename-Item (Join-Path $Dl 'tuner') 'tuner.off'
     try { Invoke-Install @{ RHYTHM_TOOLS = 'tuner' } } finally { Rename-Item (Join-Path $Dl 'tuner.off') 'tuner' }
@@ -422,6 +422,105 @@ function Case-path_note {
     Assert-NoOut "isn't on your PATH"
     if (Select-String -Path $Log -SimpleMatch -Pattern '--quiet' -Quiet) { Fail '--quiet went to a router without it' }
     Assert-PathLines $(if ($OnWindows) { 1 } else { 0 })
+}
+
+function Get-Argv { $F = Join-Path $script:CaseDir 'argv.log'; if (Test-Path $F) { @(Get-Content $F) } else { @() } }
+
+function Case-defaults {
+    # Unset RHYTHM_TOOLS takes the router's own list of defaults.
+    $Log = Join-Path $script:CaseDir 'argv.log'
+    Invoke-Install @{ RHYTHM_TEST_DEFAULTS = 'soundcheck echo' }
+    Assert-Code 0
+    if ((Get-Argv) -notcontains 'rhythm install --defaults --dry-run') { Fail "the router wasn't asked for its defaults" }
+    Assert-Tools 'soundcheck', 'echo'
+    Assert-Started 'soundcheck', 'echo'
+
+    # A router without --defaults gets the built-in list, checked at once.
+    Remove-Item -Recurse -Force (Join-Path $script:CaseDir 'bin'), $Log
+    Invoke-Install @{ RHYTHM_VERSION = '0.6.0' }
+    Assert-Code 0
+    if ((Get-Argv) -notcontains 'rhythm install --defaults --dry-run') { Fail "the old router wasn't asked for its defaults" }
+    if ((Get-Argv) -notcontains 'rhythm install --dry-run tuner soundcheck echo') { Fail "the built-in list wasn't checked in one call" }
+    Assert-Tools 'tuner', 'soundcheck', 'echo'
+    Assert-Started 'tuner', 'soundcheck', 'echo'
+
+    # An explicit list never asks for the defaults.
+    Remove-Item $Log
+    Invoke-Install @{ RHYTHM_TOOLS = 'tuner' }
+    Assert-Code 0
+    if ((Get-Argv) -match '--defaults') { Fail 'the defaults were asked for with RHYTHM_TOOLS set' }
+}
+
+function Case-pins {
+    # tool@version reaches rhythm as it was written.
+    $Bin = Join-Path $script:CaseDir 'bin'
+    Invoke-Install @{ RHYTHM_TOOLS = 'tuner@0.3.1,soundcheck' }
+    Assert-Code 0
+    if ((Get-Argv) -notcontains 'rhythm install --dry-run tuner@0.3.1 soundcheck') { Fail "the pin wasn't checked as written" }
+    if ((Get-Argv) -notcontains "rhythm install tuner@0.3.1 --dir $Bin --quiet") { Fail "the pin didn't reach rhythm install" }
+    Assert-Out 'Installed rhythm-tuner 0.3.1 '
+    Assert-Tools 'tuner', 'soundcheck'
+    Assert-Started 'tuner', 'soundcheck'
+
+    # A pin and the plain name are one tool.
+    Remove-Item -Recurse -Force $Bin, (Join-Path $script:CaseDir 'argv.log')
+    Invoke-Install @{ RHYTHM_TOOLS = 't@0.3.1 tuner' }
+    Assert-Code 0
+    if (@(Get-Argv | Where-Object { $_ -match '^rhythm install t(uner)?[@ ]' }).Count -ne 1) { Fail 'tuner was installed more than once' }
+
+    # A rhythm that can't pin says so before installing any tool.
+    Remove-Item -Recurse -Force $Bin
+    Invoke-Install @{ RHYTHM_VERSION = '0.6.0'; RHYTHM_TOOLS = 'tuner@0.3.1 echo' }
+    Assert-Code 1
+    Assert-Out "rhythm install: rhythm 0.6.0 doesn't know tuner@0.3.1; it can't pin tool versions, so set RHYTHM_VERSION to a newer rhythm or leave out @version"
+    Assert-Tools
+    Invoke-Install @{ RHYTHM_VERSION = '0.5.0'; RHYTHM_TOOLS = 'echo tuner@0.3.1' }
+    Assert-Code 1
+    Assert-Out "rhythm install: rhythm 0.5.0 doesn't know tuner@0.3.1; it can't pin tool versions"
+    Assert-Tools
+}
+
+function Case-locked {
+    $Bin = Join-Path $script:CaseDir 'bin'
+    $Lock = Join-Path $script:CaseDir 'rhythm.lock'
+    [IO.File]::WriteAllText($Lock, '{"schema":"rhythm-lock/v1","rhythm":{"name":"rhythm","repo":"RhythmShahriar/rhythm","version":"0.7.0","platforms":{}},"tools":[{"name":"tuner","repo":"RhythmShahriar/tuner","version":"0.3.1","platforms":{}},{"name":"echo","repo":"RhythmShahriar/echo","version":"0.1.0","platforms":{}}]}', $Utf8)
+    Invoke-Install @{ RHYTHM_LOCKED = '1' }
+    Assert-Code 0
+    if ((Get-Argv) -notcontains "rhythm install --locked --dir $Bin --quiet") { Fail "rhythm wasn't asked to install --locked" }
+    if ((Get-Argv) -match '--defaults') { Fail 'the defaults were asked for with RHYTHM_LOCKED=1' }
+    Assert-Out 'Installed rhythm-tuner 0.3.1 '
+    Assert-Tools 'tuner', 'echo'
+    Assert-Started 'tuner', 'echo'
+
+    # RHYTHM_TOOLS gives way to the lock.
+    Invoke-Install @{ RHYTHM_LOCKED = '1'; RHYTHM_TOOLS = 'soundcheck' }
+    Assert-Code 0
+    Assert-Out 'warning: RHYTHM_TOOLS is ignored: RHYTHM_LOCKED installs the tools in rhythm.lock'
+    Assert-Tools 'tuner', 'echo'
+
+    # A tool the lock names that fails is in the summary.
+    $Dl = Join-Path $Srv 'dl'
+    Rename-Item (Join-Path $Dl 'echo') 'echo.off'
+    try { Invoke-Install @{ RHYTHM_LOCKED = '1' } } finally { Rename-Item (Join-Path $Dl 'echo.off') 'echo' }
+    Assert-Code 1
+    Assert-Out 'Installed: tuner. Failed: echo (see above).'
+
+    # A rhythm without --locked can't.
+    Remove-Item -Recurse -Force $Bin
+    Invoke-Install @{ RHYTHM_LOCKED = '1'; RHYTHM_VERSION = '0.6.0' }
+    Assert-Code 1
+    Assert-Out "rhythm install: rhythm 0.6.0 can't install from rhythm.lock; set RHYTHM_VERSION to a newer rhythm"
+    Assert-Tools
+
+    # RHYTHM_LOCKED=0 is off; with no lock RHYTHM_LOCKED=1 stops.
+    Remove-Item (Join-Path $script:CaseDir 'argv.log')
+    Invoke-Install @{ RHYTHM_LOCKED = '0'; RHYTHM_TOOLS = 'tuner' }
+    Assert-Code 0
+    if ((Get-Argv) -match '--locked') { Fail 'RHYTHM_LOCKED=0 used the lock' }
+    Remove-Item $Lock
+    Invoke-Install @{ RHYTHM_LOCKED = '1' }
+    Assert-Code 1
+    Assert-Out "rhythm install: RHYTHM_LOCKED is set but there is no rhythm.lock in $($script:CaseDir)"
 }
 
 function Get-SigLog { $F = Join-Path $script:CaseDir 'sig.log'; if (Test-Path $F) { @(Get-Content $F) } else { @() } }
@@ -775,7 +874,7 @@ function Case-readonly_dir {
 }
 
 if (-not $Cases.Count) {
-    $Cases = 'default', 'none', 'some', 'commas', 'typo', 'tool_fails', 'path_note',
+    $Cases = 'default', 'none', 'some', 'commas', 'typo', 'tool_fails', 'defaults', 'pins', 'locked', 'path_note',
     'signature_cosign', 'signature_cosign_fails', 'signature_gh', 'signature_none', 'skip_signature', 'router_verify', 'bad_checksum', 'no_checksums', 'missing_dir', 'relative_dir', 'truncated', 'http_refused', 'http_download_refused', 'github_token', 'rhythm_token',
     'rate_limit', 'old_router', 'old_router_named', 'router_without_dry_run', 'router_without_tools_block',
     'unknown_tool', 'running_exe', 'swap_fallback', 'swap_restore', 'readonly_dir'

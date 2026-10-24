@@ -86,6 +86,42 @@ func TestVerify(t *testing.T) {
 	}
 }
 
+func TestDefaultsPinsAndLock(t *testing.T) {
+	stubAs(t, "0.7.0", "tuner:t,soundcheck:sc,echo:e", "dry-run,defaults,pins,locked", "yes")
+	if code, out, _ := call("install", "--defaults", "--dry-run"); code != 0 || out != "echo\nsoundcheck\ntuner\n" {
+		t.Fatalf("--defaults = %d %q", code, out)
+	}
+	t.Setenv("RHYTHM_TEST_DEFAULTS", "sc")
+	if code, out, _ := call("install", "t@0.3.1", "--defaults", "--dry-run"); code != 0 || out != "tuner@0.3.1\nsoundcheck\n" {
+		t.Fatalf("pin and --defaults = %d %q", code, out)
+	}
+	if _, out, _ := call("install", "--help"); !strings.Contains(out, "--defaults") || !strings.Contains(out, "--locked") {
+		t.Fatalf("install --help:\n%s", out)
+	}
+
+	dir := t.TempDir()
+	t.Chdir(dir)
+	if code, _, errOut := call("install", "--locked"); code != 1 || errOut != "rhythm: no rhythm.lock found\n" {
+		t.Fatalf("no lock = %d %q", code, errOut)
+	}
+	lock := `{"schema":"rhythm-lock/v1","tools":[{"name":"tuner","version":"0.3.1"},{"name":"echo","version":"0.1.0"}]}`
+	if err := os.WriteFile(filepath.Join(dir, "rhythm.lock"), []byte(lock), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errOut := call("install", "--locked", "--dir", dir, "--quiet")
+	if code != 0 || !strings.Contains(out, "Installed rhythm-tuner 0.3.1 ") || !strings.Contains(out, "Installed rhythm-echo 0.1.0 ") {
+		t.Fatalf("--locked = %d %q %q", code, out, errOut)
+	}
+
+	stubAs(t, "0.6.0", "tuner:t", "dry-run", "yes")
+	if code, _, errOut := call("install", "--defaults", "--dry-run"); code != 2 || !strings.Contains(errOut, "flag provided but not defined: -defaults") {
+		t.Fatalf("old --defaults = %d %q", code, errOut)
+	}
+	if code, _, errOut := call("install", "--dry-run", "tuner@0.3.1"); code != 2 || !strings.Contains(errOut, `unknown tool "tuner@0.3.1"`) {
+		t.Fatalf("old pin = %d %q", code, errOut)
+	}
+}
+
 func TestQuietAndPathNote(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("PATH", "")

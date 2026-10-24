@@ -181,10 +181,9 @@ case_default() {
 	expect_file rhythm
 	expect_tools tuner soundcheck echo
 	expect_out "Installed rhythm 0.7.0 to $cdir/bin"
-	grep -qx 'rhythm install --dry-run tuner soundcheck echo' "$cdir/argv.log" ||
-		fail "the router wasn't asked about every tool at once"
+	grep -qx 'rhythm install --defaults --dry-run' "$cdir/argv.log" || fail "the router wasn't asked for its defaults"
 	grep -qx "rhythm install echo --dir $cdir/bin --quiet" "$cdir/argv.log" || fail "the router wasn't told --quiet"
-	expect_started tuner soundcheck echo
+	expect_started echo soundcheck tuner
 }
 
 case_none() {
@@ -259,8 +258,8 @@ case_tool_fails() {
 	expect_tools tuner echo
 	expect_out "rhythm-soundcheck  downloading soundcheck_"
 	expect_out ": HTTP 404"
-	expect_started tuner echo
-	[ "$(tail -n 1 "$cdir/out")" = "Installed: tuner, echo. Failed: soundcheck (see above)." ] ||
+	expect_started echo tuner
+	[ "$(tail -n 1 "$cdir/out")" = "Installed: echo, tuner. Failed: soundcheck (see above)." ] ||
 		fail "the last line isn't the summary"
 
 	# Nothing installed at all.
@@ -270,6 +269,109 @@ case_tool_fails() {
 	expect_code 1
 	expect_no_out "Install a tool"
 	expect_out "Installed: none. Failed: tuner (see above)."
+}
+
+case_defaults() {
+	# Unset RHYTHM_TOOLS takes the router's own list of defaults.
+	install RHYTHM_TEST_DEFAULTS='soundcheck echo'
+	expect_code 0
+	grep -qx 'rhythm install --defaults --dry-run' "$cdir/argv.log" || fail "the router wasn't asked for its defaults"
+	expect_tools soundcheck echo
+	expect_started soundcheck echo
+
+	# A router without --defaults gets the built-in list, checked at once.
+	rm -rf "${cdir:?}/bin" "$cdir/argv.log"
+	install RHYTHM_VERSION=0.6.0
+	expect_code 0
+	grep -qx 'rhythm install --defaults --dry-run' "$cdir/argv.log" || fail "the old router wasn't asked for its defaults"
+	grep -qx 'rhythm install --dry-run tuner soundcheck echo' "$cdir/argv.log" ||
+		fail "the built-in list wasn't checked in one call"
+	expect_tools tuner soundcheck echo
+	expect_started tuner soundcheck echo
+
+	# An explicit list never asks for the defaults.
+	rm -f "$cdir/argv.log"
+	install RHYTHM_TOOLS=tuner
+	expect_code 0
+	! grep -q -- '--defaults' "$cdir/argv.log" || fail "the defaults were asked for with RHYTHM_TOOLS set"
+}
+
+case_pins() {
+	# tool@version reaches rhythm as it was written.
+	install RHYTHM_TOOLS='tuner@0.3.1,soundcheck'
+	expect_code 0
+	grep -qx 'rhythm install --dry-run tuner@0.3.1 soundcheck' "$cdir/argv.log" || fail "the pin wasn't checked as written"
+	grep -qx "rhythm install tuner@0.3.1 --dir $cdir/bin --quiet" "$cdir/argv.log" || fail "the pin didn't reach rhythm install"
+	[ "$("$cdir/bin/rhythm-tuner" --version)" = "rhythm-tuner 0.3.1" ] || fail "tuner isn't the pinned 0.3.1"
+	expect_tools tuner soundcheck
+	expect_started tuner soundcheck
+
+	# A pin and the plain name are one tool.
+	rm -rf "${cdir:?}/bin" "$cdir/argv.log"
+	install RHYTHM_TOOLS='t@0.3.1 tuner'
+	expect_code 0
+	[ "$(grep -c '^rhythm install t\(uner\)\{0,1\}[@ ]' "$cdir/argv.log")" = 1 ] || fail "tuner was installed more than once"
+
+	# A rhythm that can't pin says so before installing any tool.
+	rm -rf "${cdir:?}/bin"
+	install RHYTHM_VERSION=0.6.0 RHYTHM_TOOLS='tuner@0.3.1 echo'
+	expect_code 1
+	expect_out "rhythm install: rhythm 0.6.0 doesn't know tuner@0.3.1; it can't pin tool versions, so set RHYTHM_VERSION to a newer rhythm or leave out @version"
+	expect_tools
+	install RHYTHM_VERSION=0.5.0 RHYTHM_TOOLS='echo tuner@0.3.1'
+	expect_code 1
+	expect_out "rhythm install: rhythm 0.5.0 doesn't know tuner@0.3.1; it can't pin tool versions"
+	expect_tools
+}
+
+case_locked() {
+	cat >"$cdir/rhythm.lock" <<'EOF'
+{
+  "schema": "rhythm-lock/v1",
+  "rhythm": {"name": "rhythm", "repo": "RhythmShahriar/rhythm", "version": "0.7.0", "platforms": {}},
+  "tools": [
+    {"name": "tuner", "repo": "RhythmShahriar/tuner", "version": "0.3.1", "platforms": {}},
+    {"name": "echo", "repo": "RhythmShahriar/echo", "version": "0.1.0", "platforms": {}}
+  ]
+}
+EOF
+	install RHYTHM_LOCKED=1
+	expect_code 0
+	grep -qx "rhythm install --locked --dir $cdir/bin --quiet" "$cdir/argv.log" || fail "rhythm wasn't asked to install --locked"
+	! grep -q -- '--defaults' "$cdir/argv.log" || fail "the defaults were asked for with RHYTHM_LOCKED=1"
+	[ "$("$cdir/bin/rhythm-tuner" --version)" = "rhythm-tuner 0.3.1" ] || fail "tuner isn't the locked 0.3.1"
+	expect_tools tuner echo
+	expect_started tuner echo
+
+	# RHYTHM_TOOLS gives way to the lock.
+	install RHYTHM_LOCKED=1 RHYTHM_TOOLS=soundcheck
+	expect_code 0
+	expect_out "warning: RHYTHM_TOOLS is ignored: RHYTHM_LOCKED installs the tools in rhythm.lock"
+	expect_tools tuner echo
+
+	# A tool the lock names that fails is in the summary.
+	mv "$work/srv/dl/echo" "$work/srv/dl/echo.off"
+	install RHYTHM_LOCKED=1
+	mv "$work/srv/dl/echo.off" "$work/srv/dl/echo"
+	expect_code 1
+	expect_out "Installed: tuner. Failed: echo (see above)."
+
+	# A rhythm without --locked can't.
+	rm -rf "${cdir:?}/bin"
+	install RHYTHM_LOCKED=1 RHYTHM_VERSION=0.6.0
+	expect_code 1
+	expect_out "rhythm install: rhythm 0.6.0 can't install from rhythm.lock; set RHYTHM_VERSION to a newer rhythm"
+	expect_tools
+
+	# RHYTHM_LOCKED=0 is off; with no lock RHYTHM_LOCKED=1 stops.
+	rm -f "$cdir/argv.log"
+	install RHYTHM_LOCKED=0 RHYTHM_TOOLS=tuner
+	expect_code 0
+	! grep -q -- '--locked' "$cdir/argv.log" || fail "RHYTHM_LOCKED=0 used the lock"
+	rm "$cdir/rhythm.lock"
+	install RHYTHM_LOCKED=1
+	expect_code 1
+	expect_out "rhythm install: RHYTHM_LOCKED is set but there is no rhythm.lock in $cdir"
 }
 
 case_bad_checksum() {
@@ -763,7 +865,7 @@ case_readme_links() {
 	check_links "$cdir/README.md" || fail "a good README failed"
 }
 
-cases=${*:-default none some commas typo tool_fails path_hint path_hint_macos path_ok
+cases=${*:-default none some commas typo tool_fails defaults pins locked path_hint path_hint_macos path_ok
 signature_cosign signature_cosign_fails signature_gh signature_none skip_signature router_verify bad_checksum no_checksums missing_dir relative_dir unwritable_dir truncated proto http_refused http_download_refused github_token
 rhythm_token rate_limit old_router old_router_named router_without_dry_run
 router_without_tools_block unknown_tool readme readme_commands readme_links}

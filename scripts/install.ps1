@@ -7,8 +7,11 @@
 # Environment:
 #   RHYTHM_INSTALL_DIR   where to install (default %LOCALAPPDATA%\Programs\rhythm)
 #   RHYTHM_VERSION       a specific version, e.g. 0.5.0 (default: latest)
-#   RHYTHM_TOOLS         tools to install as well, separated by spaces or commas
-#                        (default "tuner soundcheck echo"; "none" for none)
+#   RHYTHM_TOOLS         tools to install as well, separated by spaces or commas; tool@version
+#                        pins one (default: the tools rhythm installs on a fresh setup,
+#                        "tuner soundcheck echo" for an older rhythm; "none" for none)
+#   RHYTHM_LOCKED        1 installs the tools in .\rhythm.lock instead (rhythm install --locked)
+#   RHYTHM_SKIP_SIGNATURE  1 skips the signature checks, for a mirror you trust
 #   RHYTHM_GITHUB_API    GitHub API base, for mirrors (default https://api.github.com).
 #                        It must be https; plain http is accepted only for 127.0.0.1, ::1 and localhost.
 #   GITHUB_TOKEN         sent to api.github.com only, to lift the anonymous rate limit
@@ -285,6 +288,7 @@
             Write-Host $R.Out
             $Bad = @([regex]::Matches($R.Out, 'unknown tool "([^"]*)"') | ForEach-Object { $_.Groups[1].Value })
             if (-not $Bad.Count) { throw "rhythm install: $Installed refused RHYTHM_TOOLS (see above); nothing more was installed" }
+            if ($Bad -match '@') { throw "rhythm install: $Installed doesn't know $($Bad -join ', '); it can't pin tool versions, so set RHYTHM_VERSION to a newer rhythm or leave out @version" }
             throw "rhythm install: $Installed doesn't know $($Bad -join ', '); run '$Rhythm help' to see the tools"
         }
         $Ok = @()
@@ -292,6 +296,7 @@
             # A default this rhythm doesn't know: ask about each one, to skip it.
             $Knows = if ($Old) { $Known -contains $Tool } else { (Invoke-Native @('install', '--dry-run', $Tool)).Code -eq 0 }
             if ($Knows) { $Ok += $Tool; continue }
+            if ($Tool -match '@') { throw "rhythm install: $Installed doesn't know $Tool; it can't pin tool versions, so set RHYTHM_VERSION to a newer rhythm or leave out @version" }
             if ($Explicit) { throw "rhythm install: $Installed doesn't know $Tool; run '$Rhythm help' to see the tools" }
             Write-Host "warning: $Installed doesn't know $Tool; skipped"
         }
@@ -335,24 +340,47 @@
     }
     Write-Host "Installed $Installed to $Dir"
 
-    # An unset RHYTHM_TOOLS means the defaults. Names are separated by
-    # spaces or commas as in rhythm's own lists; "none" stands for no
-    # tool. Windows PowerShell 5.1 can't set a variable to '' (that deletes
-    # it), so "none" is the way to ask for none there. An old pinned rhythm
-    # may not know every default tool; those are skipped. A name the user
-    # asked for must be known, or no tool is installed.
+    # An unset RHYTHM_TOOLS means the defaults, which a newer rhythm names
+    # itself (`rhythm install --defaults --dry-run`); for an older one they
+    # are $DefaultTools. Names are separated by spaces or commas as in
+    # rhythm's own lists; "none" stands for no tool and tool@version pins
+    # one, passed to rhythm as it is. Windows PowerShell 5.1 can't set a
+    # variable to '' (that deletes it), so "none" is the way to ask for none
+    # there. An old pinned rhythm may not know every default tool; those are
+    # skipped. A name the user asked for must be known, or no tool is
+    # installed. RHYTHM_LOCKED=1 installs what .\rhythm.lock says instead.
     $Explicit = $null -ne $env:RHYTHM_TOOLS
-    $ToolList = if ($Explicit) { $env:RHYTHM_TOOLS } else { $DefaultTools }
-    $Tools = @($ToolList -split '[\s,]+' | Where-Object { $_ -and $_ -ne 'none' })
-    # Get-ToolName turns an alias or a rhythm-<tool> name into the tool's name.
+    $Locked = $env:RHYTHM_LOCKED -and $env:RHYTHM_LOCKED -ne '0'
+    # Get-ToolName turns an alias, a rhythm-<tool> name or a pin
+    # (tuner@0.3.1) into the tool's name.
     function Get-ToolName([string]$Tool) {
-        $Name = $Tool -replace '^rhythm-', ''
+        $Name = $Tool -replace '@.*$', '' -replace '^rhythm-', ''
         switch ($Name) { 't' { 'tuner' } 'sc' { 'soundcheck' } 'e' { 'echo' } default { $Name } }
+    }
+    $Known = @()
+    if ($Locked) {
+        if (-not (Test-Path -LiteralPath 'rhythm.lock' -PathType Leaf)) {
+            throw "rhythm install: RHYTHM_LOCKED is set but there is no rhythm.lock in $((Get-Location).ProviderPath)"
+        }
+        if ((Invoke-Native @('install', '--help')).Out -notmatch '--locked') {
+            throw "rhythm install: $Installed can't install from rhythm.lock; set RHYTHM_VERSION to a newer rhythm"
+        }
+        if ($Explicit) { Write-Host 'warning: RHYTHM_TOOLS is ignored: RHYTHM_LOCKED installs the tools in rhythm.lock' }
+    }
+    else {
+        $R = if ($Explicit) { $null } else { Invoke-Native @('install', '--defaults', '--dry-run') }
+        if ($R -and $R.Code -eq 0) {
+            $Known = @($R.Out -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+        }
+        else {
+            $ToolList = if ($Explicit) { $env:RHYTHM_TOOLS } else { $DefaultTools }
+            $Known = Get-KnownTools @($ToolList -split '[\s,]+' | Where-Object { $_ -and $_ -ne 'none' })
+        }
     }
     # An alias and the name are one tool, installed once.
     $Todo = @()
     $Names = @()
-    foreach ($Tool in (Get-KnownTools $Tools)) {
+    foreach ($Tool in $Known) {
         $Name = Get-ToolName $Tool
         if ($Names -notcontains $Name) { $Names += $Name; $Todo += $Tool }
     }
@@ -365,7 +393,18 @@
     # leaves out its own PATH notes; an older one prints one per tool,
     # filtered here.
     $Quiet = @()
-    if ($Todo.Count -and (Invoke-Native @('install', '--help')).Out -match '--quiet') { $Quiet = @('--quiet') }
+    if (($Todo.Count -or $Locked) -and (Invoke-Native @('install', '--help')).Out -match '--quiet') { $Quiet = @('--quiet') }
+    if ($Locked) {
+        # One call; the tools installed are the ones rhythm says it installed.
+        $R = Invoke-Native (@('install', '--locked', '--dir', $Dir) + $Quiet)
+        $Lines = @($R.Out -split "`n" | Where-Object { $_ -and $_ -notmatch "^Note: .* isn't on your PATH\.$" })
+        if ($Lines.Count) { Write-Host ($Lines -join "`n") }
+        $Done = @([regex]::Matches($R.Out, '(?m)^Installed rhythm-(\S+) ') | ForEach-Object { $_.Groups[1].Value })
+        if ($R.Code -ne 0) {
+            $Failed = @([regex]::Matches($R.Out, '(?m)^Installed \d+, .*failed \d+: (.*)$') | ForEach-Object { $_.Groups[1].Value -split ',\s*' } | ForEach-Object { $_.Trim() -replace '^rhythm-', '' })
+            if (-not $Failed.Count) { $Failed = @('rhythm.lock') }
+        }
+    }
     foreach ($Tool in $Todo) {
         $R = Invoke-Native (@('install', $Tool, '--dir', $Dir) + $Quiet)
         $Lines = @($R.Out -split "`n" | Where-Object { $_ -and $_ -notmatch "^Note: .* isn't on your PATH\.$" })

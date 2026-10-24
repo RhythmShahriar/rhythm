@@ -8,8 +8,11 @@
 # Environment:
 #   RHYTHM_INSTALL_DIR   where to install (default ~/.local/bin, or /usr/local/bin as root)
 #   RHYTHM_VERSION       a specific version, e.g. 0.5.0 (default: latest)
-#   RHYTHM_TOOLS         tools to install as well, separated by spaces or commas
-#                        (default "tuner soundcheck echo"; "none" for none)
+#   RHYTHM_TOOLS         tools to install as well, separated by spaces or commas; tool@version
+#                        pins one (default: the tools rhythm installs on a fresh setup,
+#                        "tuner soundcheck echo" for an older rhythm; "none" for none)
+#   RHYTHM_LOCKED        1 installs the tools in ./rhythm.lock instead (rhythm install --locked)
+#   RHYTHM_SKIP_SIGNATURE  1 skips the signature checks, for a mirror you trust
 #   RHYTHM_GITHUB_API    GitHub API base, for mirrors (default https://api.github.com).
 #                        It must be https; plain http is accepted only for 127.0.0.1, ::1 and localhost.
 #   GITHUB_TOKEN         sent to api.github.com only, to lift the anonymous rate limit
@@ -142,6 +145,9 @@ main() {
 			cat "$tmp/probe.out" >&2
 			bad=$(sed -n 's/.*unknown tool "\([^"]*\)".*/\1/p' "$tmp/probe.out" | tr '\n' ' ')
 			[ -n "$bad" ] || die "$installed refused RHYTHM_TOOLS (see above); nothing more was installed"
+			case $bad in
+			*@*) die "$installed doesn't know $(commas "$bad"); it can't pin tool versions, so set RHYTHM_VERSION to a newer rhythm or leave out @version" ;;
+			esac
 			die "$installed doesn't know $(commas "$bad"); run '$dir/rhythm help' to see the tools"
 		fi
 		# A default this rhythm doesn't know: ask about each one, to skip it.
@@ -157,6 +163,9 @@ main() {
 	# unknown_tool stops at a tool the user named that rhythm doesn't know.
 	# An unknown default comes from an old pinned rhythm and is skipped.
 	unknown_tool() {
+		case $1 in
+		*@*) die "$installed doesn't know $1; it can't pin tool versions, so set RHYTHM_VERSION to a newer rhythm or leave out @version" ;;
+		esac
 		[ -z "$explicit" ] || die "$installed doesn't know $1; run '$dir/rhythm help' to see the tools"
 		warn "$installed doesn't know $1; skipped"
 	}
@@ -219,8 +228,10 @@ main() {
 		esac
 	}
 
-	# tool_name turns an alias or a rhythm-<tool> name into the tool's name.
+	# tool_name turns an alias, a rhythm-<tool> name or a pin (tuner@0.3.1)
+	# into the tool's name.
 	tool_name() {
+		set -- "${1%%@*}"
 		case ${1#rhythm-} in
 		t) echo tuner ;;
 		sc) echo soundcheck ;;
@@ -383,17 +394,36 @@ main() {
 	fi
 	say "Installed $installed to $dir"
 
-	# An unset RHYTHM_TOOLS means the defaults. Names are separated by spaces
-	# or commas as in rhythm's own lists; "none" stands for no tool. An
-	# old pinned rhythm may not know every default tool; those are skipped.
-	# A name the user asked for must be known, or no tool is installed.
+	# An unset RHYTHM_TOOLS means the defaults, which a newer rhythm names
+	# itself (`rhythm install --defaults --dry-run`); for an older one they
+	# are DEFAULT_TOOLS. Names are separated by spaces or commas as in
+	# rhythm's own lists; "none" stands for no tool and tool@version pins
+	# one, passed to rhythm as it is. An old pinned rhythm may not know every
+	# default tool; those are skipped. A name the user asked for must be
+	# known, or no tool is installed. RHYTHM_LOCKED=1 installs what
+	# ./rhythm.lock says instead.
 	explicit=${RHYTHM_TOOLS+yes}
+	locked=
+	case ${RHYTHM_LOCKED:-0} in
+	0) ;;
+	*) locked=yes ;;
+	esac
 	tools=
+	todo=
 	set -f
-	for tool in $(printf '%s' "${RHYTHM_TOOLS-$DEFAULT_TOOLS}" | tr ',' ' '); do
-		[ "$(lower "$tool")" = none ] || tools="$tools $tool"
-	done
-	check_tools
+	if [ -n "$locked" ]; then
+		[ -f rhythm.lock ] || die "RHYTHM_LOCKED is set but there is no rhythm.lock in $(pwd)"
+		"$dir/rhythm" install --help 2>&1 | grep -q -- --locked ||
+			die "$installed can't install from rhythm.lock; set RHYTHM_VERSION to a newer rhythm"
+		[ -z "$explicit" ] || warn "RHYTHM_TOOLS is ignored: RHYTHM_LOCKED installs the tools in rhythm.lock"
+	elif [ -z "$explicit" ] && "$dir/rhythm" install --defaults --dry-run >"$tmp/defaults.out" 2>/dev/null; then
+		todo=$(cat "$tmp/defaults.out")
+	else
+		for tool in $(printf '%s' "${RHYTHM_TOOLS-$DEFAULT_TOOLS}" | tr ',' ' '); do
+			[ "$(lower "$tool")" = none ] || tools="$tools $tool"
+		done
+		check_tools
+	fi
 	# An alias and the name are one tool, installed once.
 	names=
 	list=
@@ -409,12 +439,22 @@ main() {
 	# The PATH hint comes once, at the end. A router that has --quiet leaves
 	# out its own PATH notes; an older one prints one per tool, filtered here.
 	quiet=
-	if [ -n "$todo" ] && "$dir/rhythm" install --help 2>&1 | grep -q -- --quiet; then
+	if [ -n "$todo$locked" ] && "$dir/rhythm" install --help 2>&1 | grep -q -- --quiet; then
 		quiet=--quiet
 	fi
 	# A tool that fails doesn't stop the next; the router has said why.
 	done_tools=
 	failed=
+	if [ -n "$locked" ]; then
+		# One call; the tools installed are the ones rhythm says it installed.
+		# shellcheck disable=SC2086 # $quiet is empty or one flag
+		if ! "$dir/rhythm" install --locked --dir "$dir" $quiet >"$tmp/install.out" 2>&1; then
+			failed=$(sed -n 's/^Installed [0-9]*, .*failed [0-9]*: //p' "$tmp/install.out" | tr -d ',' | sed 's/rhythm-//g')
+			[ -n "$failed" ] || failed="rhythm.lock"
+		fi
+		done_tools=$(sed -n 's/^Installed rhythm-\([^ ]*\) .*/\1/p' "$tmp/install.out")
+		grep -v "^Note: .* isn't on your PATH\.\$" "$tmp/install.out" >&2 || :
+	fi
 	for tool in $todo; do
 		# shellcheck disable=SC2086 # $quiet is empty or one flag
 		if "$dir/rhythm" install "$tool" --dir "$dir" $quiet >"$tmp/install.out"; then

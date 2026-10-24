@@ -9,9 +9,14 @@
 //	-X main.tools=tuner:t,echo:e   the tools it knows, with their aliases
 //	-X main.features=dry-run,verify  what it can do, separated by commas:
 //	                               "dry-run" (install --dry-run and --quiet,
-//	                               which came together) and "verify" (the
+//	                               which came together), "verify" (the
 //	                               verify command, which fails when
-//	                               RHYTHM_TEST_VERIFY is "fail")
+//	                               RHYTHM_TEST_VERIFY is "fail"), "defaults"
+//	                               (install --defaults: $RHYTHM_TEST_DEFAULTS
+//	                               when set, else echo, soundcheck and
+//	                               tuner), "pins" (tool@version) and
+//	                               "locked" (install --locked, from
+//	                               ./rhythm.lock)
 //	-X main.toolsBlock=yes         whether help has a "Tools:" block
 //
 // It logs its argv to $RHYTHM_TEST_LOG, checks every name before installing
@@ -25,6 +30,8 @@
 package main
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -39,7 +46,7 @@ import (
 var (
 	version    = "0.0.0"
 	tools      = "tuner:t,soundcheck:sc,echo:e"
-	features   = "dry-run,verify"
+	features   = "dry-run,verify,defaults,pins,locked"
 	toolsBlock = "yes"
 )
 
@@ -109,7 +116,7 @@ func help(w io.Writer) {
 }
 
 func install(args []string, stdout, stderr io.Writer) int {
-	dir, dry, quiet := ".", false, false
+	dir, dry, quiet, defaults, locked := ".", false, false, false, false
 	var want []string
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -120,10 +127,22 @@ func install(args []string, stdout, stderr io.Writer) int {
 				return 2
 			}
 			fmt.Fprintln(stdout, "Usage: rhythm install <tool>... [flags]\n\nFlags:")
+			if has("defaults") {
+				fmt.Fprintln(stdout, "  --defaults       also install the tools a fresh setup gets")
+			}
 			fmt.Fprintln(stdout, "  --dir dir        install into dir (default: next to rhythm)")
 			fmt.Fprintln(stdout, "  --dry-run        check the names and print the tools, one per line, without installing")
+			if has("locked") {
+				fmt.Fprintln(stdout, "  --locked         install the versions in rhythm.lock")
+			}
 			fmt.Fprintln(stdout, "  --quiet          print only the Installed lines and errors")
 			return 0
+		case "--defaults", "--locked":
+			if !has(strings.TrimPrefix(args[i], "--")) {
+				return badFlag(args[i], stderr)
+			}
+			defaults = defaults || args[i] == "--defaults"
+			locked = locked || args[i] == "--locked"
 		case "--dir":
 			if i+1 < len(args) {
 				i++
@@ -142,6 +161,22 @@ func install(args []string, stdout, stderr io.Writer) int {
 			want = append(want, args[i])
 		}
 	}
+	// The defaults come after any named tools, as in rhythm.
+	if defaults {
+		list, ok := os.LookupEnv("RHYTHM_TEST_DEFAULTS")
+		if !ok {
+			list = "echo soundcheck tuner"
+		}
+		want = append(want, strings.Fields(list)...)
+	}
+	if locked {
+		pins, err := readLock("rhythm.lock")
+		if err != nil {
+			fmt.Fprintln(stderr, "rhythm:", err)
+			return 1
+		}
+		want = pins
+	}
 	// known maps each name and alias to the tool's name, as rhythm does.
 	known := map[string]string{}
 	var names []string
@@ -151,9 +186,15 @@ func install(args []string, stdout, stderr io.Writer) int {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	// Every name is checked before anything is installed.
+	// Every name is checked before anything is installed. A pin
+	// (tuner@0.3.1) keeps its version.
 	var bad []string
-	for i, name := range want {
+	pinned := make([]string, len(want))
+	for i, spec := range want {
+		name := spec
+		if n, v, ok := strings.Cut(spec, "@"); ok && has("pins") {
+			name, pinned[i] = n, v
+		}
 		if known[name] == "" {
 			bad = append(bad, name)
 		}
@@ -171,8 +212,11 @@ func install(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	var failed []string
-	for _, name := range want {
+	for i, name := range want {
 		if dry {
+			if pinned[i] != "" {
+				name += "@" + pinned[i]
+			}
 			fmt.Fprintln(stdout, name)
 			continue
 		}
@@ -189,7 +233,11 @@ func install(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "rhythm:", err)
 			return 1
 		}
-		fmt.Fprintf(stdout, "Installed rhythm-%s 0.0.0-test to %s\n", name, dest)
+		v := pinned[i]
+		if v == "" {
+			v = "0.0.0-test"
+		}
+		fmt.Fprintf(stdout, "Installed rhythm-%s %s to %s\n", name, v, dest)
 		if !has("dry-run") && !onPath(dir) {
 			fmt.Fprintf(stdout, "Note: %s isn't on your PATH.\n", dir)
 		}
@@ -204,6 +252,28 @@ func install(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// readLock returns the tools in a rhythm.lock as name@version, in order.
+func readLock(path string) ([]string, error) {
+	data, err := os.ReadFile(path) //nolint:gosec // the test writes the lock
+	if os.IsNotExist(err) {
+		return nil, errors.New("no rhythm.lock found")
+	}
+	if err != nil {
+		return nil, err
+	}
+	var lock struct {
+		Tools []struct{ Name, Version string }
+	}
+	if err := json.Unmarshal(data, &lock); err != nil {
+		return nil, err
+	}
+	var pins []string
+	for _, t := range lock.Tools {
+		pins = append(pins, t.Name+"@"+t.Version)
+	}
+	return pins, nil
 }
 
 // badFlag fails the way Go's flag package does for a flag it doesn't know.
