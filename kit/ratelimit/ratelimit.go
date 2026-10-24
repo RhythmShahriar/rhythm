@@ -2,13 +2,17 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 // Package ratelimit keeps Rhythm tools polite: an even request pace per
-// host that slows down when a server asks it to, plus the retry helpers
-// and target parsing every tool shares.
+// host (Limiter, Hosts) that slows down when a server asks it to (Slow),
+// and the retry waits every tool shares (Backoff, RetryAfter, Sleep).
+//
+// ParseTarget is still here so tools keep compiling but it moved to
+// kit/httpx.
 package ratelimit
 
 import (
 	"context"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -20,24 +24,50 @@ import (
 // Slowest pace a limiter backs off to after repeated throttling.
 const Slowest = 2 * time.Second
 
-// Longest Retry-After a tool will honor.
+// MaxRetryWait is the longest Retry-After a tool will honor.
 const MaxRetryWait = 30 * time.Second
 
+// MinRate is the slowest pace New accepts, one request per hour. Slower
+// rates are clamped to it, because a tiny rate would overflow the
+// interval between requests.
+const MinRate = 1.0 / 3600
+
+// slowStart is the pace an unlimited limiter falls back to on its first
+// Slow, before doubling like any other.
+const slowStart = 250 * time.Millisecond
+
 // Limiter spaces requests evenly to stay under a requests-per-second cap.
-// A nil *Limiter never waits.
+// A nil *Limiter never waits and never slows down.
 type Limiter struct {
 	mu    sync.Mutex
 	every time.Duration
 	next  time.Time
 }
 
-// New returns a limiter for rps requests per second, or nil (no limit)
-// when rps <= 0.
+// New returns a limiter for rps requests per second. When rps <= 0 (or
+// NaN or +Inf) it doesn't wait at all until a server throttles it: Slow
+// still applies, so an unlimited run backs off after a 429 or 503. Rates
+// below MinRate are clamped to one request per hour.
 func New(rps float64) *Limiter {
-	if rps <= 0 {
-		return nil
+	if rps <= 0 || math.IsNaN(rps) || math.IsInf(rps, 1) {
+		return &Limiter{}
 	}
-	return &Limiter{every: time.Duration(float64(time.Second) / rps)}
+	return &Limiter{every: time.Duration(float64(time.Second) / max(rps, MinRate))}
+}
+
+// Validate reports whether rps is a usable rate for a flag or config
+// value: 0 means unlimited and anything else must be a finite number of
+// at least MinRate.
+func Validate(rps float64) error {
+	switch {
+	case math.IsNaN(rps) || math.IsInf(rps, 0):
+		return fmt.Errorf("rate %v is not a number of requests per second", rps)
+	case rps < 0:
+		return fmt.Errorf("rate %v is negative; use 0 for no limit", rps)
+	case rps > 0 && rps < MinRate:
+		return fmt.Errorf("rate %v is below one request per hour", rps)
+	}
+	return nil
 }
 
 // Wait blocks until the next request may be sent.
@@ -57,13 +87,19 @@ func (l *Limiter) Wait(ctx context.Context) error {
 }
 
 // Slow halves the request rate, down to one request every two seconds.
-// Call it when a server answers 429 or 503.
+// Call it when a server answers 429 or 503. It never speeds a limiter up:
+// one that is already slower than Slowest keeps its pace. An unlimited
+// limiter starts at four requests per second.
 func (l *Limiter) Slow() {
 	if l == nil {
 		return
 	}
 	l.mu.Lock()
-	l.every = min(l.every*2, Slowest)
+	if l.every <= 0 {
+		l.every = slowStart
+	} else {
+		l.every = max(l.every, min(l.every*2, Slowest))
+	}
 	l.mu.Unlock()
 }
 
@@ -97,7 +133,9 @@ func Backoff(n int) time.Duration { return time.Duration(n+1) * 500 * time.Milli
 // RetryAfter parses a Retry-After header (seconds or an HTTP date),
 // falling back to exponential backoff, capped at MaxRetryWait.
 func RetryAfter(h string, n int) time.Duration {
-	d := time.Second << n
+	// Clamp n before shifting: from 34 on, 1s << n overflows. 2^6 s is
+	// already past MaxRetryWait.
+	d := time.Second << min(max(n, 0), 6)
 	if secs, err := strconv.Atoi(strings.TrimSpace(h)); err == nil && secs >= 0 {
 		d = time.Duration(secs) * time.Second
 	} else if t, err := http.ParseTime(h); err == nil {
@@ -120,6 +158,9 @@ func Sleep(ctx context.Context, d time.Duration) error {
 
 // ParseTarget accepts a URL or a bare hostname. explicitScheme is false
 // when the scheme was guessed (https), so callers can fall back to http.
+//
+// Deprecated: use httpx.ParseTarget, which behaves the same. It is a copy
+// rather than a wrapper because httpx imports this package.
 func ParseTarget(target string) (u *url.URL, explicitScheme bool, err error) {
 	explicitScheme = strings.Contains(target, "://")
 	if !explicitScheme {

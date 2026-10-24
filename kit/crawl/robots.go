@@ -5,15 +5,28 @@ package crawl
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"strings"
 )
+
+// maxRobotsLine is the longest robots.txt line read. It matches the
+// most of the file that is read at all, so no line is ever cut short.
+const maxRobotsLine = 512 << 10
 
 // robots holds the rules from robots.txt that apply to one user agent.
 type robots struct {
 	allow, disallow []string
 	sitemaps        []string
+	// unavailable says why robots.txt couldn't be read ("HTTP 503",
+	// a network error), or is empty. RFC 9309 2.3.1.4: when the server
+	// can't serve it, a crawler assumes everything is disallowed.
+	unavailable string
 }
+
+// unavailableRobots disallows everything, for a robots.txt that could
+// not be read for reason.
+func unavailableRobots(reason string) *robots { return &robots{unavailable: reason} }
 
 // parseRobots reads robots.txt and keeps the group for agent (matched by
 // product token, case-insensitive), falling back to "*".
@@ -28,8 +41,13 @@ func parseRobots(r io.Reader, agent string) *robots {
 	inAgents := false
 	out := &robots{}
 	sc := bufio.NewScanner(r)
-	for sc.Scan() {
-		line, _, _ := strings.Cut(sc.Text(), "#")
+	sc.Buffer(make([]byte, 0, 64<<10), maxRobotsLine)
+	for first := true; sc.Scan(); first = false {
+		text := sc.Text()
+		if first {
+			text = strings.TrimPrefix(text, "\uFEFF")
+		}
+		line, _, _ := strings.Cut(text, "#")
 		k, v, ok := strings.Cut(line, ":")
 		if !ok {
 			continue
@@ -50,6 +68,7 @@ func parseRobots(r io.Reader, agent string) *robots {
 			current = append(current, g)
 		case "allow", "disallow":
 			inAgents = false
+			v = escapeRule(v)
 			for _, g := range current {
 				if k == "allow" {
 					g.allow = append(g.allow, v)
@@ -60,6 +79,11 @@ func parseRobots(r io.Reader, agent string) *robots {
 		case "sitemap":
 			out.sitemaps = append(out.sitemaps, v)
 		}
+	}
+	if err := sc.Err(); err != nil {
+		// A file read only in part could be missing the very rule that
+		// matters, so it counts as unavailable rather than truncated.
+		return unavailableRobots(fmt.Sprintf("unreadable (%v)", err))
 	}
 	g := groups[agent]
 	if g == nil {
@@ -72,7 +96,8 @@ func parseRobots(r io.Reader, agent string) *robots {
 }
 
 // Allowed applies the longest-match rule: the most specific matching
-// pattern wins, and Allow wins a tie.
+// pattern wins and Allow wins a tie. It looks at the rules only; the
+// frontier checks unavailable first, so the start page still gets in.
 func (r *robots) Allowed(pathQuery string) bool {
 	if r == nil {
 		return true
@@ -106,4 +131,32 @@ func robotsMatch(p, s string) int {
 		return len(p)
 	}
 	return -1
+}
+
+// escapeRule percent-encodes a rule the way paths are compared: bytes
+// outside printable ASCII become %XX and existing escapes are upper-cased,
+// so "Disallow: /café" matches /caf%C3%A9. * and $ are left alone.
+func escapeRule(p string) string {
+	const hex = "0123456789ABCDEF"
+	var b strings.Builder
+	for i := 0; i < len(p); i++ {
+		c := p[i]
+		switch {
+		case c == '%' && i+2 < len(p) && ishex(p[i+1]) && ishex(p[i+2]):
+			b.WriteByte('%')
+			b.WriteString(strings.ToUpper(p[i+1 : i+3]))
+			i += 2
+		case c <= ' ' || c >= 0x7f:
+			b.WriteByte('%')
+			b.WriteByte(hex[c>>4])
+			b.WriteByte(hex[c&15])
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
+}
+
+func ishex(c byte) bool {
+	return '0' <= c && c <= '9' || 'a' <= c && c <= 'f' || 'A' <= c && c <= 'F'
 }

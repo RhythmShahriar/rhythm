@@ -16,7 +16,7 @@ import (
 	"testing"
 )
 
-func mustURL(t *testing.T, s string) *url.URL {
+func mustURL(t testing.TB, s string) *url.URL {
 	t.Helper()
 	u, err := url.Parse(s)
 	if err != nil {
@@ -38,6 +38,32 @@ func TestNormalize(t *testing.T) {
 		if got, ok := Normalize(base, in); !ok || got != want {
 			t.Errorf("Normalize(%q) = %q, %v; want %q", in, got, ok, want)
 		}
+	}
+	// URLs whose meaning Go's query and path handling would change.
+	for in, want := range map[string]string{
+		"/p?id=1;x=2":                  "https://example.com/p?id=1;x=2",
+		"/p?b=2;x&utm_source=nl&a=1":   "https://example.com/p?b=2;x&a=1",
+		"/p?utm_source=x;id=1":         "https://example.com/p?id=1",
+		"/p?id=1;utm_source=x&a=1":     "https://example.com/p?id=1&a=1",
+		"/q?x=%zz&utm_medium=email":    "https://example.com/q?x=%zz",
+		"/files/a%2Fb":                 "https://example.com/files/a%2Fb",
+		"/files/./a%2Fb/../c%2Fd/":     "https://example.com/files/c%2Fd/",
+		"/amp?amp":                     "https://example.com/amp?amp",
+		"/amp?b&a=&utm_campaign=x":     "https://example.com/amp?a=&b",
+		"/s?q=caf%C3%A9+au+lait&a=1":   "https://example.com/s?a=1&q=caf%C3%A9+au+lait",
+		"/s?q=a%20b":                   "https://example.com/s?q=a+b",
+		"/x?utm_source=a&UTM_Medium=b": "https://example.com/x",
+		"/x?":                          "https://example.com/x",
+	} {
+		if got, ok := Normalize(base, in); !ok || got != want {
+			t.Errorf("Normalize(%q) = %q, %v; want %q", in, got, ok, want)
+		}
+	}
+	if key("https://example.com/files/a%2Fb/") == key("https://example.com/files/a/b/") {
+		t.Error("an escaped slash makes another page")
+	}
+	if key("https://example.com/files/a%2Fb/") != key("https://example.com/files/a%2Fb") {
+		t.Error("the trailing slash is ignored for de-duplication")
 	}
 	for _, bad := range []string{"", "#top", "mailto:a@b.c", "javascript:void(0)", "tel:123"} {
 		if _, ok := Normalize(base, bad); ok {
@@ -61,6 +87,33 @@ func TestExcludedAndGlob(t *testing.T) {
 		if got := Excluded(mustURL(t, raw), DefaultExcludes); got != want {
 			t.Errorf("Excluded(%s) = %v, want %v", raw, got, want)
 		}
+	}
+}
+
+func TestDefaultExcludesSideEffects(t *testing.T) {
+	for _, p := range []string{
+		"/WP-ADMIN/", "/Wp-Login.php", "/Wp-Login.php?action=logout",
+		"/logout", "/logout/", "/account/logout.php", "/LogOut?next=/", "/sign-out/now",
+		"/newsletter/unsubscribe/?id=4", "/?mailpoet_page=Unsubscribe", "/opt-out/", "/optout?u=1",
+		"/confirm/abc", "/subscribe/confirm", "/post/?action=delete&id=3", "/?action=trash&post=9",
+		"/?rest_route=/wp/v2/users", "/verify/?token=abc", "/?a=1&_wpnonce=f00", "/?CSRF_TOKEN=1",
+	} {
+		if !Excluded(mustURL(t, "https://x.example"+p), DefaultExcludes) {
+			t.Errorf("%s should be excluded", p)
+		}
+	}
+	for _, p := range []string{
+		"/blog/logout-tips-for-teams/", "/confirmation-of-order-policy", "/tokens-of-appreciation/",
+		"/restaurant", "/blog/signout-checklist/", "/rest/route/", "/?page=2",
+	} {
+		if Excluded(mustURL(t, "https://x.example"+p), DefaultExcludes) {
+			t.Errorf("%s should not be excluded", p)
+		}
+	}
+	// The caller's own patterns ignore case too.
+	if !Excluded(mustURL(t, "https://x.example/Shop/Hats/"), []string{"/shop/*"}) ||
+		!Excluded(mustURL(t, "https://x.example/shop/hats/"), []string{"/SHOP/*"}) {
+		t.Error("Include and Exclude patterns are case-insensitive")
 	}
 }
 

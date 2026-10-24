@@ -3,9 +3,50 @@
 
 // Package crawl discovers the pages of a website the way a careful
 // visitor would: from its sitemaps and by following its own links. It
-// stays on the site, honors robots.txt, skips URLs with side effects
-// (logout, add to cart), de-duplicates, and groups pages that share a URL
-// template so a large catalog is checked through a few samples.
+// de-duplicates pages and groups those that share a URL template, so a
+// large catalog is checked through a few samples.
+//
+// # Same site
+//
+// A crawl stays on the start URL's site for pages, sitemaps and redirects
+// alike. Another URL is on the same site when it has the same host
+// (ignoring case and a leading "www."), the same scheme and the same port,
+// where a missing port means 80 for http and 443 for https. The one
+// exception is the upgrade from http on port 80 to https on port 443.
+// Another port on the same host is another site. See SameSite.
+//
+// # robots.txt
+//
+// The crawler reads /robots.txt first and applies the group for its user
+// agent's product token, or "*", with RFC 9309 longest-match rules (Allow
+// wins a tie). A missing robots.txt (404, 403, 410 or another 4xx) allows
+// everything, and so does one that redirects somewhere the crawler won't
+// go (another site or a private address). One that can't be read (5xx,
+// 429, a timeout or a network error) disallows everything but the start
+// page and pages the caller listed, as RFC 9309 asks;
+// Frontier.RobotsUnavailable says why.
+// Options.IgnoreRobots turns both off, for the caller's own site.
+//
+// # Excluded pages
+//
+// DefaultExcludes skips URLs with side effects or no content of their own:
+// WordPress admin, login, cron, XML-RPC, REST and feeds, logout and
+// confirm links, add-to-cart and remove-item links, unsubscribe and
+// opt-out links, delete and trash actions, search results, previews and
+// any URL with a token or nonce in its query. Patterns match the path and
+// query without case. Options.Exclude adds to the list.
+//
+// # Budgets
+//
+// A crawl returns at most Options.Limit pages (500), keeps
+// Options.PerGroup pages per URL template (3) and makes a path segment a
+// template after Options.FanOut children (10). It reads at most 5 MB of
+// any response, 1000 sitemap files (Options.MaxSitemaps), 50,000 URLs per
+// sitemap and sitemap indexes 3 levels deep, follows at most 10 redirects
+// per request and runs 4 requests at a time (Options.Concurrency) at
+// Options.Rate per host. The default client times out after 30 s and
+// won't connect to private addresses unless the site itself is on one
+// (Options.AllowPrivate).
 package crawl
 
 import (
@@ -18,11 +59,14 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"golang.org/x/net/html"
 
+	"github.com/RhythmShahriar/rhythm/kit/httpx"
 	"github.com/RhythmShahriar/rhythm/kit/ratelimit"
 )
 
@@ -31,15 +75,18 @@ const (
 	maxBody         = 5 << 20
 	maxSitemapURLs  = 50_000
 	maxSitemapDepth = 3
+	maxSitemaps     = 1000
 )
 
+// Options configures a Crawler and a Frontier. The zero value is a
+// polite crawl with the defaults described in the package doc.
 type Options struct {
 	Limit        int      // most pages to return; 0 means 500
 	PerGroup     int      // pages kept per URL template; 0 means 3, <0 keeps every page
 	FanOut       int      // children before a path segment becomes a template; 0 means 10
-	Include      []string // if set, only paths matching one of these globs
-	Exclude      []string // added to DefaultExcludes
-	IgnoreRobots bool     // for your own site, when robots.txt blocks pages you want checked
+	Include      []string // if set, only paths matching one of these globs (case-insensitive, see Excluded)
+	Exclude      []string // added to DefaultExcludes (case-insensitive)
+	IgnoreRobots bool     // for your own site, when robots.txt blocks pages you want checked or is unavailable
 	NoSitemaps   bool
 	// NoFollow stops after robots.txt, sitemaps and the start page: the
 	// caller follows links itself, e.g. from pages it renders in a browser,
@@ -48,7 +95,17 @@ type Options struct {
 	UserAgent   string
 	Rate        float64 // requests per second per host; 0 means unlimited
 	Concurrency int     // 0 means 4
-	HTTP        *http.Client
+	MaxSitemaps int     // most sitemap files fetched, from robots.txt and indexes together; 0 means 1000
+	// HTTP is the client to send requests with. The crawler uses a copy
+	// and adds the same-site redirect rule after the client's own. When
+	// nil, it uses a client with a 30 s timeout that won't connect to
+	// loopback, link-local or private addresses (see AllowPrivate).
+	HTTP *http.Client
+	// AllowPrivate lets the default client connect to loopback,
+	// link-local (169.254.0.0/16, fe80::/10) and private (RFC 1918, ULA)
+	// addresses. Without it they are refused unless the start host
+	// resolves to the same kind of address, so local sites still work.
+	AllowPrivate bool
 }
 
 // Page is one discovered page.
@@ -71,6 +128,9 @@ type Frontier struct {
 	perKey  map[string]int
 	pages   []Page
 	skipped map[string]int // reason → count
+	// pagesCalls counts Pages calls, so a test can prove the crawl loop
+	// never copies the page list.
+	pagesCalls atomic.Int64
 }
 
 // NewFrontier returns an empty frontier for the site at start. Pass the
@@ -91,16 +151,31 @@ func NewFrontier(start *url.URL, opts Options) *Frontier {
 
 // Add offers a URL to the frontier and reports whether it was accepted.
 func (f *Frontier) Add(raw, source string, depth int) bool {
+	_, ok := f.add(raw, source, depth)
+	return ok
+}
+
+// AddPage is Add that also returns the accepted page, so a caller can
+// queue exactly the pages it added without copying Pages().
+func (f *Frontier) AddPage(raw, source string, depth int) (Page, bool) {
+	return f.add(raw, source, depth)
+}
+
+// add offers a URL and returns the page it accepted.
+func (f *Frontier) add(raw, source string, depth int) (Page, bool) {
 	norm, ok := Normalize(f.start, raw)
 	if !ok {
-		return false
+		return Page{}, false
 	}
 	u, _ := url.Parse(norm)
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	// seen is keyed by key(), which folds /about and /about/ together,
+	// and marks every URL offered, rejected ones too, so a URL is judged
+	// once however many pages link to it.
 	k := key(norm)
 	if f.seen[k] {
-		return false
+		return Page{}, false
 	}
 	f.seen[k] = true
 	// The start page is always admitted, because links are found from it,
@@ -117,6 +192,8 @@ func (f *Frontier) Add(raw, source string, depth int) bool {
 		reason = "excluded"
 	case len(f.opts.Include) > 0 && !Excluded(u, f.opts.Include) && !start && !listed:
 		reason = "not included"
+	case !f.opts.IgnoreRobots && !listed && f.robots.unavailableOrEmpty() != "" && !start:
+		reason = "robots-unavailable"
 	case !f.opts.IgnoreRobots && !listed && !f.robots.Allowed(pathQuery(u)):
 		reason = "robots.txt"
 	case len(f.pages) >= f.opts.Limit:
@@ -124,26 +201,57 @@ func (f *Frontier) Add(raw, source string, depth int) bool {
 	}
 	if reason != "" {
 		f.skipped[reason]++
-		return false
+		return Page{}, false
 	}
 	group := f.groups.Group(u)
+	// PerGroup < 0 means no sampling: the caller wants every page of a
+	// template (a full audit), so the per-group count is never checked.
 	if f.opts.PerGroup > 0 && f.perKey[group] >= f.opts.PerGroup && !listed {
 		f.skipped["grouped"]++
-		return false
+		return Page{}, false
 	}
 	f.perKey[group]++
-	f.pages = append(f.pages, Page{URL: norm, Group: group, Source: source, Depth: depth})
-	return true
+	p := Page{URL: norm, Group: group, Source: source, Depth: depth}
+	f.pages = append(f.pages, p)
+	return p, true
 }
 
-// Pages returns the accepted pages in discovery order.
+// Pages returns a copy of the accepted pages in discovery order. It
+// copies the whole list, so the crawl itself never calls it per page.
 func (f *Frontier) Pages() []Page {
+	f.pagesCalls.Add(1)
+	return f.snapshot()
+}
+
+// snapshot copies the accepted pages.
+func (f *Frontier) snapshot() []Page {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]Page(nil), f.pages...)
 }
 
-// Skipped counts URLs left out, by reason ("grouped", "robots.txt"…).
+// RobotsUnavailable says why robots.txt couldn't be read, such as
+// "HTTP 503" or a network error, or returns "" when it was read, was
+// missing (4xx) or was ignored. While it's unavailable only the start page
+// and pages the caller listed are admitted; the rest are counted in
+// Skipped under "robots-unavailable". Tools can suggest IgnoreRobots for
+// the user's own site.
+func (f *Frontier) RobotsUnavailable() string {
+	if f.opts.IgnoreRobots {
+		return ""
+	}
+	return f.robots.unavailableOrEmpty()
+}
+
+// skip counts one URL left out for reason.
+func (f *Frontier) skip(reason string) {
+	f.mu.Lock()
+	f.skipped[reason]++
+	f.mu.Unlock()
+}
+
+// Skipped counts URLs left out, by reason ("grouped", "robots.txt",
+// "robots-unavailable", "offsite-sitemap", "offsite-redirect"…).
 func (f *Frontier) Skipped() map[string]int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -168,15 +276,17 @@ type Crawler struct {
 	hosts *ratelimit.Hosts
 }
 
+// New returns a crawler for opts. It never changes opts.HTTP.
 func New(opts Options) *Crawler {
 	if opts.Concurrency <= 0 {
 		opts.Concurrency = 4
 	}
-	c := opts.HTTP
-	if c == nil {
-		c = &http.Client{}
+	if opts.MaxSitemaps <= 0 {
+		opts.MaxSitemaps = maxSitemaps
 	}
-	return &Crawler{opts: opts, http: c, hosts: ratelimit.NewHosts(opts.Rate)}
+	c := &Crawler{opts: opts, hosts: ratelimit.NewHosts(opts.Rate)}
+	c.http = c.newClient(opts)
+	return c
 }
 
 // Crawl discovers pages starting at start: robots.txt, then sitemaps, then
@@ -184,6 +294,11 @@ func New(opts Options) *Crawler {
 // callers can keep adding pages they find some other way.
 func (c *Crawler) Crawl(ctx context.Context, start *url.URL) (*Frontier, error) {
 	f := NewFrontier(start, c.opts)
+	st := &crawlState{start: start, front: f}
+	if c.opts.HTTP == nil && !c.opts.AllowPrivate {
+		st.guard = httpx.NewGuard(start.Hostname())
+	}
+	ctx = context.WithValue(ctx, stateKey{}, st)
 	if !c.opts.IgnoreRobots || !c.opts.NoSitemaps {
 		f.robots = c.robots(ctx, start)
 	}
@@ -191,7 +306,9 @@ func (c *Crawler) Crawl(ctx context.Context, start *url.URL) (*Frontier, error) 
 		f.robots = &robots{sitemaps: f.robots.sitemapsOrNil()}
 	}
 	f.Add(start.String(), "start", 0)
-	if !c.opts.NoSitemaps {
+	// With robots.txt unavailable no sitemap page would be admitted, so
+	// the sitemaps aren't fetched at all.
+	if !c.opts.NoSitemaps && f.RobotsUnavailable() == "" {
 		c.sitemaps(ctx, f, start)
 	}
 	if c.opts.NoFollow {
@@ -204,6 +321,12 @@ func (c *Crawler) Crawl(ctx context.Context, start *url.URL) (*Frontier, error) 
 		url   string
 		depth int
 	}
+	// visited is the crawl's own record of what it queued for fetching,
+	// separate from Frontier.seen: seen also holds rejected URLs and is
+	// keyed without the trailing slash, while visited holds the exact
+	// accepted URLs. Each accepted page is pushed once today (the seed
+	// list, then the worker that added it), so visited is a cheap guard
+	// that keeps a page from being fetched twice if that ever changes.
 	var (
 		mu      sync.Mutex
 		queue   []job
@@ -219,7 +342,9 @@ func (c *Crawler) Crawl(ctx context.Context, start *url.URL) (*Frontier, error) 
 		}
 		mu.Unlock()
 	}
-	for _, p := range f.Pages() {
+	// One copy to seed the queue; after this, workers push the pages
+	// they add directly, so a crawl costs O(n) and not O(n²) copies.
+	for _, p := range f.snapshot() {
 		push(p)
 	}
 	for {
@@ -247,16 +372,21 @@ func (c *Crawler) Crawl(ctx context.Context, start *url.URL) (*Frontier, error) 
 			if err != nil {
 				return
 			}
-			before := len(f.Pages())
 			for _, l := range links {
-				f.Add(l, "link", j.depth+1)
-			}
-			for _, p := range f.Pages()[before:] {
-				push(p)
+				if p, ok := f.add(l, "link", j.depth+1); ok {
+					push(p)
+				}
 			}
 		})
 	}
 	return f, ctx.Err()
+}
+
+func (r *robots) unavailableOrEmpty() string {
+	if r == nil {
+		return ""
+	}
+	return r.unavailable
 }
 
 func (r *robots) sitemapsOrNil() []string {
@@ -284,16 +414,46 @@ func (c *Crawler) get(ctx context.Context, raw string) (*http.Response, error) {
 	return c.http.Do(req)
 }
 
+// robots fetches and parses robots.txt, following RFC 9309 2.3.1: a
+// missing file (4xx) allows everything, while a server error, 429, a
+// timeout or a network error disallows everything, because the site may
+// be up but unable to say what it wants left alone.
+//
+// A redirect the crawler refuses (off the site, to a private address or
+// past maxRedirects) also allows everything. RFC 9309 2.3.1.2 asks
+// crawlers to follow robots.txt redirects even to another host and
+// treats a target that can't be reached as "unavailable", which is the
+// 4xx case. Following it would let a site steer the crawler elsewhere,
+// so the hop is refused but the crawl goes on as if the file were
+// missing, instead of stopping at the start page.
 func (c *Crawler) robots(ctx context.Context, start *url.URL) *robots {
 	resp, err := c.get(ctx, start.Scheme+"://"+start.Host+"/robots.txt")
-	if err != nil {
+	if errors.Is(err, errRedirectRefused) || errors.Is(err, httpx.ErrPrivate) {
 		return nil
+	}
+	if err != nil {
+		return unavailableRobots(robotsErr(err))
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return nil
+	switch {
+	case resp.StatusCode == http.StatusOK:
+		return parseRobots(io.LimitReader(resp.Body, maxRobotsLine), c.opts.UserAgent)
+	case resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests:
+		return unavailableRobots("HTTP " + strconv.Itoa(resp.StatusCode))
 	}
-	return parseRobots(io.LimitReader(resp.Body, 512<<10), c.opts.UserAgent)
+	return nil
+}
+
+// robotsErr describes a failed robots.txt request without the URL, which
+// the caller already knows.
+func robotsErr(err error) string {
+	if ue, ok := errors.AsType[*url.Error](err); ok {
+		if ue.Timeout() {
+			return "timeout"
+		}
+		err = ue.Err
+	}
+	return err.Error()
 }
 
 // sitemaps reads sitemaps named in robots.txt, or the usual locations.
@@ -304,19 +464,31 @@ func (c *Crawler) sitemaps(ctx context.Context, f *Frontier, start *url.URL) {
 		locs = []string{root + "/sitemap.xml", root + "/wp-sitemap.xml", root + "/sitemap_index.xml"}
 	}
 	seen := map[string]bool{}
-	n := 0
+	n, fetched := 0, 0
 	var read func(loc string, depth int)
 	read = func(loc string, depth int) {
 		if seen[loc] || depth > maxSitemapDepth || n >= maxSitemapURLs || ctx.Err() != nil {
 			return
 		}
 		seen[loc] = true
+		// robots.txt and sitemap indexes are written by the site, so a
+		// hostile one could name any host; only the site's own are read.
+		u, err := start.Parse(loc)
+		if err != nil || !SameSite(start, u) {
+			f.skip("offsite-sitemap")
+			return
+		}
+		if fetched >= c.opts.MaxSitemaps {
+			f.skip("sitemap limit")
+			return
+		}
+		fetched++
 		var doc struct {
 			XMLName  xml.Name
 			URLs     []string `xml:"url>loc"`
 			Sitemaps []string `xml:"sitemap>loc"`
 		}
-		if err := c.xml(ctx, loc, &doc); err != nil {
+		if err := c.xml(ctx, u.String(), &doc); err != nil {
 			return
 		}
 		for _, u := range doc.URLs {
