@@ -143,6 +143,7 @@ func (u *Updater) fromCache(name, want, dir, pattern string) (path, sum string, 
 	}
 	if sum = hex.EncodeToString(h.Sum(nil)); sum != want {
 		_ = os.Remove(dst.Name())
+		_ = src.Close() // Windows can't remove a file that is open
 		_ = os.Remove(cached)
 		return "", "", false
 	}
