@@ -1,0 +1,4 @@
+# Text files are checked out with LF on every OS: golden files, scripts
+# and embedded data are compared byte for byte, and a shell script with
+# CRLF does not run.
+* text=auto eol=lf
