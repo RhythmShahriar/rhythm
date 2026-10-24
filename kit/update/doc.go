@@ -44,12 +44,17 @@
 //
 //  1. The API base and every download URL, redirects included, must be
 //     https (plain http only to loopback, for tests).
-//  2. checksums.txt is downloaded (at most 1 MB) and must list the
-//     platform archive.
-//  3. The archive is streamed to a temp file next to the destination (at
+//  2. checksums.txt is downloaded (at most 1 MB).
+//  3. When Updater.Verifier is set and SkipSignature is not,
+//     checksums.txt.sigstore.json is downloaded (at most 1 MB) and the
+//     Verifier must accept it over the exact checksums.txt bytes. A
+//     missing bundle or a failed check is ErrSignature: verification fails
+//     closed. With no Verifier this step is skipped.
+//  4. checksums.txt must list the platform archive.
+//  5. The archive is streamed to a temp file next to the destination (at
 //     most 200 MB), hashed on the way, and its sha256 must match
 //     checksums.txt; otherwise Install returns ErrChecksum.
-//  4. The binary is unpacked from that file into a second temp file next
+//  6. The binary is unpacked from that file into a second temp file next
 //     to the destination and swapped into place.
 //
 // # Swap guarantees
@@ -65,6 +70,7 @@
 // # Errors
 //
 // Network failures come back as ErrUnreachable, ErrRateLimited or
-// ErrNoRelease, and a bad archive as ErrChecksum. Each prints as one line
-// a user can act on and wraps its cause for errors.Is and errors.As.
+// ErrNoRelease, a bad archive as ErrChecksum and a bad signature as
+// ErrSignature. Each prints as one line a user can act on and wraps its
+// cause for errors.Is and errors.As.
 package update

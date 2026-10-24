@@ -68,6 +68,14 @@ type Updater struct {
 	// (-1 when it didn't). It is called at most every 100 ms and once at
 	// the end with done == total.
 	Progress func(done, total int64)
+
+	// Verifier, when set, checks the Sigstore bundle over checksums.txt
+	// before Install trusts any checksum in it, and Install fails closed
+	// with ErrSignature when the bundle is missing or doesn't verify.
+	// SkipSignature turns the check off for one run; this package prints
+	// nothing about it, so the caller should warn.
+	Verifier      Verifier
+	SkipSignature bool
 }
 
 // ErrOffline is returned by calls that need the network while offline
@@ -295,40 +303,68 @@ func (u *Updater) ArchiveName() string {
 	return fmt.Sprintf("%s_%s_%s%s", u.Binary, goos, arch, ext)
 }
 
-// Install downloads rel for this platform, verifies its checksum and
-// atomically replaces (or creates) the binary at dest.
+// Install downloads rel for this platform, verifies it and atomically
+// replaces (or creates) the binary at dest. It is InstallWith with no
+// options, for callers that don't need the result.
 func (u *Updater) Install(ctx context.Context, rel *Release, dest string) error {
+	_, err := u.InstallWith(ctx, rel, dest, InstallOptions{})
+	return err
+}
+
+// InstallOptions tunes one InstallWith call. The zero value installs the
+// way Install does.
+type InstallOptions struct{}
+
+// InstallResult describes a finished install.
+type InstallResult struct {
+	Version string // the release installed, without the leading v
+	SHA256  string // hex sha256 of the archive
+	Signer  string // identity the Verifier reported; "" when none ran
+}
+
+// InstallWith downloads rel for this platform, checks the signature over
+// checksums.txt when u.Verifier is set, verifies the archive against
+// checksums.txt and atomically replaces (or creates) the binary at dest.
+// dest is untouched unless every check passes.
+func (u *Updater) InstallWith(ctx context.Context, rel *Release, dest string, _ InstallOptions) (InstallResult, error) {
+	var res InstallResult
 	if u.offline() {
-		return ErrOffline
+		return res, ErrOffline
 	}
 	name := u.ArchiveName()
 	archiveURL, ok := rel.Assets[name]
 	if !ok {
-		return fmt.Errorf("release %s has no build for this platform (%s)", rel.Version, name)
+		return res, fmt.Errorf("release %s has no build for this platform (%s)", rel.Version, name)
 	}
 	sumsURL, ok := rel.Assets["checksums.txt"]
 	if !ok {
-		return fmt.Errorf("release %s has no checksums.txt; refusing to install unverified binaries", rel.Version)
+		return res, fmt.Errorf("release %s has no checksums.txt; refusing to install unverified binaries", rel.Version)
 	}
 
 	removeStaleOld(dest)
 	sums, err := u.download(ctx, sumsURL, 1<<20)
 	if err != nil {
-		return fmt.Errorf("downloading checksums: %w", err)
+		return res, fmt.Errorf("downloading checksums: %w", err)
+	}
+	// Before reading any checksum: a checksums.txt that isn't signed by
+	// the release workflow could list a tampered archive's hash.
+	signer, err := u.verifySignature(ctx, rel, sums)
+	if err != nil {
+		return res, err
 	}
 	want, err := checksumFor(sums, name)
 	if err != nil {
-		return err
+		return res, err
 	}
 	// The archive goes to a temp file next to dest and is hashed on the
 	// way, so memory stays flat however big the release is.
 	archive, got, err := u.downloadFile(ctx, archiveURL, filepath.Dir(dest), "."+filepath.Base(dest)+".download-*", maxArchive)
 	if err != nil {
-		return fmt.Errorf("downloading %s: %w", name, err)
+		return res, fmt.Errorf("downloading %s: %w", name, err)
 	}
 	defer func() { _ = os.Remove(archive) }()
 	if got != want {
-		return &ErrChecksum{Asset: name, Want: want, Got: got}
+		return res, &ErrChecksum{Asset: name, Want: want, Got: got}
 	}
 
 	goos, _ := u.platform()
@@ -336,7 +372,10 @@ func (u *Updater) Install(ctx context.Context, rel *Release, dest string) error 
 	if goos == "windows" {
 		bin += ".exe"
 	}
-	return extract(archive, name, bin, func(r io.Reader) error { return replace(dest, r) })
+	if err := extract(archive, name, bin, func(r io.Reader) error { return replace(dest, r) }); err != nil {
+		return res, err
+	}
+	return InstallResult{Version: rel.Version, SHA256: got, Signer: signer}, nil
 }
 
 // Seams for tests: rename lets them inject failures and useOldSwap
