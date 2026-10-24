@@ -35,8 +35,16 @@ release:
 
 # Keyless Sigstore signature over checksums.txt. Verify with:
 #   cosign verify-blob --bundle checksums.txt.sigstore.json \
+#     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
 #     --certificate-identity https://github.com/RhythmShahriar/.github/.github/workflows/release-go.yml@refs/heads/master \
-#     --certificate-oidc-issuer https://token.actions.githubusercontent.com checksums.txt
+#     --certificate-github-workflow-repository RhythmShahriar/rhythm \
+#     --certificate-github-workflow-ref refs/tags/v<version> \
+#     checksums.txt
+# The identity names the shared reusable workflow, which any public
+# repository can call, so it alone proves nothing about who released.
+# The repository and tag flags pin the caller: this repository at this
+# release's tag. Then check each archive against checksums.txt
+# (sha256sum --ignore-missing -c checksums.txt).
 signs:
   - cmd: cosign
     artifacts: checksum
