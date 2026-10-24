@@ -5,6 +5,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,6 +33,10 @@ rewrites the lock. With --check it only prints the changes.
 --min-age (or RHYTHM_MIN_RELEASE_AGE) passes over releases younger than
 the age given, such as 3d, 1w or 36h, for rhythm and the tools alike.
 
+Each update keeps the binary it replaces as <binary>.prev. --rollback
+puts it back: rhythm update --rollback tuner. --to installs one version
+of one tool, older ones too: rhythm update tuner --to 0.3.1.
+
 Exit status: 0 when everything worked, 1 when anything failed, 2 for a
 usage error and 130 when interrupted. With --check: 0 when everything is
 current, 10 when an update is available (or rhythm.lock is behind, with
@@ -53,6 +59,8 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 	quiet := flags.Bool("quiet", false, "print only updates, problems and the tools' own output")
 	toLock := flags.Bool("lock", false, "update rhythm.lock to the latest releases instead of the binaries")
 	ageFlag := flags.String("min-age", "", "skip releases younger than `age`, such as 3d or 1w (default $"+minAgeEnv+")")
+	back := flags.Bool("rollback", false, "put the named tools back to the version their last update replaced")
+	to := flags.String("to", "", "install `version` of the one tool named, even an older one")
 	names, code, ok := parseArgs(flags, args, stdout, stderr)
 	if !ok {
 		return code
@@ -60,6 +68,9 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 	age, ok := readMinAge(*ageFlag, stderr)
 	if !ok {
 		return exitUsage
+	}
+	if code := checkUpdateModes(names, *selfOnly, *back, *checkOnly, *toLock, *to, stderr); code != 0 {
+		return code
 	}
 	switch {
 	case *asJSON && !*checkOnly:
@@ -77,6 +88,9 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 	}
 	if *toLock {
 		return updateLock(want, *checkOnly, age, stdout, stderr)
+	}
+	if *back {
+		return rollbackTargets(want, stdout, stderr)
 	}
 	// With --json, stdout carries the JSON alone; the lines people read
 	// move to stderr.
@@ -114,6 +128,9 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 		res := &results[i]
 		if t.managed != nil {
 			fmt.Fprintf(human, "%s is managed by %s; update it with: %s\n", t.binary, t.managed.name, t.managed.upgrade)
+			if *to != "" {
+				rep.failed = append(rep.failed, t.binary) // --to asked for a version and didn't get it
+			}
 			continue
 		}
 		if t.current == unknownVersion {
@@ -133,7 +150,7 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 			continue
 		}
 		u := updater(t.repo, t.binary, t.current)
-		rel, err := resolveSpec(ctx, u, "", age.d)
+		rel, err := resolveSpec(ctx, u, *to, age.d)
 		var tooNew *tooNewError
 		switch {
 		case errors.As(err, &tooNew):
@@ -149,6 +166,13 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 		}
 		res.Latest = rel.Version
 		newer := update.Newer(t.current, rel.Version)
+		if *to != "" && rel.Version != t.current {
+			// --to goes where it is told, down a version too.
+			if !newer {
+				fmt.Fprintf(human, "Note: %s is older than %s %s; installing it as asked.\n", rel.Version, t.binary, t.current)
+			}
+			newer = true
+		}
 		if s := rel.skippedNewer; s != nil {
 			res.SkippedNewer = newSkippedJSON(s)
 			then := "staying on " + t.current
@@ -173,7 +197,7 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 			rep.updated++
 			continue
 		}
-		if err := installWithProgress(ctx, u, rel.Release, t.real, progress); err != nil {
+		if err := installKeepingPrevious(ctx, u, rel.Release, t.real, t.current, progress); err != nil {
 			rep.fail(ctx, stderr, t.binary, err)
 			continue
 		}
@@ -481,5 +505,249 @@ func updateLock(want map[string]bool, checkOnly bool, age minAge, stdout, stderr
 		return 1
 	}
 	fmt.Fprintln(stdout, "Updated", path)
+	return 0
+}
+
+// Rollback. Every install over an existing binary keeps the replaced one
+// as <binary>.prev, with a <binary>.prev.json sidecar saying which
+// versions they are, so rhythm update --rollback can swap them back.
+// kit/update is getting the same files and Rollback in Install itself;
+// these helpers write the same layout until it is merged.
+
+// errNoPrevious means no .prev (or no sidecar) is there to go back to.
+var errNoPrevious = errors.New("no previous version to roll back to")
+
+// prevSidecar is <binary>.prev.json.
+type prevSidecar struct {
+	Version    string      `json:"version"` // of .prev; "" when it wasn't a release
+	SHA256     string      `json:"sha256"`  // of .prev
+	ReplacedAt string      `json:"replaced_at"`
+	ReplacedBy prevVersion `json:"replaced_by"`
+}
+
+// prevVersion is the binary that replaced .prev.
+type prevVersion struct {
+	Version string `json:"version"`
+	SHA256  string `json:"sha256"`
+}
+
+// installKeepingPrevious installs rel at dest like installWithProgress
+// and keeps the binary it replaces, current, as dest.prev. Failing to
+// keep it never fails the install: the old .prev files are removed
+// instead, so a stale one can't be rolled back to.
+func installKeepingPrevious(ctx context.Context, u *update.Updater, rel *update.Release, dest, current string, progress io.Writer) error {
+	staged := ""
+	if fi, err := os.Stat(dest); err == nil && fi.Mode().IsRegular() {
+		staged = dest + ".prev-new"
+		_ = os.Remove(staged)
+		// A hard link costs nothing and survives the rename that swaps
+		// the new binary in; a copy covers file systems without links.
+		if os.Link(dest, staged) != nil && copyFile(dest, staged) != nil {
+			_ = os.Remove(staged)
+			staged = ""
+		}
+	}
+	if err := installWithProgress(ctx, u, rel, dest, progress); err != nil {
+		if staged != "" {
+			_ = os.Remove(staged)
+		}
+		return err
+	}
+	if staged == "" {
+		return nil
+	}
+	if err := setAside(dest, staged, current, rel.Version); err != nil {
+		_ = os.Remove(staged)
+		_ = os.Remove(dest + ".prev")
+		_ = os.Remove(dest + ".prev.json")
+	}
+	return nil
+}
+
+// setAside moves staged to dest.prev and writes the sidecar.
+func setAside(dest, staged, oldVersion, newVersion string) error {
+	prevSum, err := fileSHA256(staged)
+	if err != nil {
+		return err
+	}
+	newSum, err := fileSHA256(dest)
+	if err != nil {
+		return err
+	}
+	if !update.IsRelease(oldVersion) {
+		oldVersion = ""
+	}
+	if err := os.Rename(staged, dest+".prev"); err != nil {
+		return err
+	}
+	return writeSidecar(dest, prevSidecar{
+		Version: oldVersion, SHA256: prevSum,
+		ReplacedAt: time.Now().UTC().Format(time.RFC3339),
+		ReplacedBy: prevVersion{Version: newVersion, SHA256: newSum},
+	})
+}
+
+func writeSidecar(dest string, s prevSidecar) error {
+	data, err := json.Marshal(s)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dest+".prev.json", append(data, '\n'), 0o644) //nolint:gosec // beside a binary anyone may run
+}
+
+// rollback swaps dest and dest.prev and rewrites the sidecar, so a second
+// rollback swaps them back. It returns the versions it went from and to;
+// from is "" when dest was replaced by hand since the sidecar was written.
+func rollback(dest string) (from, to string, err error) {
+	prev := dest + ".prev"
+	data, err := os.ReadFile(prev + ".json") //nolint:gosec // beside the binary being rolled back
+	if err != nil {
+		return "", "", errNoPrevious
+	}
+	var s prevSidecar
+	if json.Unmarshal(data, &s) != nil {
+		return "", "", errNoPrevious
+	}
+	prevSum, err := fileSHA256(prev)
+	if err != nil {
+		return "", "", errNoPrevious
+	}
+	if prevSum != s.SHA256 {
+		return "", "", fmt.Errorf("%s has changed since it was set aside (sha256 differs); not rolling back", prev)
+	}
+	curSum, err := fileSHA256(dest)
+	if err != nil {
+		return "", "", err
+	}
+	if curSum == s.ReplacedBy.SHA256 {
+		from = s.ReplacedBy.Version
+	}
+	// dest is renamed away, never deleted, so a failure part way can put
+	// it back and dest is always a whole binary.
+	away := dest + ".rollback"
+	_ = os.Remove(away)
+	if err := os.Rename(dest, away); err != nil {
+		return "", "", fmt.Errorf("rolling back %s: %w", dest, err)
+	}
+	if err := os.Rename(prev, dest); err != nil {
+		if rerr := os.Rename(away, dest); rerr != nil {
+			return "", "", fmt.Errorf("rolling back %s: %w; restoring %s: %w; the replaced binary is at %s", dest, err, dest, rerr, away)
+		}
+		return "", "", fmt.Errorf("rolling back %s: %w", dest, err)
+	}
+	if err := os.Rename(away, prev); err != nil {
+		// The rollback itself worked; only the way forward is lost.
+		_ = os.Remove(prev + ".json")
+		return from, s.Version, nil
+	}
+	err = writeSidecar(dest, prevSidecar{
+		Version: from, SHA256: curSum,
+		ReplacedAt: time.Now().UTC().Format(time.RFC3339),
+		ReplacedBy: prevVersion{Version: s.Version, SHA256: prevSum},
+	})
+	if err != nil {
+		_ = os.Remove(prev + ".json")
+	}
+	return from, s.Version, nil
+}
+
+// fileSHA256 returns the lowercase hex sha256 of the file at p.
+func fileSHA256(p string) (string, error) {
+	f, err := os.Open(p) //nolint:gosec // a binary rhythm installed
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = f.Close() }()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// copyFile copies src to dst with mode 0755.
+func copyFile(src, dst string) error {
+	in, err := os.Open(src) //nolint:gosec // a binary rhythm installed
+	if err != nil {
+		return err
+	}
+	defer func() { _ = in.Close() }()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o755) //nolint:gosec // an executable must be executable
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		return err
+	}
+	return out.Close()
+}
+
+// rollbackTargets is rhythm update --rollback: it puts each named binary
+// back to the version its last update replaced.
+func rollbackTargets(want map[string]bool, stdout, stderr io.Writer) int {
+	ctx, stop := signalContext()
+	defer stop()
+	targets, missing := findTargets(ctx, want)
+	failed := len(missing) > 0
+	for _, tool := range missing {
+		fmt.Fprintf(stderr, "%-18s isn't installed; there is nothing to roll back\n", "rhythm-"+tool)
+	}
+	for _, t := range targets {
+		if t.managed != nil {
+			fmt.Fprintf(stderr, "%s is managed by %s; rhythm leaves its versions to %s\n", t.binary, t.managed.name, t.managed.name)
+			failed = true
+			continue
+		}
+		from, to, err := rollback(t.real)
+		switch {
+		case errors.Is(err, errNoPrevious):
+			fmt.Fprintf(stderr, "%s has no previous version to roll back to; rhythm keeps one after each update\n", t.binary)
+			failed = true
+		case err != nil:
+			fmt.Fprintf(stderr, "%-18s %v\n", t.binary, err)
+			failed = true
+		case from != "" && to != "":
+			fmt.Fprintf(stdout, "Rolled back %s %s → %s\n", t.binary, from, to)
+		case to != "":
+			fmt.Fprintf(stdout, "Rolled back %s to %s\n", t.binary, to)
+		default:
+			fmt.Fprintf(stdout, "Rolled back %s to the binary its last update replaced\n", t.binary)
+		}
+	}
+	if failed {
+		return 1
+	}
+	return 0
+}
+
+// checkUpdateModes rejects flag mixes rhythm update can't follow, before
+// anything runs.
+func checkUpdateModes(names []string, selfOnly, back, checkOnly, toLock bool, to string, stderr io.Writer) int {
+	n := len(splitNames(names))
+	if selfOnly {
+		n++
+	}
+	bad := func(msg string) int {
+		fmt.Fprintln(stderr, "rhythm:", msg)
+		return exitUsage
+	}
+	switch {
+	case back && to != "":
+		return bad("--rollback and --to don't mix; pick one")
+	case back && (checkOnly || toLock):
+		return bad("--rollback works alone; drop --check and --lock")
+	case back && n == 0:
+		return bad("--rollback needs a tool name, such as: rhythm update --rollback tuner")
+	case to == "":
+		return 0
+	case checkOnly || toLock:
+		return bad("--to works alone; drop --check and --lock")
+	case n != 1:
+		return bad("--to needs exactly one tool name, such as: rhythm update tuner --to 0.3.1")
+	}
+	if err := checkSpec(to); err != nil {
+		return bad("--to: " + err.Error())
+	}
 	return 0
 }

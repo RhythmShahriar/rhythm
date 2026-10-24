@@ -680,7 +680,7 @@ func installTool(ctx context.Context, it installItem, opt installOptions, stdout
 		fmt.Fprintf(stdout, "%s %s is already installed at %s (use --force to reinstall)\n", binary, current, dest)
 		return installResult{already: true}, nil
 	}
-	if err := installWithProgress(ctx, u, rel.Release, writeTo, opt.progress); err != nil {
+	if err := installKeepingPrevious(ctx, u, rel.Release, writeTo, current, opt.progress); err != nil {
 		return installResult{}, err
 	}
 	fmt.Fprintf(stdout, "Installed %s %s to %s\n", binary, rel.Version, dest)

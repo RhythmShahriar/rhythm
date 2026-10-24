@@ -147,7 +147,7 @@ func uninstallOne(tool string, purge, quietMissing bool, stdout, stderr io.Write
 		return &managedError{binary, m}
 	}
 
-	files := []string{real, real + ".prev", real + ".old"}
+	files := []string{real, real + ".prev", real + ".prev.json", real + ".old"}
 	if path != real {
 		files = append([]string{path}, files...) // the link on PATH goes too, or it would dangle
 	}
@@ -164,7 +164,7 @@ func uninstallOne(tool string, purge, quietMissing bool, stdout, stderr io.Write
 		switch {
 		case err == nil:
 			fmt.Fprintln(stdout, "Removed", f)
-		case errors.Is(err, fs.ErrNotExist) && i >= len(files)-2:
+		case errors.Is(err, fs.ErrNotExist) && i >= len(files)-3: // .prev, .prev.json, .old
 			// no leftover of this kind
 		case errors.Is(err, fs.ErrPermission):
 			fmt.Fprintf(stderr, "%-18s can't remove %s; rerun with sudo\n", binary, f)

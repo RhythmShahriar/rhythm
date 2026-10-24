@@ -10,6 +10,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -18,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -957,6 +959,157 @@ func TestParseAndFormatAge(t *testing.T) {
 	} {
 		if got := formatAge(d); got != want {
 			t.Errorf("formatAge(%v) = %q, want %q", d, got, want)
+		}
+	}
+}
+
+// twoVersions installs Tuner 0.3.0 and then updates it to 0.4.0 through
+// the fake API, leaving 0.3.0 as rhythm-tuner.prev.
+func twoVersions(t *testing.T) *sandbox {
+	t.Helper()
+	s, _ := pinSandbox(t)
+	if code, out, errs := runCmd("install", "tuner@0.3.0", "--dir", s.bin); code != 0 {
+		t.Fatalf("install: exit %d\n%s%s", code, out, errs)
+	}
+	if _, err := os.Stat(filepath.Join(s.bin, "rhythm-tuner.prev")); err == nil {
+		t.Error("a fresh install left a .prev")
+	}
+	if code, out, errs := runCmd("update", "tuner", "--no-data"); code != 0 || !strings.Contains(out, "0.3.0 → 0.4.0 ✔") {
+		t.Fatalf("update: exit %d\n%s%s", code, out, errs)
+	}
+	return s
+}
+
+func TestUpdateKeepsPrevious(t *testing.T) {
+	s := twoVersions(t)
+	dest := filepath.Join(s.bin, "rhythm-tuner")
+	if !strings.Contains(s.content("rhythm-tuner.prev"), "rhythm-tuner 0.3.0") {
+		t.Fatalf(".prev isn't 0.3.0: %q", s.content("rhythm-tuner.prev"))
+	}
+	var side prevSidecar
+	data, err := os.ReadFile(dest + ".prev.json")
+	if err != nil || json.Unmarshal(data, &side) != nil {
+		t.Fatalf("sidecar: %v %s", err, data)
+	}
+	prevSum, _ := fileSHA256(dest + ".prev")
+	curSum, _ := fileSHA256(dest)
+	if side.Version != "0.3.0" || side.SHA256 != prevSum || side.ReplacedBy.Version != "0.4.0" || side.ReplacedBy.SHA256 != curSum || side.ReplacedAt == "" {
+		t.Errorf("sidecar %+v", side)
+	}
+	if fi, err := os.Stat(dest + ".prev"); err != nil || fi.Mode()&0o111 == 0 {
+		t.Errorf(".prev isn't executable: %v", err)
+	}
+}
+
+func TestRollback(t *testing.T) {
+	s := twoVersions(t)
+	code, out, errs := runCmd("update", "--rollback", "tuner")
+	if code != 0 || out != "Rolled back rhythm-tuner 0.4.0 → 0.3.0\n" {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	if !strings.Contains(s.content("rhythm-tuner"), "rhythm-tuner 0.3.0") || !strings.Contains(s.content("rhythm-tuner.prev"), "rhythm-tuner 0.4.0") {
+		t.Error("the binaries weren't swapped")
+	}
+	// A second rollback swaps back.
+	code, out, _ = runCmd("update", "--rollback", "t")
+	if code != 0 || out != "Rolled back rhythm-tuner 0.3.0 → 0.4.0\n" {
+		t.Errorf("exit %d\n%s", code, out)
+	}
+	// uninstall takes the .prev files too.
+	if code, out, errs := runManage("uninstall", "tuner"); code != 0 {
+		t.Fatalf("uninstall: exit %d\n%s%s", code, out, errs)
+	}
+	if left := files(t, s.bin); slices.ContainsFunc(left, func(f string) bool { return strings.HasPrefix(f, "rhythm-tuner") }) {
+		t.Errorf("left behind: %v", left)
+	}
+}
+
+func TestRollbackWithoutPrevious(t *testing.T) {
+	s, _ := pinSandbox(t)
+	s.stub(t, "rhythm-tuner", "0.3.0", "")
+	code, out, errs := runCmd("update", "--rollback", "tuner")
+	if code != 1 || out != "" || errs != "rhythm-tuner has no previous version to roll back to; rhythm keeps one after each update\n" {
+		t.Errorf("exit %d\n%s%s", code, out, errs)
+	}
+	code, _, errs = runCmd("update", "--rollback", "echo")
+	if code != 1 || !strings.Contains(errs, "rhythm-echo        isn't installed; there is nothing to roll back") {
+		t.Errorf("exit %d\n%s", code, errs)
+	}
+}
+
+func TestRollbackRefusesAChangedPrevious(t *testing.T) {
+	s := twoVersions(t)
+	before := s.content("rhythm-tuner")
+	if err := os.WriteFile(filepath.Join(s.bin, "rhythm-tuner.prev"), []byte("#!/bin/sh\necho other\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	code, _, errs := runCmd("update", "--rollback", "tuner")
+	if code != 1 || !strings.Contains(errs, "rhythm-tuner.prev has changed since it was set aside (sha256 differs); not rolling back") {
+		t.Errorf("exit %d\n%s", code, errs)
+	}
+	if s.content("rhythm-tuner") != before {
+		t.Error("the binary changed")
+	}
+}
+
+func TestRollbackAndToRefuseManaged(t *testing.T) {
+	s, _ := pinSandbox(t)
+	dir := filepath.Join(s.dir, "Cellar", "rhythm-tuner", "0.3.0", "bin")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(dir, "rhythm-tuner")
+	if err := os.WriteFile(p, stubScript("rhythm-tuner", "0.3.0", s.log("rhythm-tuner"), ""), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(p, filepath.Join(s.bin, "rhythm-tuner")); err != nil {
+		t.Fatal(err)
+	}
+	code, _, errs := runCmd("update", "--rollback", "tuner")
+	if code != 1 || !strings.Contains(errs, "rhythm-tuner is managed by Homebrew; rhythm leaves its versions to Homebrew") {
+		t.Errorf("rollback: exit %d\n%s", code, errs)
+	}
+	code, out, errs := runCmd("update", "tuner", "--to", "0.2.9", "--no-data")
+	if code != 1 || !strings.Contains(out, "rhythm-tuner is managed by Homebrew; update it with: brew upgrade rhythm-tuner") {
+		t.Errorf("--to: exit %d\n%s%s", code, out, errs)
+	}
+}
+
+func TestUpdateTo(t *testing.T) {
+	s, _ := pinSandbox(t)
+	s.stub(t, "rhythm-tuner", "0.4.0", "")
+	code, out, errs := runCmd("update", "tuner", "--to", "0.3.0", "--no-data")
+	if code != 0 || !strings.Contains(out, "Note: 0.3.0 is older than rhythm-tuner 0.4.0; installing it as asked.\nrhythm-tuner       0.4.0 → 0.3.0 ✔\n") {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	if !strings.Contains(s.content("rhythm-tuner"), "rhythm-tuner 0.3.0") {
+		t.Error("0.3.0 wasn't installed")
+	}
+	// A partial version picks the newest match; up is fine too.
+	code, out, errs = runCmd("update", "tuner", "--to", "0.3", "--no-data")
+	if code != 0 || !strings.Contains(out, "rhythm-tuner       0.3.0 → 0.3.1 ✔\n") || strings.Contains(out, "Note:") {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	code, out, _ = runCmd("update", "tuner", "--to", "0.3.1", "--no-data")
+	if code != 0 || !strings.Contains(out, "rhythm-tuner       0.3.1 (up to date)") {
+		t.Errorf("exit %d\n%s", code, out)
+	}
+}
+
+func TestUpdateModeUsage(t *testing.T) {
+	pinSandbox(t)
+	for _, c := range []struct{ args, want string }{
+		{"--rollback", "rhythm: --rollback needs a tool name, such as: rhythm update --rollback tuner"},
+		{"--rollback tuner --to 0.3.0", "rhythm: --rollback and --to don't mix; pick one"},
+		{"--rollback tuner --check", "rhythm: --rollback works alone; drop --check and --lock"},
+		{"--to 0.3.0", "rhythm: --to needs exactly one tool name, such as: rhythm update tuner --to 0.3.1"},
+		{"tuner echo --to 0.3.0", "rhythm: --to needs exactly one tool name"},
+		{"tuner --to 0.3.0 --check", "rhythm: --to works alone; drop --check and --lock"},
+		{"tuner --to 0.3.x", `rhythm: --to: invalid version "0.3.x"`},
+	} {
+		code, _, errs := runCmd(append([]string{"update"}, strings.Fields(c.args)...)...)
+		if code != exitUsage || !strings.Contains(errs, c.want) {
+			t.Errorf("%s: exit %d, want 2 and %q\n%s", c.args, code, c.want, errs)
 		}
 	}
 }
