@@ -59,7 +59,15 @@ rhythm echo install wordpress /var/www/staging
 ```text
 Installed the Echo connector (wp-content/mu-plugins/rhythm-echo.php), reporting to http://127.0.0.1:8025.
 
-  It stays off on production (WP_ENVIRONMENT_TYPE=production) unless forced.
+  It runs only where WP_ENVIRONMENT_TYPE is local, development or staging. WordPress
+  treats an unset WP_ENVIRONMENT_TYPE as production, and there the connector does
+  nothing. On staging, add this to wp-config.php, above "That's all, stop editing!":
+
+    define( 'WP_ENVIRONMENT_TYPE', 'staging' );
+
+  (or set it in the server's environment). On a box that isn't production but says
+  so, reinstall with --force.
+
   Next: rhythm echo up, then rhythm echo doctor (with site: in .echo/config.yaml)
   Flush async mail and webhooks after actions: add to .echo/config.yaml
     flush: ["wp cron event run --due-now", "wp action-scheduler run"]
@@ -67,8 +75,10 @@ Installed the Echo connector (wp-content/mu-plugins/rhythm-echo.php), reporting 
 
 The path is the site's root (with `wp-config.php`) or its `wp-content` folder. If you can't write there, use `--wp-cli` or `--container`; Laravel, Next.js, Node and other stacks are in [Connectors](Echo-Install-Connectors).
 
+When `wp-config.php` already sets `WP_ENVIRONMENT_TYPE` to `staging`, `development` or `local`, that paragraph is replaced by `wp-config.php sets WP_ENVIRONMENT_TYPE to staging, so the connector runs.`
+
 > [!IMPORTANT]
-> The connector does nothing on a production site, and WordPress treats a site **without** `WP_ENVIRONMENT_TYPE` as production. Make sure staging's `wp-config.php` has `define( 'WP_ENVIRONMENT_TYPE', 'staging' );` (or `development` or `local`). Otherwise the connector stays off and shows an admin notice saying why.
+> The connector does nothing on a production site, and WordPress treats a site **without** `WP_ENVIRONMENT_TYPE` as production. Make sure staging's `wp-config.php` has the `define()` line above (or `development` or `local`). Otherwise the connector stays off and shows an admin notice saying why.
 
 ## 4. Check every layer
 
@@ -96,15 +106,15 @@ rhythm echo doctor
   ♪ rhythm echo 1.0.0                                                   doctor
   ────────────────────────────────────────────────────────────────────────────
 
-  ▸ ✓ Echo        seal mode at http://127.0.0.1:8025, 35 providers recognized
-  ▸ ✓ SMTP        127.0.0.1:1025 receives mail
-  ▸ ✓ WordPress   active (staging), layers: wp_mail, pre_http_request
-  ▸ ✓ Canaries    wp_mail and wp_remote_post were both caught
+  ✓ Echo          seal mode at http://127.0.0.1:8025, 34 providers recognized
+  ✓ SMTP          127.0.0.1:1025 receives mail
+  ✓ WordPress     active (staging), layers: wp_mail, pre_http_request
+  ✓ Canaries      wp_mail and wp_remote_post were both caught
 
   4 checks passed, 0 failed.
 ```
 
-`doctor` asks the connector whether it's active and can reach Echo, then makes the site send one email and one HTTP request to addresses that can't exist (`canary@echo.invalid`, `https://canary.echo.invalid/`) and checks both arrive. It deletes the canaries afterwards. A `✗` line says what's wrong; [FAQ](Echo-FAQ#doctor-says-a-layer-failed) goes through each one.
+`doctor` asks the connector whether it's active and can reach Echo, then makes the site send one email and one HTTP request to addresses that can't exist (`canary@echo.invalid`, `https://canary.echo.invalid/`) and checks both arrive. It deletes the canaries afterwards. A `✗` line says what's wrong (with `--plain`, lines start with `ok`, `FAIL` or `note` instead); [FAQ](Echo-FAQ#doctor-says-a-layer-failed) goes through each one.
 
 ## 5. Watch what the site sends
 
@@ -118,13 +128,16 @@ Now use the site as a visitor would: send the contact form, place a test order. 
 
 ```text
 Watching http://127.0.0.1:8025 (seal mode). Ctrl+C to stop.
-08:19:45 email to office@shop.test: New message from Jamie [faked]
-08:19:45 email to jamie@shop.test: Thanks for getting in touch [faked]
-08:19:45 Slack message to slack webhook: New contact form message from Jamie [faked]
-08:19:45 Twilio SMS to +15551230000: Hi Jamie, your order #1042 has shipped. [faked]
+  08:19:45  ✉ email                     → office@shop.test  New message from Jamie  faked
+  08:19:45  ✉ email                     → jamie@shop.test  Thanks for getting in touch  faked
+  08:19:45  # Slack message             → slack webhook  New contact form message from Jamie  faked
+  08:19:45  ◆ Twilio SMS                → +15551230000  Hi Jamie, your order #1042 has shipped.  faked
+  08:19:45  ↗ Zapier webhook            → hooks.zapier.com/hooks/catc…  POST  faked
 ```
 
-`[faked]` means Echo answered in the service's place: the site got a normal "sent" reply, and nothing left. `rhythm echo ls` lists everything captured so far, and `rhythm echo show <id>` prints one message as JSON. See [Messages and checks](Echo-Messages-And-Checks).
+Piped or with `--plain`, each message is one line of text instead: `08:19:45 Zapier webhook to hooks.zapier.com/hooks/catch/123456/ab•••••: POST [faked]`. The last part of a Zapier, Make or n8n hook URL is its secret, so Echo masks it everywhere it shows the URL.
+
+`faked` means Echo answered in the service's place: the site got a normal "sent" reply, and nothing left. `rhythm echo ls` lists everything captured so far, and `rhythm echo show <id>` prints one message as JSON. See [Messages and checks](Echo-Messages-And-Checks).
 
 ## 6. List the actions
 
@@ -200,7 +213,7 @@ rhythm echo compare
   BROKE  3 ───────────────────────────────────────────────────────────────────
 
  ▌  BROKE      Email to office@shop.test is no longer sent       Contact form
- ▌             1 → 0
+ ▌             sent → not sent
  ▌             → Something in the change stopped this message: check the plu…
 
  ▌  BROKE      Sent fewer emails than expected                   Contact form
@@ -215,7 +228,7 @@ rhythm echo compare
 
     ■  Email to the test submitter: subject changed              Contact form
     ■  Twilio SMS to the test number: text changed              Order shipped
-    ■  Webhook to hooks.zapier.com: payload lost fields         Order shipped
+    ■  Zapier webhook to hooks.zapier.com/hooks/catch/12345…    Order shipped
 
  ╭─────────────────────────────────────────────────╮
  │  ECHO   Something broke                         │
@@ -229,7 +242,7 @@ rhythm echo compare
 Reading from the top:
 
 - **BROKE** is what the snapshot sent and this run doesn't. The office's copy of the contact form is gone, so the `expect` fails too. The SMS now has an unfilled `{first_name}`, which is a new error.
-- **CHANGED** is the same message, but different. "The test submitter" is the `${fake:email}` address, which changes every run; Echo compares it as a role, not an address. The same goes for `+1555…` numbers, which are test numbers. The Zapier payload lost a field that whatever receives it may need.
+- **CHANGED** is the same message, but different. "The test submitter" is the `${fake:email}` address, which changes every run; Echo compares it as a role, not an address. The same goes for `+1555…` numbers, which are test numbers. The Zapier payload lost a field that whatever receives it may need; a catch hook (Zapier, Make, n8n) is named by its URL, with the secret part masked, since each URL is its own Zap or scenario.
 - **The panel** gives the verdict and the count per class.
 
 To see the details of every change, including the before and after values, print the stored result in plain text:
@@ -240,11 +253,11 @@ rhythm echo report --plain
 
 ```text
 [CHANGED] Email to the test submitter: subject changed - Contact form
-  thanks for getting in touch → we got your message
+  Thanks for getting in touch → We got your message
 [CHANGED] Twilio SMS to the test number: text changed - Order shipped
   Hi Jamie, your order #1042 has shipped. → Hi {first_name}, your order #1042 has shipped.
   fix: Read the new text; if the change is intended, take a new snapshot.
-[CHANGED] Webhook to hooks.zapier.com: payload lost fields - Order shipped
+[CHANGED] Zapier webhook to hooks.zapier.com/hooks/catch/123456/ab•••••: payload lost fields - Order shipped
   order.email
   fix: Whatever receives this (a CRM, Zapier, an app) may depend on these fields.
 ```

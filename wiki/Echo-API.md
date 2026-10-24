@@ -29,7 +29,7 @@ curl -s http://127.0.0.1:8025/v1/health
 ```
 
 ```json
-{"mode":"seal","providers":["ga4","meta-capi","teams","twilio","slack","discord","woocommerce","hubspot","mailchimp","klaviyo","activecampaign","zapier","make","n8n","sendgrid","mailgun","postmark","resend","amazon-ses","brevo","sparkpost","mandrill","stripe","paypal","fcm","onesignal","vonage","vonage","messagebird","bird","plivo","amazon-sns","telnyx","clicksend","whatsapp-cloud"],"tool":"rhythm-echo","version":"1.0.0","wire":1}
+{"mode":"seal","providers":["ga4","meta-capi","teams","twilio","slack","discord","woocommerce","hubspot","mailchimp","klaviyo","activecampaign","zapier","make","n8n","sendgrid","mailgun","postmark","resend","amazon-ses","brevo","sparkpost","mandrill","stripe","paypal","fcm","onesignal","vonage","messagebird","bird","plivo","amazon-sns","telnyx","clicksend","whatsapp-cloud"],"tool":"rhythm-echo","version":"1.0.0","wire":1}
 ```
 
 ### Filters
@@ -142,7 +142,12 @@ A bad capture gets `400` with the reason (`an email capture needs email`, `http 
 
 The Laravel package's `src/` and the Node package's `src/` in the [Echo repository](https://github.com/RhythmShahriar/echo/tree/master/connectors) are compact references, with tests against a fake Echo.
 
-<!-- TODO(lead): the plan promised Mailpit-compatible email endpoints; the catcher has only the /v1 routes above. Document the Mailpit routes here if they're added, or drop the promise. -->
+## Mailpit-style routes
+
+Echo's `catcher` package also has a small read API for email shaped like [Mailpit](https://mailpit.axllent.org)'s, for tests written against Mailpit: `GET /api/v1/messages` (newest first, with `start` and `limit`, default 50), `GET /api/v1/message/{ID}` (`latest` works; adds a `Headers` field Mailpit doesn't have), `GET /api/v1/message/{ID}/headers`, and `DELETE /api/v1/messages` (`{"IDs": […]}`, or every email with an empty body). They cover email only and take the same token as the rest of the API.
+
+> [!NOTE]
+> `rhythm echo up` 1.0.0 doesn't serve these routes: it passes only `/v1/…` and `/` to the catcher, so `/api/v1/…` answers `404 page not found`. They're reachable only from a Go program that serves `catcher.Server` itself. Use the `/v1` routes above.
 
 ## The client package
 
@@ -167,7 +172,7 @@ func main() {
 
 	h, err := echo.Health(ctx)
 	if err != nil {
-		log.Fatal(err) // echo isn't running at … (start it with: rhythm echo up)
+		log.Fatal(err) // no Echo is running at … (start it with: rhythm echo up)
 	}
 	fmt.Println("Echo", h.Version, "in", h.Mode, "mode")
 
@@ -204,8 +209,8 @@ cleared 1
 | Function | Does |
 |---|---|
 | `client.New(url, token)` | A client; `url` defaults to `client.DefaultURL` (`http://127.0.0.1:8025`). |
-| `Health(ctx)` | `/v1/health`; fails with `client.ErrNotRunning` when nothing answers. |
-| `Messages(ctx, filter)`, `Message(ctx, id)` | List or get messages. |
+| `Health(ctx)` | `/v1/health`; fails with `client.ErrNotRunning` when nothing answers (`no Echo is running at http://127.0.0.1:8025 (start it with: rhythm echo up)`). |
+| `Messages(ctx, filter)`, `Message(ctx, id)` | List or get messages. Any answer other than success is a `*client.APIError` (`Echo answered 404 Not Found to GET /v1/messages/x`); `client.IsNotFound(err)` tells a missing message apart. |
 | `Wait(ctx, filter, count, quiet, timeout)` | `/v1/wait`. |
 | `Clear(ctx, filter)` | Delete messages; returns how many. |
 | `Begin(ctx, run, action)`, `End(ctx)` | Open and close an action. |

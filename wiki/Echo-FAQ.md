@@ -8,9 +8,9 @@ Mailpit, MailHog, Mailtrap and smtp4dev are good mail catchers, and if all you n
 
 - **It compares.** A catcher shows you an inbox. Echo records what each action sent, then tells you after an update that the office's copy of the contact form is gone, the SMS now has `{first_name}` in it, and the Zapier payload lost a field.
 - **Every channel, not only SMTP.** Most of what a modern site sends isn't SMTP at all: API mailers (SendGrid, Postmark, Resend), SMS, WhatsApp, Slack, webhooks, GA4 and Meta events, payment calls. Echo catches them through the connector or its proxy, recognizes 34 services, and answers each one the way the service would, so the site carries on.
-- **It seals.** Pointing the mailer at a catcher stops email. It doesn't stop the SMS plugin, the WooCommerce webhook to the live CRM, or the purchase event that feeds your ads. Echo's seal covers them, and refuses live payment calls.
+- **It seals.** Pointing the mailer at a catcher stops email. It doesn't stop the SMS plugin, the WooCommerce webhook to the live CRM, or the purchase event that feeds your ads. Echo's seal covers them, and refuses live payment calls in every mode.
 
-Echo's API isn't Mailpit's, so tools built for Mailpit's API don't work with it; see [API](Echo-API).
+`rhythm echo up` serves Echo's own `/v1` API, not Mailpit's, so tools built for Mailpit's API don't work with it; see [API](Echo-API#mailpit-style-routes).
 
 ### Is it safe to run on production?
 
@@ -46,6 +46,8 @@ Inside a container, `127.0.0.1` is the container itself, so a connector pointed 
    rhythm echo up --listen 172.17.0.1:8025 --smtp 172.17.0.1:1025
    ```
 
+   The SMTP sink then wants a login: any username, with the token as the password. Give the site's mailer those settings (the WordPress connector doesn't need them: it reports mail through the API).
+
    With Docker Desktop (macOS, Windows), `host.docker.internal` reaches the host's loopback, so Echo can stay on `127.0.0.1`.
 2. **Point the connector at the host.** Start the container with `--add-host host.docker.internal:host-gateway` (or `extra_hosts` in Compose), then install with that URL and the token:
 
@@ -53,15 +55,17 @@ Inside a container, `127.0.0.1` is the container itself, so a connector pointed 
    rhythm echo install wordpress --container shop-cli --url http://host.docker.internal:8025 --token "$RHYTHM_ECHO_TOKEN"
    ```
 
-   Put the same address in `.echo/config.yaml` (`listen: 172.17.0.1:8025`, `smtp: 172.17.0.1:1025`), so `doctor` and your actions find Echo. When the install uses `--container` and a `127.0.0.1` URL, Echo reminds you: `In Docker, 127.0.0.1 is the container itself: reinstall with --url http://host.docker.internal:8025`.
+   Put the same address in `.echo/config.yaml` (`listen: 172.17.0.1:8025`, `smtp: 172.17.0.1:1025`), so `doctor` and your actions find Echo. When the install uses `--container` and a `127.0.0.1` URL, Echo reminds you: `In Docker, 127.0.0.1 and localhost are the container itself: reinstall with --url http://host.docker.internal:8025`.
 
 For a stack that's all in Compose, run Echo as a service instead; the [hard seal recipe](Echo-Sealing-Staging#docker-internal-network) does that and seals the network too. Installing into the official `wordpress` image, which has no WP-CLI, is covered in [WordPress in Docker](Echo-Install-Connectors#wordpress-in-docker).
 
 ### doctor says a layer failed
 
+On a terminal, a failed check starts with `✗` and a note with `·`; with `--plain` they start with `FAIL` and `note`, and passed checks with `ok`.
+
 | Line | Means | Fix |
 |---|---|---|
-| `✗ Echo: echo isn't running at http://127.0.0.1:8025 (start it with: rhythm echo up)` | Nothing answered at the URL | Start Echo, or pass `--url` / set `listen:` to where it runs. |
+| `✗ Echo: no Echo is running at http://127.0.0.1:8025 (start it with: rhythm echo up)` | Nothing answered at the URL | Start Echo, or pass `--url` / set `listen:` to where it runs. |
 | `✗ SMTP: 127.0.0.1:1025: … (is Echo running with this config?)` | The sink isn't where the config says | Run `doctor` from the same folder as `up`, with the same config. |
 | `· WordPress: no connector answered at … (…)` | The site has no connector, the URL is wrong, or the REST route is blocked (a security plugin, basic auth) | Install it; check `site:`; allow `?rest_route=/rhythm-echo/v1/ping` from Echo's machine. |
 | `✗ WordPress: the connector is installed but off: production` | The production guard | Set `WP_ENVIRONMENT_TYPE`. |
@@ -69,7 +73,7 @@ For a stack that's all in Compose, run Echo as a service instead; the [hard seal
 | `✗ Canaries: only 1 of 2 canaries arrived` | One layer isn't catching | The email or HTTP hook is bypassed; see the warnings on the `·` lines. |
 | `✗ Laravel: …` | `php artisan echo:canary` failed | Run it yourself to see the error; check `RHYTHM_ECHO_URL` in `.env` and `php artisan config:clear`. |
 | `✗ Flush: "…": exit status 1 …` | A flush command fails | Run it by hand from the same folder. |
-| `✗ Site: … is listed under production` | `site:` starts with a `production:` prefix | Point `site:` at staging. |
+| `✗ Site: … is listed under production: Echo's actions and replays refuse it` | `site:` starts with a `production:` prefix | Point `site:` at staging. |
 
 ### Changes to the mu-plugin or settings don't show up at once
 
@@ -79,7 +83,7 @@ PHP's opcache may keep serving the old file for a moment: the official `wordpres
 
 With `--mitm`, the proxy presents certificates from Echo's own CA, so each client must trust it. Most read the system store or an environment variable (see [the table](Echo-Install-Connectors#the-https-proxy)). Some ship their own CA bundle and ignore all of these:
 
-- **Stripe's PHP SDK** uses its own `data/ca-certificates.crt`. Call `\Stripe\Stripe::setCABundlePath('/etc/rhythm-echo/bundle.pem')`, or allowlist `api.stripe.com` on a site with test keys, so it's tunneled to Stripe with its real certificate.
+- **Stripe's PHP SDK** uses its own `data/ca-certificates.crt`. Call `\Stripe\Stripe::setCABundlePath('/etc/rhythm-echo/bundle.pem')`. Allowlisting `api.stripe.com` doesn't help here: payment APIs are never tunnelled blind, so with `--mitm` Echo still decrypts Stripe calls (to tell test keys from live ones), and without it refuses them.
 - **WordPress** verifies against `wp-includes/certificates/ca-bundle.crt`: install the connector with `--ca`, which adds Echo's CA to that bundle.
 - **Python's `certifi`** (used by `requests`): set `REQUESTS_CA_BUNDLE` to a bundle of the system CAs plus Echo's.
 - **Java** keeps its own keystore: import `ca.pem` with `keytool -importcert`.
@@ -96,7 +100,7 @@ When the TLS handshake fails, the client usually says `self-signed certificate i
 
 ### An action takes 30 seconds
 
-An action with `expect:` waits until enough messages arrive. When they don't, it waits the full `timeout` (30 s by default) before giving up and reporting *Sent fewer emails than expected*. That's the expect failing, not Echo hanging. Lower `timeout` if your messages arrive quickly.
+An action with `expect:` waits until enough messages arrive. When they don't, it waits the full `timeout` (30 s by default) before giving up and reporting *Sent fewer emails than expected*; its progress line still shows `✓` with what was sent. That's the expect failing, not Echo hanging. Lower `timeout` if your messages arrive quickly.
 
 ### Everything shows as CHANGED
 
@@ -104,11 +108,15 @@ Usually a value that changes on every run reaches a message: a real address type
 
 ### "no snapshot named …"
 
-The latest snapshot was deleted. `compare` doesn't fall back to another one: pass `--snapshot <name>`, or take a new snapshot.
+`--snapshot` (or `report <name>`) names a snapshot that isn't there; `rhythm echo snapshots` lists them. Deleting the latest snapshot is fine: the newest remaining one becomes the latest.
 
-### "actions from the snapshot weren't run this time"
+### "action from the snapshot wasn't run this time"
 
-An action was renamed, removed, or left out with `--action`. Actions are matched by name, so a renamed action isn't compared with its old self: take a new snapshot after renaming.
+An action was renamed, removed, or left out with `--action`. Actions are matched by name, so a renamed action isn't compared with its old self: its messages show as NEW, with `1 action isn't in the snapshot; what it sent is listed as new`. Take a new snapshot after renaming.
+
+### A snapshot from an earlier build shows changes nobody made
+
+Problem titles use the services' display names (`Amazon SES email`, `Zapier webhook`, `request to <host>`), and an older build used other names. Compared with a snapshot taken before that, the same problems can show as NEW and FIXED. Take a new snapshot.
 
 ### A replay is refused
 

@@ -63,7 +63,7 @@ The actions come from the testbed's own `.echo/config.yaml`: HTTP form posts, WP
 
 ## Results
 
-Run on 24 October 2026 with a development build of rhythm-echo on Linux (amd64); the run took 4 min 53 s.
+Run on 24 October 2026 with a development build of rhythm-echo on Linux (amd64); the run took 4 min 42 s.
 
 | # | Scenario | Echo | Mailpit |
 |---|---|---|---|
@@ -73,7 +73,7 @@ Run on 24 October 2026 with a development build of rhythm-echo on Linux (amd64);
 | s04 | The new-order Slack alert is removed | **caught** | can't see |
 | s05 | The GA4 purchase event is missing | **caught** | can't see |
 | s06 | Laravel's queued order email is stuck (the job throws) | **caught** | missed |
-| s07 | The Next.js welcome email (Resend) now throws | missed (known issue) | missed |
+| s07 | The Next.js welcome email (Resend) now throws | **caught** | missed |
 | s08 | The receipt is never sent because cron is off | **caught** | missed |
 | s09 | The owner's notification goes to the wrong address | **caught** | **caught** |
 | s10 | A merge tag is left unreplaced in the receipt | **caught** | **caught** |
@@ -87,12 +87,13 @@ Run on 24 October 2026 with a development build of rhythm-echo on Linux (amd64);
 | s18 | SPF needs more than 10 DNS lookups | **caught** | can't see |
 | s19 | A staging refresh brings a real customer address (observe mode) | **caught** | **caught** |
 | s20 | A Stripe payment no longer triggers the payment email | **caught** | missed |
-| | **Total** | **19 / 20** | 5 / 20 |
+| | **Total** | **20 / 20** | 5 / 20 |
 
 How to read it:
 
-- **Echo** caught 19 scenarios as the change they are, through its normal commands: lost messages as BROKE `message/missing`, content problems from the message checks, s14 as a lost payload field, s16 as a failed send, s17 and s18 from `check` against the fixture DNS.
-- **s07 is a known Echo issue.** `compare` matches emails on their channel and recipients only, so the Resend welcome and the Nodemailer account email to the same new user count as one message. When the welcome is lost, Echo reports *Resend email to the test submitter is sent fewer times* (CHANGED) and diffs the welcome against the account email, instead of BROKE for the welcome. See [How messages are matched](Echo-Actions-And-Compare#how-messages-are-matched).
+- **Echo** caught all 20 scenarios as the change they are, through its normal commands: lost messages as BROKE `message/missing`, content problems from the message checks, s14 as a lost payload field, s16 as a failed send, s17 and s18 from `check` against the fixture DNS.
+- **s07** was the one miss in the first run (19 of 20): `compare` matched emails on their channel and recipients only, so the Resend welcome and the Nodemailer account email to the same new user counted as one message, and losing the welcome read as *sent fewer times*. Emails are now matched by service and recipients, then paired by subject, so Echo reports *Resend email to the test submitter is no longer sent* (BROKE). See [How messages are matched](Echo-Actions-And-Compare#how-messages-are-matched).
+- **s15** is reported as the old hook lost and the new one sent: *Zapier webhook to hooks.zapier.com/hooks/catch/1234567/ab••••• is no longer sent*, and *…/catch/7654321/zx••••• is now sent*. A catch hook is named by its masked URL, since each URL is its own Zap.
 - **Mailpit** sees what's *in* an email: the wrong address, the merge tag, the PHP warning, the staging link, the real customer address. It can't see an email that's missing (there's nothing to look at), and it never receives SMS, chat, webhooks, analytics or DNS.
 
 The per-scenario details, including everything else Echo reported, are in [`docs/benchmark.md`](https://github.com/RhythmShahriar/echo/blob/master/docs/benchmark.md) in the Echo repository.

@@ -5,15 +5,14 @@ A staging copy of a live site still has the live site's mailer, SMS gateway, web
 | Mode | Start it with | Email | HTTP to a service | Use it for |
 |---|---|---|---|---|
 | **seal** (default) | `rhythm echo up` or `--seal` | recorded, never delivered | recorded and answered by Echo with a response shaped like the provider's | every staging and local site |
-| **observe** | `rhythm echo up --observe` | recorded, then sent the normal way | recorded, sent for real, and the response recorded | a site where real delivery is safe, such as one that only mails your own team |
+| **observe** | `rhythm echo up --observe` | recorded, then sent the normal way by a connector (mail to Echo's SMTP sink or `sendmail` is still only kept) | recorded, sent for real, and the response recorded | a site where real delivery is safe, such as one that only mails your own team |
 
 `mode: observe` in `.echo/config.yaml` does the same as the flag; `--seal` and `--observe` together are a usage error. The catcher's mode decides what happens to every message: a connector's own `mode` setting only matters when it [can't reach Echo](#fail-closed).
 
 > [!WARNING]
-> Observe mode really sends: real customers get the email and the SMS. Use it only where you'd be happy for every message to go out, and add your test addresses to `allow_recipients` so anything else is flagged. Replays refuse to run in observe mode.
+> Observe mode really sends: real customers get the email and the SMS. Use it only where you'd be happy for every message to go out, and add your test addresses to `allow_recipients` so anything else is flagged. Replays refuse to run in observe mode. Live payments are refused even here; see [Live payments are refused](#live-payments-are-refused).
 
-In observe mode, Echo's SMTP sink still never delivers mail: only connectors send for real. A message the sink received is recorded as `sent` all the same.
-<!-- TODO(lead): the SMTP sink marks mail "sent" in observe mode although it never delivers it (and the real-recipient check then says "really sent"). Reword this note when that's fixed. -->
+In observe mode, Echo's SMTP sink and the `sendmail` stand-in still never deliver mail: only connectors send for real. Mail that came in through them is recorded as `faked` in every mode, so it never counts as really sent.
 
 ## What happens to each message
 
@@ -22,8 +21,8 @@ Every capture ends with one of four statuses, shown in `watch`, `ls` and the rep
 | Status | Means |
 |---|---|
 | `faked` | Sealed: Echo answered instead of the real service. The site saw a normal success. |
-| `blocked` | Sealed and refused: a live-mode payment call, or HTTPS the proxy can't decrypt without `--mitm`. The site saw a failure. |
-| `sent` | Delivered for real: observe mode, or a host on the allowlist. |
+| `blocked` | Refused: a live-mode payment call (in every mode), a blind tunnel to a payment API, or sealed HTTPS the proxy can't decrypt without `--mitm`. The site saw a failure. |
+| `sent` | Delivered for real by a connector: observe mode, or a host on the allowlist. |
 | `failed` | The site tried and the send failed: a transport error, or an HTTP status of 400 or more. |
 
 For an HTTP request, Echo first recognizes what it is (a Twilio SMS, a Slack alert, a GA4 event, a Stripe call; see [Messages and checks](Echo-Messages-And-Checks#recognized-services)), then decides:
@@ -32,11 +31,11 @@ For an HTTP request, Echo first recognizes what it is (a Twilio SMS, a Slack ale
 flowchart TD
   R["Outbound request"] --> I{"Platform update check?<br/>api.wordpress.org…"}
   I -- yes --> T["Let through, not recorded"]
-  I -- no --> O{"Observe mode, or<br/>allowed host?"}
-  O -- yes --> S["Send for real, record as sent"]
-  O -- no --> P{"Live-mode payment?"}
+  I -- no --> P{"Live-mode payment,<br/>or a key Echo can't read?"}
   P -- yes --> B["Answer with the provider's<br/>own refusal: blocked"]
-  P -- no --> F["Answer with a fake<br/>success: faked"]
+  P -- no --> O{"Observe mode, or<br/>allowed host?"}
+  O -- yes --> S["Send for real, record as sent"]
+  O -- no --> F["Answer with a fake<br/>success: faked"]
 ```
 
 ## Fakes per provider
@@ -75,12 +74,12 @@ The site gets the fake; Echo records it as the message's `response`, so `rhythm 
 
 ## Live payments are refused
 
-A fake success is only safe when the real call couldn't have moved money. So for payment APIs Echo looks at the key's mode first:
+A fake success is only safe when the real call couldn't have moved money, and a real call is only safe in test mode. So for payment APIs Echo looks at the key's mode first, before the mode and the allowlist. A live call is refused in **every** mode: sealed or observed, allowlisted or not.
 
 - **Stripe** with a test key (`sk_test_…`, `rk_test_…`) gets a fake success object. With a live key (`sk_live_…`, `rk_live_…`), or a key Echo can't read, it gets Stripe's own error shape with `403`, and the message is `blocked`.
 - **PayPal** uses separate hosts for live and sandbox. Calls to `api-m.sandbox.paypal.com` and `api.sandbox.paypal.com` are faked; calls to the live hosts get PayPal's `invalid_client` error and are `blocked`.
 
-The SDK then throws, and the site records a failed payment. A staging copy of production holding live keys never sees "paid" for an order nobody paid for:
+The message's error says why: `refused: a live-mode Stripe call; use test credentials on staging`. The SDK then throws, and the site records a failed payment. A staging copy of production holding live keys never charges a card, and never sees "paid" for an order nobody paid for:
 
 ```sh
 curl -s http://127.0.0.1:8025/v1/capture -H 'Content-Type: application/json' -d '{"v":1,"kind":"http","phase":"before","source":{"via":"my-connector"},
@@ -88,16 +87,21 @@ curl -s http://127.0.0.1:8025/v1/capture -H 'Content-Type: application/json' -d 
 ```
 
 ```text
-{"id":"631b13a66f7e","mode":"seal","action":"fake","response":{"status":403,"headers":{"content-type":"application/json"},"body":"{\"error\":{\"code\":\"rhythm_echo_sealed\",\"message\":\"Rhythm Echo refused a live-mode call from a sealed site. Use a Stripe test key (sk_test_…) on staging.\",\"type\":\"invalid_request_error\"}}"}}
+{"id":"f0e357147b13","mode":"seal","action":"fake","response":{"status":403,"headers":{"content-type":"application/json"},"body":"{\"error\":{\"code\":\"rhythm_echo_sealed\",\"message\":\"Rhythm Echo refused a live-mode call from a sealed site. Use a Stripe test key (sk_test_…) on staging.\",\"type\":\"invalid_request_error\"}}"}}
 ```
 
 ```text
 08:16:33 Stripe call to api.stripe.com: live mode [blocked]
 08:16:33 Stripe call to api.stripe.com: test mode [faked]
+08:16:33 Stripe call to api.stripe.com: 2400 eur [blocked]
 ```
 
-> [!CAUTION]
-> The refusal applies to payment calls Echo answers. A host on the [allowlist](#the-allowlist) is sent for real whatever its key, so allowlist `api.stripe.com` only on a site that holds test keys.
+The third call had no key Echo could read, so it was refused too.
+
+Through the proxy, Echo can only check the key when it decrypts the request. So a `CONNECT` to a payment API (Stripe, or PayPal's live hosts) is never tunnelled blind: without `--mitm` it's refused in every mode, even for an allowlisted host, and recorded as `blocked` with `payment APIs need --mitm so Echo can tell test from live keys`. With `--mitm`, those hosts are decrypted, even when allowlisted, and the same rules apply. PayPal's sandbox hosts can still be tunnelled, since they can't move money.
+
+> [!NOTE]
+> Allowlisting `api.stripe.com` lets **test-mode** calls really reach Stripe, for an end-to-end checkout against Stripe's test environment. Live-mode calls are still refused.
 
 ## The allowlist
 
@@ -112,7 +116,7 @@ rhythm echo up --allow api.stripe.com --allow '*.sandbox.paypal.com'
 allow: ["api.stripe.com", "*.sandbox.paypal.com"]
 ```
 
-`--allow` adds to the config's list, takes comma-separated values and can be repeated. Entries are host globs (`*` matches within a name, so `*.sandbox.paypal.com` matches `api-m.sandbox.paypal.com`). Allowed requests are still recorded, as `sent`, with their responses. `up` lists them on its `Allowed` line.
+`--allow` adds to the config's list, takes comma-separated values and can be repeated. Entries are host globs (`*` matches within a name, so `*.sandbox.paypal.com` matches `api-m.sandbox.paypal.com`). Allowed requests are still recorded, as `sent`, with their responses. Live payment calls are refused whatever the allowlist says. `up` lists them on its `Allowed` line.
 
 Always allowed, without listing:
 
@@ -120,7 +124,7 @@ Always allowed, without listing:
 - loopback addresses and `localhost`;
 - through the proxy, also private address ranges and single-label names (`db`, `redis`), since the proxy can't tell which host is the site.
 
-**`allow_recipients`** is the observe-mode counterpart: addresses or numbers you may really message, as globs (`*@yourcompany.com`, `+4915112345678`). In observe mode, a message really sent to anyone else gets the warning *Email really sent to an address outside the allowlist*. Test addresses never count as real: `.test`, `.local`, `.localhost`, `.invalid` and `.example` domains, `example.com/.org/.net`, and `+1555…` and `+15005550…` numbers.
+**`allow_recipients`** is the observe-mode counterpart: addresses or numbers you may really message, as globs (`*@yourcompany.com`, `+4915112345678`). In observe mode, a message a connector really sent to anyone else gets the warning *Email really sent to an address outside the allowlist*. Test addresses never count as real: `.test`, `.local`, `.localhost`, `.invalid` and `.example` domains, `example.com/.org/.net`, and `+1555…` and `+15005550…` numbers.
 
 ## What passes through
 
@@ -214,7 +218,7 @@ Drop `echo:ECHO_TOKEN@` when Echo listens on loopback without a token. Uppercase
 ## Checking the seal
 
 - `rhythm echo doctor` sends canaries through each layer it can reach (SMTP, the WordPress connector, the Laravel connector) and checks they arrive. See [CLI reference](Echo-CLI-Reference#doctor).
-- `rhythm echo watch` while you use the site: anything with a `[sent]` status went out for real.
+- `rhythm echo watch` while you use the site: anything with a `sent` status went out for real.
 - After a hard seal, try a request without the proxy from inside the app (as above): it must fail.
 
 ---

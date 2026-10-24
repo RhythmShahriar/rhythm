@@ -1,7 +1,5 @@
 Soundcheck submits your site's real forms in a real browser and runs your scripted flows. With Echo running, `--echo` ties each submit and flow to the emails, SMS and webhooks it made the site send, so a form that says "sent" but emails nobody is caught, and a lost or changed message shows up in the comparison. This page covers turning it on, what happens on each submit, checking messages in flows with `expect: {message: …}`, and how the messages are compared.
 
-<!-- TODO(lead): written against the soundcheck feat/echo branch (to ship as Soundcheck 1.1.0). Re-check flag names, config keys and output against the released binary. -->
-
 ```sh
 rhythm echo up                                                          # Echo, sealed
 rhythm soundcheck snapshot staging.shop.test --level inspect,click,submit --echo
@@ -19,7 +17,7 @@ You need Echo running with the site's [connector](Echo-Install-Connectors) insta
 | Where | Value | |
 |---|---|---|
 | `--echo` | | Echo at `http://127.0.0.1:8025`. |
-| `--echo=<url>` | `--echo=http://127.0.0.1:18725` | Echo somewhere else. The value needs `=`: a separate argument would be read as the site to check, so `--echo http://127.0.0.1:8025` is refused with `--echo takes its address with "=": --echo=http://127.0.0.1:8025`. |
+| `--echo=<url>` | `--echo=http://127.0.0.1:18725` | Echo somewhere else. The value needs `=`: a separate argument would be read as the site to check, so an address on Echo's port given that way, `--echo http://127.0.0.1:8025`, is refused with `--echo takes its address with "=": --echo=http://127.0.0.1:8025`. |
 | `--echo=false` | | Off, even when the environment or config turns it on. |
 | `SOUNDCHECK_ECHO` | a URL, or `1`, `true`, `on`, `yes` for the default address | Same as `--echo`. `0`, `false`, `off`, `no` or empty leave it off. |
 | `echo.url` in `.soundcheck/config.yaml` | `http://127.0.0.1:8025` | On for every run of the project. |
@@ -99,11 +97,11 @@ Pages: 2 pages to start
 [2/2] /contact/ 200 1.03s (ok)
 
 [BROKE] Email to office@shop.test is no longer sent - /contact/
-  1 → 0
+  sent → not sent
   source: form #contact
   fix: Something in the change stopped this message: check the plugin or code that sends it, and its settings.
 [CHANGED] Email to the test submitter: subject changed - /contact/
-  thanks for getting in touch → we got your message
+  Thanks for getting in touch → We got your message
   source: form #contact
 
 Something broke - 1 broke, 0 new, 1 changed, 0 slower, 0 fixed - compared with snapshot "before-update" (just now), 2 pages · Echo: 1 email, 1 chat message from 1 form or flow · 5s
@@ -150,6 +148,7 @@ Text fields ignore case and can use `${fake:…}` and `${env:…}`. `absent: tru
 [ERROR] Flow "Contact form emails the office" step 6 failed: expect message email to "office@shop.test" subject "New message" - /contact/
   source: .soundcheck/flows/contact.yaml
   no such message was sent (Echo saw: email to soundcheck-test+640c49@example.com "We got your message"; chat to slack webhook)
+  fix: Run the flow by hand from /contact/; if the page changed on purpose, update .soundcheck/flows/contact.yaml.
 ```
 
 Without `--echo`, a message expect fails with `expect message needs Echo: start it (rhythm echo up) and run with --echo`.

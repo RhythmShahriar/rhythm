@@ -69,10 +69,10 @@ actions: []
 | `site` | `""` | The site's base URL. Relative action and replay URLs resolve against it; `doctor` checks the WordPress connector there; the content checks use its host to tell your links and your sending domain from others. |
 | `mode` | `seal` | `seal`: nothing leaves, Echo answers. `observe`: record and send for real. See [Sealing staging](Echo-Sealing-Staging#seal-and-observe). |
 | `listen` | `127.0.0.1:8025` | The capture API and live view. Other commands find Echo here too, unless `--url` or `RHYTHM_ECHO_URL` says otherwise. An address beyond loopback needs a token. |
-| `smtp` | `127.0.0.1:1025` | The SMTP sink. `off` turns it off. |
+| `smtp` | `127.0.0.1:1025` | The SMTP sink. `off` turns it off. Beyond loopback it needs a token, and asks for it as the SMTP password. |
 | `proxy` | `""` (off) | The HTTP(S) proxy, e.g. `127.0.0.1:8026`. Beyond loopback it needs a token. |
 | `mitm` | `false` | Decrypt HTTPS in the proxy with Echo's CA, so sealed HTTPS can be recorded and faked. Clients must trust the CA (`rhythm echo ca`). |
-| `allow` | `[]` | Host globs reachable for real even when sealed. See [The allowlist](Echo-Sealing-Staging#the-allowlist). |
+| `allow` | `[]` | Host globs reachable for real even when sealed. Live payment calls are refused anyway. See [The allowlist](Echo-Sealing-Staging#the-allowlist). |
 | `allow_recipients` | `[]` | Address or number globs that may really be messaged in observe mode; any other real recipient is flagged. |
 | `staging` | `[]` | URL prefixes that are staging. Replays send only to these, or to targets that resolve to loopback or private addresses. See [Replay](Echo-Replay#safety-rules). |
 | `production` | `[]` | URL prefixes of live sites. `http` actions refuse them, and `doctor` fails when `site` is one of them. |
@@ -132,10 +132,10 @@ The installer variables (`RHYTHM_INSTALL_DIR`, `RHYTHM_VERSION`, `RHYTHM_TOOLS`)
 ├── config.yaml                 # your settings: commit it
 ├── snapshots/
 │   ├── before-update/          # run.json, report.html
+│   ├── .incoming-<name>/       # a snapshot being written; moved into place when complete
 │   └── LATEST                  # the name compare uses by default
-├── runs/
-│   └── 2026-10-24T08-17-42/    # run.json, comparison.json, report.html
-└── .incoming/                  # a snapshot being written; moved into snapshots/ when complete
+└── runs/
+    └── 2026-10-24T08-17-42/    # run.json, comparison.json, report.html
 ```
 
 | What | Where |
@@ -143,7 +143,7 @@ The installer variables (`RHYTHM_INSTALL_DIR`, `RHYTHM_VERSION`, `RHYTHM_TOOLS`)
 | Settings | `.echo/config.yaml` |
 | Snapshots | `.echo/snapshots/<name>/`, never pruned |
 | Runs and comparisons | `.echo/runs/<date-time>/`, the 20 newest |
-| The latest snapshot's name | `.echo/snapshots/LATEST` |
+| The latest snapshot's name | `.echo/snapshots/LATEST`; when it's missing or names a deleted snapshot, the newest snapshot is used and `LATEST` is rewritten |
 
 Runs are stored as JSON with the schema `rhythm-echo/v1`. Inside a git repository, the first command that writes there adds this block to `.git/info/exclude`, so captured messages are never committed by accident:
 
@@ -153,6 +153,8 @@ Runs are stored as JSON with the schema `rhythm-echo/v1`. Inside a git repositor
 /.echo/runs/
 /.echo/.incoming/
 ```
+
+(`/.echo/.incoming/` is where earlier builds wrote snapshots in progress; an empty one left behind is removed.)
 
 The folder is always `./.echo`, even with `--config` pointing elsewhere.
 
@@ -164,7 +166,7 @@ The folder is always `./.echo`, even with `--config` pointing elsewhere.
 | Release check state | `~/.config/rhythm/update-check/rhythm-echo.json` | `~/Library/Application Support/rhythm/update-check/…` | `%AppData%\rhythm\update-check\…` |
 | First-run notice marker | `~/.config/rhythm/seen/echo-authorised-use` | `~/Library/Application Support/rhythm/seen/…` | `%AppData%\rhythm\seen\…` |
 
-The CA is made the first time something needs it (`up --mitm`, `ca`, `install laravel` or `install generic`) and is valid for ten years; Echo makes a new one when it has less than 30 days left. Its key is readable only by you. Deleting the folder makes a new CA, which clients then have to trust again.
+The CA is made the first time something needs it (`up --proxy … --mitm` or `ca`; `install` only prints where it will be) and is valid for ten years; Echo makes a new one when it has less than 30 days left. Its key is readable only by you. Deleting the folder makes a new CA, which clients then have to trust again.
 
 ---
 <sub>← [CI](Echo-CI) · [Home](Home) · [API](Echo-API) →</sub>

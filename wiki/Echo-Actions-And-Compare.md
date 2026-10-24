@@ -25,7 +25,7 @@ actions:
     replay: {event: payment_intent.succeeded, to: /?wc-api=wc_stripe, secret_env: ECHO_STRIPE_WEBHOOK_SECRET}
 ```
 
-Each action has a `name`, unique in the file, and **exactly one** of `http`, `command` or `replay`. Mistakes stop the command before anything runs:
+Each action has a `name`, unique in the file, and **exactly one** of `http`, `command` or `replay`. Mistakes stop the command before anything runs, with exit `2`:
 
 ```text
 rhythm echo: action "Contact form": set exactly one of http, command or replay
@@ -45,9 +45,7 @@ The second one is YAML, not Echo: a value containing `: ` (a command with `Subje
 | `body` | | A raw body. |
 | `headers` | | Extra headers. |
 
-The request carries the [run ID](#run-ids) as a header and a cookie, doesn't follow redirects, and times out after `timeout`. A `5xx` answer fails the action (`POST https://staging.shop.test/contact returned 500 Internal Server Error`); `4xx` doesn't, since many forms answer `400` or `422` on purpose. A URL that starts with one of the config's `production:` prefixes is refused: `refusing to run against https://shop.test/…: it's listed under production`.
-
-<!-- TODO(lead): an uncommitted change in runner/runner.go makes 4xx fail http actions too; update this sentence if it lands. -->
+The request carries the [run ID](#run-ids) as a header and a cookie, doesn't follow redirects, and times out after `timeout`. An answer of `400` or more fails the action (`POST https://staging.shop.test/contact returned 500 Internal Server Error`, `… returned 422 Unprocessable Entity`), so a form that rejects the test data doesn't pass as "sent nothing". Redirects (`3xx`) are fine. A URL that starts with one of the config's `production:` prefixes is refused: `refusing to run against https://shop.test/…: it's listed under production`.
 
 ### command
 
@@ -80,7 +78,7 @@ Replays follow the same safety rules as `rhythm echo replay`: sealed Echo, stagi
     expect: {email: 2, sms: 1}
 ```
 
-The action must send at least this many messages per channel; `email`, `sms`, `webhook` and `chat` can be set. When it doesn't, the action gets the error *Sent fewer emails than expected* (`expected 2, got 1`), which is BROKE in a comparison. With `expect`, Echo waits until enough messages arrived before it starts waiting for quiet, so an action that falls short takes the full `timeout`.
+The action must send at least this many messages per channel; `email`, `sms`, `webhook` and `chat` can be set. When it doesn't, the action gets the error *Sent fewer emails than expected* (`expected 2, got 1`), which is BROKE in a comparison. With `expect`, Echo waits until enough messages arrived before it starts waiting for quiet, so an action that falls short takes the full `timeout`. Its progress line still shows `✓` with what it did send; the failed `expect` is listed with the problems below it.
 
 ### Test data and environment values
 
@@ -119,14 +117,14 @@ After triggering an action and flushing, Echo waits until nothing new has arrive
 4. It waits for quiet, as above.
 5. It closes the action, and checks each message it caught (see [Messages and checks](Echo-Messages-And-Checks#checks)).
 
-Actions run one at a time, in the order of the file. `--action <name>` (repeatable, ignoring case) runs only some of them:
+Actions run one at a time, in the order of the file. `--action <name>` (repeatable, ignoring case) runs only some of them; a name that isn't in the config is a usage error, `no action named "nope"; the actions are: Contact form, Order shipped, Weekly digest`:
 
 ```sh
 rhythm echo compare --action "Order shipped" --action "Weekly digest"
 ```
 
 ```text
-note: 1 actions from the snapshot weren't run this time
+note: 1 action from the snapshot wasn't run this time
 ```
 
 ## Run IDs
@@ -157,17 +155,21 @@ NAME                     ACTIONS  TAKEN        SENT
 before-update            3        1m ago       3 emails, 1 SMS, 1 chat message, 1 webhook  (latest)
 ```
 
-`rhythm echo compare --snapshot <name>` compares with another one, and `rhythm echo snapshots delete <name>` (or `rm`) removes one.
+`rhythm echo compare --snapshot <name>` compares with another one, and `rhythm echo snapshots delete <name>` (or `rm`) removes one. Deleting the latest snapshot makes the newest remaining one, by the time it was taken, the latest:
 
-> [!NOTE]
-> Deleting the latest snapshot doesn't make another one latest: `compare` then stops with `no snapshot named "…"`. Pass `--snapshot <name>`, or take a new snapshot.
-<!-- TODO(lead): drop this note if deleting the latest snapshot starts moving LATEST. -->
+```text
+$ rhythm echo snapshots delete after-update
+Deleted snapshot after-update
+The latest snapshot is now before-update
+```
+
+A snapshot is written to `.echo/snapshots/.incoming-<name>` while it runs and moved into place when it's complete, so a snapshot that fails leaves nothing behind, and the listing never shows one in progress.
 
 A snapshot reports the problems the site has now (an unfilled placeholder already in a template), so you know the starting point; `compare` then reports only what changed.
 
 ## Reading a comparison
 
-`compare` runs the snapshot's actions again from the current config, matches each action by its ID, and diffs the messages each one sent. Actions the snapshot doesn't have aren't compared (take a new snapshot to include them); actions missing this time are noted.
+`compare` runs the actions again from the current config, matches each action by its ID, and diffs the messages each one sent. An action the snapshot doesn't have is run too, and everything it sends is listed as NEW, without checking those messages for problems (`run` shows them); actions missing this time are noted.
 
 ### The classes
 
@@ -175,23 +177,24 @@ A snapshot reports the problems the site has now (an unfilled placeholder alread
 |---|---|---|
 | **BROKE** | Worked in the snapshot, fails or is missing now | a message is no longer sent; a message now fails; the action itself fails; a new error in a message (an unfilled placeholder, a PHP warning, a failed `expect`) |
 | **NEW** | Wasn't there before | a message is now sent; a new warning or notice |
-| **CHANGED** | The same message, but different: check it's intended | recipients' copies, subject, sender, Reply-To, text, event, payload fields, fewer sends |
+| **CHANGED** | The same message, but different: check it's intended | recipients' copies, subject, sender, Reply-To, text, event, payload fields, fewer or more sends |
 | **FIXED** | A problem from the snapshot is gone | an error, warning or notice that's no longer reported |
 
 | Check | Class | Title | Before → after |
 |---|---|---|---|
-| `message/missing` | BROKE | Email to office@shop.test is no longer sent | how many were sent → `0` |
+| `message/missing` | BROKE | Email to office@shop.test is no longer sent | `sent` → `not sent` |
 | `message/failing` | BROKE | Twilio SMS to the test number now fails | `faked` → `failed` |
 | `action/failed` | BROKE | Action fails | the error |
-| `message/new` | NEW | Email to office@shop.test is now sent | `–` → how many; the detail is its subject |
-| `message/fewer` | CHANGED | Email to the test submitter is sent fewer times | `2` → `1` |
-| `message/subject` | CHANGED | Email to the test submitter: subject changed | the subject templates |
+| `message/new` | NEW | Email to office@shop.test is now sent | the detail is its subject or text |
+| `message/fewer` | CHANGED | Email to the test submitter is sent fewer times | `2 times` → `1 time` |
+| `message/more` | CHANGED | Email to team@shop.test ("Weekly digest") is sent more times | `1 time` → `2 times`; fix: check for a hook or plugin that fires twice |
+| `message/subject` | CHANGED | Email to the test submitter: subject changed | the subjects as sent |
 | `message/from` | CHANGED | …: sender changed | the senders; fix: check it with `rhythm echo check <domain>` |
 | `message/copies` | CHANGED | …: copies (Cc/Bcc) changed | the copies |
 | `message/reply-to` | CHANGED | …: lost its Reply-To | the old Reply-To |
 | `message/text` | CHANGED | Twilio SMS to the test number: text changed | excerpts of both |
 | `message/event` | CHANGED | …: event changed | the events |
-| `message/fields-lost` | CHANGED | Webhook to hooks.zapier.com: payload lost fields | the fields, e.g. `order.email` |
+| `message/fields-lost` | CHANGED | Zapier webhook to hooks.zapier.com/hooks/catch/123456/ab•••••: payload lost fields | the fields, e.g. `order.email` |
 | `message/fields-added` | CHANGED | …: payload has new fields | the fields |
 
 Issues found in messages (see [Messages and checks](Echo-Messages-And-Checks#checks)) keep their own check names: a new `content/placeholder` error is BROKE, a new `email/no-subject` warning is NEW.
@@ -200,28 +203,42 @@ Issues found in messages (see [Messages and checks](Echo-Messages-And-Checks#che
 
 Two messages are *the same message* when they have the same **identity**:
 
-- email, SMS and WhatsApp: the channel and the recipients;
+- email, SMS and WhatsApp: the channel, the service and the recipients;
 - everything else: the channel, the provider, the method, the host, the path with IDs replaced by `{id}` (`/v1/orders/123` and `/v1/orders/456` match), and the event.
 
-Messages of the same identity are counted, and the first of each pair is compared for content. Before anything is compared, what varies on every run is normalized away:
+Several messages can share an identity, such as a welcome email and an account email to the same address. Within an identity, messages are paired by subject (and event) first, then whatever is left in order, so a changed subject reads as a change rather than one message lost and another new. Each pair is compared for content. A message left over in the snapshot is **no longer sent** (`sent` → `not sent`), and one left over in this run is **now sent**, unless it's the same message as one already paired, which reads as **sent fewer times** or **sent more times**. When several messages share an identity, titles add the subject: `Email to team@shop.test ("Weekly digest") is sent more times`. A Zapier, Make or n8n hook is named by its masked URL, since each URL is its own Zap or scenario.
 
-<!-- TODO(lead): an uncommitted change in compare/compare.go pairs messages of one identity by subject and reports each lost one (before/after "sent" → "not sent"); update this section, the check table and the s07 note on Echo-Benchmark if it lands. -->
+Before anything is compared, what varies on every run is normalized away:
 
 | What | Becomes |
 |---|---|
 | `echo-test…@…` and `soundcheck-test…@…` addresses | "the test submitter" |
 | `+1555` followed by seven digits, and `+15005550…` numbers | "the test number" |
-| The subject | lowercased, with digits replaced by `#` and test names by `{name}`, so `Order #1041` and `Order #1042` match |
+| The subject | numbers replaced by `#` (`#1042` becomes `#`) and test names by `{name}`, and case ignored, so `Order #1041` and `Order #1042` match |
 | The text | fingerprinted without numbers, dates, times, long hex and token-like strings, test data and whitespace |
 | A JSON payload | its field paths (`order.total`, `line_items[].sku`); a form body, its keys |
 
-So a new order number in the subject, a fresh test address or a different timestamp isn't a change; a different admin address, a new subject line or a lost payload field is. The subject's before and after are shown in that normalized form, lowercased.
+So a new order number in the subject, a fresh test address or a different timestamp isn't a change; a different admin address, a new subject line or a lost payload field is. The subject's before and after are shown as sent, with only numbers and test data replaced: `Your Order # at Shop`.
 
 ### Grouping and order
 
 The same change in several actions is one line, listing every action it affects. Changes are sorted by class, then by how many actions they affect, then by title. At the end, the panel gives the verdict (*Something broke*, *New messages or problems*, *Everything is still sent the same way*) and the count per class.
 
-Notes below the panel say what limits the result: `the snapshot ran in seal mode and this run in observe mode`, `1 actions from the snapshot weren't run this time`.
+Notes below the panel say what limits the result: `the snapshot ran in seal mode and this run in observe mode`, `1 action from the snapshot wasn't run this time` (`2 actions from the snapshot weren't run this time`), `1 action isn't in the snapshot; what it sent is listed as new` (`2 actions aren't in the snapshot; what they sent is listed as new`).
+
+```text
+[NEW] Twilio SMS to the test number is now sent - Order shipped
+  Hi Jamie, your order #1042 has shipped.
+[NEW] Zapier webhook to hooks.zapier.com/hooks/catch/123456/ab••••• is now sent - Order shipped
+[CHANGED] Email to team@shop.test ("Weekly digest") is sent more times - Weekly digest
+  1 time → 2 times
+  fix: Something now sends it again: check for a hook or plugin that fires twice.
+
+New messages or problems - 0 broke, 2 new, 1 changed, 0 fixed - 1 action compared, 2 emails, 1 SMS, 1 webhook
+note: 1 action isn't in the snapshot; what it sent is listed as new
+```
+
+Display names (`Amazon SES email`, `Zapier webhook`, `request to <host>`) are part of each problem's key. A snapshot taken with an Echo build from before they were added can show some problems as NEW and FIXED on the next compare; take a new snapshot.
 
 ### Failing a build
 

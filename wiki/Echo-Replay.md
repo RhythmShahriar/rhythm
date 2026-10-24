@@ -6,7 +6,7 @@ rhythm echo replay payment_intent.succeeded --to /webhooks/stripe --set data.obj
 ```
 
 ```text
-rhythm echo 1.0.0 - /webhooks/stripe
+rhythm echo 1.0.0 - https://staging.shop.test/webhooks/stripe
 
 Event: stripe/payment_intent.succeeded (stripe)
 Response: 200 in 15ms
@@ -16,7 +16,7 @@ Response: 200 in 15ms
   The site answered 200 and sent 2 emails in response.
 ```
 
-The output is from a local test shop whose Stripe endpoint is `/webhooks/stripe`; for WooCommerce's Stripe gateway it's `/?wc-api=wc_stripe`. Replay needs Echo running and **sealed**, so whatever the site sends back is caught; `--to` is absolute, or relative to `site:` in `.echo/config.yaml`.
+The header shows the full URL the replay went to, with any secret in it masked. The output is from a local test shop whose Stripe endpoint is `/webhooks/stripe`; for WooCommerce's Stripe gateway it's `/?wc-api=wc_stripe`. Replay needs Echo running and **sealed**, so whatever the site sends back is caught; `--to` is absolute, or relative to `site:` in `.echo/config.yaml`.
 
 ## The event library
 
@@ -80,7 +80,7 @@ rhythm echo replay payment_intent.succeeded --to /?wc-api=wc_stripe \
 
 Every replay also sends `Content-Type: application/json`, a user agent like the provider's, and `X-Echo-Run`, which ties what the site sends to this replay. Library events are signed with their directory's scheme; `--scheme` is for your own files.
 
-<!-- TODO(lead): the hmac scheme's header, algorithm, encoding, prefix and timestamp are configurable in the replay package but not from the CLI or config yet. Document them here if they're exposed. -->
+The `hmac` scheme always sends `X-Signature` with a hex HMAC-SHA256 of the body; its header name, algorithm and encoding can't be changed from the command line or the config. For a receiver that verifies another way, write a small test of your own, or use the provider's own test tooling.
 
 ## Secrets
 
@@ -89,6 +89,8 @@ The signing secret comes from the environment, never from a flag, so it isn't in
 ```text
 rhythm echo: no signing secret: set ECHO_STRIPE_WEBHOOK_SECRET to the endpoint's test signing secret
 ```
+
+That's a usage error (exit `2`), printed after the replay's header and `Event:` line.
 
 Results show the secret only as `ECHO_STRIPE_WEBHOOK_SECRET=•••••`, and signatures by their first characters.
 
@@ -126,8 +128,8 @@ After the response, replay waits for what the site sends, until nothing new arri
 |---|---|
 | `0` | The site answered `2xx` |
 | `1` | The site answered something else (a `400` for a bad signature, a `500`) |
-| `2` | Refused by a safety rule, or a usage error |
-| `3` | Echo isn't running, a secret is missing, or the request failed |
+| `2` | Refused by a safety rule, or a usage error: an unknown event, a missing signing secret |
+| `3` | Echo isn't running, or the request failed |
 
 ```text
 Response: 400 in 1ms

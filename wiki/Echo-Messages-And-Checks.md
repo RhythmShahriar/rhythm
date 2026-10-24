@@ -54,20 +54,22 @@ A connector reports a raw HTTP request; Echo works out which service it's for an
 | Klaviyo | webhook | `a.klaviyo.com` | the metric or call, and the profile's email |
 | ActiveCampaign | webhook | `…api-us1.com` and `…activehosted.com` `/api/3/…` | the contact |
 | Zapier | webhook | `hooks.zapier.com` | the hook, with its secret part masked |
-| Make | webhook | `hook.*.make.com`, `hook.*.integromat.com` | the hook |
-| n8n | webhook | paths starting with `/webhook/` or `/webhook-test/`, and `n8n.cloud` | the hook |
+| Make | webhook | `hook.*.make.com`, `hook.*.integromat.com` | the hook, with its secret part masked |
+| n8n | webhook | `/webhook/` and `/webhook-test/` paths on `*.n8n.cloud`, on a host with an `n8n` label (`n8n.shop.com`, `shop-n8n.example.net`), or on port 5678 | the hook, with its secret part masked |
 
-`rhythm echo doctor` reports how many recognizers are loaded (`35 providers recognized`: Vonage has two, one per API).
+`rhythm echo doctor` reports how many services are recognized (`34 providers recognized`).
+
+Titles and message lines use each service's display name: `Amazon SES email`, `MessageBird SMS`, `Teams message`, `Meta Conversions API event`, `Stripe call`, `Zapier webhook`, `HubSpot webhook`. A WooCommerce webhook and an unrecognized webhook name the host they go to (`WooCommerce webhook to shop.example.com`, `webhook to crm.shop.test`). Anything else is `request to <host>`, and a tunnel through the proxy `HTTPS connection to <host>`.
 
 ## What a message records
 
 ```sh
-rhythm echo show 631b13a66f7e
+rhythm echo show f0e357147b13
 ```
 
 ```json
 {
-  "id": "631b13a66f7e",
+  "id": "f0e357147b13",
   "channel": "payment",
   "provider": "stripe",
   "subject": "live mode",
@@ -76,7 +78,8 @@ rhythm echo show 631b13a66f7e
   "method": "POST",
   "url": "https://api.stripe.com/v1/payment_intents",
   "headers": {
-    "authorization": "•••••"
+    "authorization": "•••••",
+    "content-type": "application/x-www-form-urlencoded"
   },
   "body": "amount=2400&currency=eur",
   "response": {
@@ -84,10 +87,11 @@ rhythm echo show 631b13a66f7e
     "body": "{\"error\":{\"code\":\"rhythm_echo_sealed\",\"message\":\"Rhythm Echo refused a live-mode call from a sealed site. Use a Stripe test key (sk_test_…) on staging.\",\"type\":\"invalid_request_error\"}}"
   },
   "status": "blocked",
+  "error": "refused: a live-mode Stripe call; use test credentials on staging",
   "source": {
     "via": "my-connector"
   },
-  "at": "2026-10-24T02:16:33.247212659Z"
+  "at": "2026-10-24T02:16:33.034003618Z"
 }
 ```
 
@@ -102,7 +106,7 @@ rhythm echo show 631b13a66f7e
 | `method`, `url`, `headers`, `body` | The raw request (or the raw MIME message for email), masked and capped. |
 | `response` | What the service, or Echo's fake, answered. |
 | `status` | `faked`, `blocked`, `sent` or `failed`; see [Sealing staging](Echo-Sealing-Staging#what-happens-to-each-message). |
-| `error` | Why a send failed. |
+| `error` | Why a send failed or was refused. |
 | `source` | How Echo saw it: `via` (`wordpress`, `laravel`, `node`, `smtp`, `sendmail`, `proxy`), the stack, the plugin or package that sent it when known, the hook (`wp_mail`, `pre_http_request`, `fetch`, `nodemailer`…) and the site's host. |
 | `at` | When it was captured, in UTC. |
 
@@ -112,6 +116,7 @@ Credentials are masked before a message is stored:
 
 - `Authorization`, `Proxy-Authorization`, `Cookie`, `X-Api-Key`, `Api-Key`, `X-Postmark-Server-Token` and `X-Echo-Token` headers are masked whole: `•••••`.
 - Known secrets in other headers, URLs and bodies keep a short prefix: `sk_live_•••••`, `https://hooks.slack.com/services/T0000/B0000/fi•••••`.
+- A Zapier, Make or n8n hook URL is its own credential, so its secret last part is masked in `url`, `to`, the live view and the reports: `https://hooks.zapier.com/hooks/catch/123456/ab•••••/`. So are `sig`, `signature` and `code` query values, which covers Logic Apps and Power Automate trigger URLs. The masked form is the same every run, so `compare` still pairs the same hook. Two hooks on one account whose secrets start with the same two characters look the same to `compare`.
 - The connectors mask credential headers before anything leaves the site, and keep only the first few characters of payment keys, which is all the [live-mode check](Echo-Sealing-Staging#live-payments-are-refused) needs.
 
 Content isn't masked: names, addresses, order details and links in emails, including password reset links, are stored as sent. Bodies are capped at 256 KiB per message (larger ones end in `…(truncated)`). Treat captures, `.echo/` and reports like a database dump; see [Responsible use](Responsible-Use#what-echo-does).
@@ -126,7 +131,7 @@ rhythm echo ls                          # everything captured so far
 rhythm echo ls --channel sms            # one channel
 rhythm echo ls --to 1555                # recipients containing "1555", ignoring case
 rhythm echo ls --run 2026-10-24T08-29-07-cd7ff3   # one run
-rhythm echo show 631b13a66f7e           # one message as JSON
+rhythm echo show f0e357147b13           # one message as JSON
 rhythm echo ls --json                   # all of them as JSON
 rhythm echo clear                       # delete them (takes the same filters)
 ```
@@ -134,16 +139,20 @@ rhythm echo clear                       # delete them (takes the same filters)
 ```text
 bfed9f3b36ed  08:16:19 email to jamie@shop.test: Your order #1042 [faked]
 5ea4bd5bdfb0  08:16:33 Twilio SMS to +15551230000: Your code is 4821 [faked]
-631b13a66f7e  08:16:33 Stripe call to api.stripe.com: live mode [blocked]
-df76896acfac  08:16:33 Stripe call to api.stripe.com: test mode [faked]
+f0e357147b13  08:16:33 Stripe call to api.stripe.com: live mode [blocked]
+d598160b7ade  08:16:33 Stripe call to api.stripe.com: test mode [faked]
+0b084eca24a7  08:16:40 Zapier webhook to hooks.zapier.com/hooks/catch/123456/ab•••••: POST [faked]
+335cd5c64334  08:16:41 webhook to crm.shop.test/api/leads: POST [faked]
 ```
+
+That's the plain form, piped or with `--plain`. On a terminal each line has an icon per channel and columns for the kind, the recipient, the content and the status.
 
 ```text
 $ rhythm echo clear
 Deleted 5 messages
 ```
 
-`watch`, `ls` and `clear` take `--channel`, `--to` and `--run`. The live view at http://127.0.0.1:8025 shows the same messages, grouped by action, as an HTML report that refreshes every five seconds.
+`watch`, `ls` and `clear` take `--channel`, `--to` and `--run`; an unknown channel is a usage error. `show` with an unknown ID exits `2`: `no message "x" in Echo; list them with: rhythm echo ls`. The live view at http://127.0.0.1:8025 shows the same messages, grouped by action, as an HTML report that refreshes every five seconds.
 
 ## Checks
 
@@ -189,9 +198,7 @@ These apply to email, SMS, WhatsApp and chat messages. The text checked is the p
 - **Placeholders** found: `{{ name }}`, `*|FNAME|*` (Mailchimp), `%%name%%`, `{first_name}` (lowercase names in single braces), and `[your-name]` or `[_field]` (Contact Form 7).
 - **PHP errors**: `Fatal error`, `Parse error`, `Warning`, `Notice` and `Deprecated` lines with a file and line number, in plain text or PHP's HTML format. The detail shortens the path to what follows `wp-content/`.
 - **Development addresses**: `localhost`, `127.*`, `10.*`, `192.168.*`, `0.0.0.0`, and hosts ending in `.local`, `.test`, `.localhost`, `.ddev.site`, `.lndo.site`, `.docker` or `.invalid`. This check is skipped when the configured `site:` is itself a development address, since then every link would match.
-- **Credentials in a body** (`content/secret`) is reported for messages that weren't sealed: in observe mode, and for allowed hosts.
-
-<!-- TODO(lead): content/secret never fires for faked messages, so in seal mode (the default) a payload carrying an API key isn't reported. Confirm whether that's intended before keeping the last bullet. -->
+- **Credentials in a body** (`content/secret`) is reported for any message but email whose stored body had a secret masked, whatever happened to it: a sealed site's payload says what the live site would send. It applies to webhooks and other API calls, not only the channels above, for example `Webhook to crm.shop.test carries a credential in its body`.
 
 ### Email
 
@@ -229,7 +236,7 @@ Parts are counted the way carriers charge them: one GSM-7 part holds 160 charact
 | `send/failed` | error | Email fails, Twilio SMS fails (HTTP 401) | Check the sender's settings (API key, SMTP login, endpoint URL) and the provider's error above. |
 | `seal/real-recipient` | warning | Email really sent to an address outside the allowlist | Run sealed on staging (`rhythm echo up`), or add test recipients to `allow_recipients`. |
 
-`seal/real-recipient` only applies to messages that were really sent (observe mode or an allowed host), and ignores test addresses: see [The allowlist](Echo-Sealing-Staging#the-allowlist).
+`seal/real-recipient` only applies to messages a connector really sent (observe mode or an allowed host; never mail caught by the SMTP sink or `sendmail`), and ignores test addresses: see [The allowlist](Echo-Sealing-Staging#the-allowlist).
 
 ### Actions
 

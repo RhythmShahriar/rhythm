@@ -8,7 +8,7 @@ rhythm echo snapshot --name before-update        # what each action sends now
 rhythm echo compare                              # what changed
 ```
 
-Echo ships as its own binary, `rhythm-echo`, and you normally run it through `rhythm echo` (or the short alias `rhythm e`). The installer sets it up along with Tuner and Soundcheck; if you see `rhythm: echo isn't installed`, run `rhythm install echo`. See [Install](Install).
+Echo ships as its own binary, `rhythm-echo`, and you normally run it through `rhythm echo` (or the short alias `rhythm e`). The installer sets it up along with Tuner and Soundcheck; if you see `rhythm: echo isn't installed`, run `rhythm install echo` (rhythm v0.5.0 or later). See [Install](Install). Run `rhythm echo` on its own in a terminal and it asks what to do: start Echo, connect a site, snapshot, compare.
 
 > [!IMPORTANT]
 > Use Echo on sites you own or are authorized to test. Captured messages hold personal data: they stay on your machine, with credentials masked, but their content isn't. Echo seals by default; observe mode really sends. See [Responsible use](Responsible-Use).
@@ -29,7 +29,7 @@ The three work on the same change. Tuner tells you a plugin has a known vulnerab
 |---|---|---|
 | 📭 **Lost messages** | The admin notification that stopped, the autoresponder an update removed, the SMS a gateway change broke, the Slack alert, the GA4 purchase event, the webhook Zapier no longer receives, the queued mail stuck in a job. | [Actions and compare](Echo-Actions-And-Compare) |
 | ✍️ **Wrong content** | Unfilled placeholders (`{first_name}`, `*\|FNAME\|*`, `[your-name]`), PHP warnings printed into emails, links to `localhost`, garbled encoding, emails Gmail clips, SMS that cost several parts, payloads that lost fields. | [Messages and checks](Echo-Messages-And-Checks) |
-| 🔒 **Staging that talks to real people** | Sealed by default: email, SMS, WhatsApp, chat, webhooks, analytics and push are answered by Echo instead. Live-mode payment calls get the provider's own refusal. In observe mode, real recipients outside your allowlist are flagged. | [Sealing staging](Echo-Sealing-Staging) |
+| 🔒 **Staging that talks to real people** | Sealed by default: email, SMS, WhatsApp, chat, webhooks, analytics and push are answered by Echo instead. Live-mode payment calls get the provider's own refusal, in every mode. In observe mode, real recipients outside your allowlist are flagged. | [Sealing staging](Echo-Sealing-Staging) |
 | 📬 **Deliverability** | SPF (with the 10-lookup limit), DKIM keys, DMARC policy and alignment for the service you actually send through, MX, MTA-STS, TLS-RPT and BIMI, and what a received email's headers say. Never sends anything. | [Deliverability](Echo-Deliverability) |
 
 Echo recognizes 34 services out of the box, from SendGrid, Mailgun, Postmark, Resend and Amazon SES to Twilio, Vonage, WhatsApp Cloud, Slack, Teams, GA4, Meta, FCM, Stripe, HubSpot, Klaviyo and Zapier. Anything else is recorded as a generic webhook or request. The full list is in [Messages and checks](Echo-Messages-And-Checks#recognized-services).

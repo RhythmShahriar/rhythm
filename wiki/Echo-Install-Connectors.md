@@ -30,11 +30,21 @@ rhythm echo install wordpress /var/www/staging
 ```text
 Installed the Echo connector (wp-content/mu-plugins/rhythm-echo.php), reporting to http://127.0.0.1:8025.
 
-  It stays off on production (WP_ENVIRONMENT_TYPE=production) unless forced.
+  It runs only where WP_ENVIRONMENT_TYPE is local, development or staging. WordPress
+  treats an unset WP_ENVIRONMENT_TYPE as production, and there the connector does
+  nothing. On staging, add this to wp-config.php, above "That's all, stop editing!":
+
+    define( 'WP_ENVIRONMENT_TYPE', 'staging' );
+
+  (or set it in the server's environment). On a box that isn't production but says
+  so, reinstall with --force.
+
   Next: rhythm echo up, then rhythm echo doctor (with site: in .echo/config.yaml)
   Flush async mail and webhooks after actions: add to .echo/config.yaml
     flush: ["wp cron event run --due-now", "wp action-scheduler run"]
 ```
+
+When the site's `wp-config.php` already defines `WP_ENVIRONMENT_TYPE` as `local`, `development` or `staging`, the middle paragraph is one line instead: `wp-config.php sets WP_ENVIRONMENT_TYPE to staging, so the connector runs.` With `--force` it's `Forced on: it runs even where WordPress says production.` Through `--wp-cli` or `--container` Echo can't read `wp-config.php`, so it always prints the paragraph.
 
 The connector is one file, `wp-content/mu-plugins/rhythm-echo.php`, embedded in the `rhythm-echo` binary. Its settings go to `wp-content/mu-plugins/rhythm-echo/settings.php`, a PHP file that returns an array, so the web server never serves the token. mu-plugins load before every plugin and can't be turned off from the admin, which is what lets the connector beat SMTP plugins to `wp_mail()`. It needs PHP 7.4 and WordPress 5.7 or later.
 
@@ -42,24 +52,24 @@ The connector is one file, `wp-content/mu-plugins/rhythm-echo.php`, embedded in 
 
 | Form | Does |
 |---|---|
-| `install wordpress [path]` | Writes the files into the WordPress at `path` (default `.`): the site root, with `wp-config.php` or `wp-content/`, or the `wp-content` folder itself. An existing `rhythm-echo.php` that Echo didn't write is never overwritten. |
+| `install wordpress [path]` | Writes the files into the WordPress at `path` (default `.`): the site root, with `wp-config.php` or `wp-content/`, or the `wp-content` folder itself. Any other folder is a usage error. An existing `rhythm-echo.php` that Echo didn't write is never overwritten. |
 | `install wordpress [path] --wp-cli` | Pipes an installer to `wp eval-file - --path=<path>`, for a site you reach through WP-CLI (over SSH, or as the site's user). It writes into `WPMU_PLUGIN_DIR`, so custom layouts work. |
 | `install wordpress --container <name>` | Runs the same installer with `docker exec -i <name> wp eval-file - --allow-root`. The container needs WP-CLI; see [WordPress in Docker](#wordpress-in-docker). |
-| `install wordpress [path] --uninstall` | Removes the plugin and its settings folder. Combine with `--wp-cli` or `--container` to remove it the same way. Prints `The connector isn't installed there.` when there's nothing to remove. |
+| `install wordpress [path] --uninstall` | Removes the plugin and its settings folder and prints `Removed the Echo connector.` Combine with `--wp-cli` or `--container` to remove it the same way. Prints `The connector isn't installed there.` when there's nothing to remove. |
 
 ### Flags
 
 | Flag | Default | Effect |
 |---|---|---|
-| `--url <url>` | `RHYTHM_ECHO_URL`, else `http://127.0.0.1:8025` | Echo's address **as the site reaches it**: `http://host.docker.internal:8025` from a container. |
+| `--url <url>` | `RHYTHM_ECHO_URL`, else `listen` from `.echo/config.yaml`, else `http://127.0.0.1:8025` | Echo's address **as the site reaches it**: `http://host.docker.internal:8025` from a container. |
 | `--token <t>` | `RHYTHM_ECHO_TOKEN` | Sent as `X-Echo-Token` with every capture. Also locks the connector's REST routes to that token. |
 | `--proxy <url>` | none | Echo's HTTPS proxy as the site reaches it, e.g. `http://127.0.0.1:8026`. Raw cURL in each request then goes through it. |
 | `--ca <path>` | none | Path, on the site's machine, to Echo's CA certificate (`rhythm echo ca`). Added to the WordPress HTTP API's CA bundle, not replacing it. |
-| `--mode seal\|observe` | `seal` | Only decides what happens when Echo **can't be reached**: `seal` fails closed, `observe` lets mail and requests out. When Echo answers, Echo's mode decides. |
+| `--mode seal\|observe` | `seal` | Only decides what happens when Echo **can't be reached**: `seal` fails closed, `observe` lets mail and requests out. When Echo answers, Echo's mode decides. Any other value is a usage error. |
 | `--force` | off | Run even when WordPress says this is production. Only for a production-like box that isn't production. |
 | `--wp-cli`, `--container <name>`, `--uninstall` | | See above. |
 
-The installer doesn't read `.echo/config.yaml`: pass `--url` when Echo listens somewhere other than `127.0.0.1:8025`.
+The installer reads `.echo/config.yaml` (or `--config <file>`) for the addresses Echo runs on: `listen` for the default `--url`, and `smtp` and `proxy` for the lines the other stacks print. Pass `--url` when the site reaches Echo at another address than the config's, such as `host.docker.internal` from a container.
 
 ### Settings precedence
 
@@ -80,9 +90,8 @@ On a production site the connector installs no hooks at all: mail and requests g
 define( 'WP_ENVIRONMENT_TYPE', 'staging' );   // or development, or local
 ```
 
-While it's off, administrators see a notice: *Rhythm Echo is installed but not running: WP_ENVIRONMENT_TYPE is not set, and WordPress treats that as production.* `rhythm echo doctor` reports it as `the connector is installed but off: production`. `RHYTHM_ECHO_FORCE` (or `--force`) overrides the guard.
+While it's off, administrators see a notice: *Rhythm Echo is installed but not running: WP_ENVIRONMENT_TYPE is not set, and WordPress treats that as production. Echo only runs on test sites. Set WP_ENVIRONMENT_TYPE to staging, development or local on a test copy, or remove `wp-content/mu-plugins/rhythm-echo.php` (run `rhythm echo install wordpress --uninstall`).* `rhythm echo doctor` reports it as `the connector is installed but off: production`. `RHYTHM_ECHO_FORCE` (or `--force`) overrides the guard.
 
-<!-- TODO(lead): the admin notice tells users to run `rhythm echo uninstall wordpress`, which doesn't exist; the command is `rhythm echo install wordpress --uninstall`. Update this page if the notice changes. -->
 To remove the connector, run `rhythm echo install wordpress <path> --uninstall`, or delete `wp-content/mu-plugins/rhythm-echo.php` and the `rhythm-echo/` folder next to it.
 
 ### What it hooks
@@ -131,7 +140,7 @@ With a token configured, both routes need `X-Echo-Token`. Without one, an admini
 
 ### WordPress in Docker
 
-The official `wordpress:*-apache` images don't include WP-CLI, so `--container` on the web container fails with `running wp-cli in shop-wp: exit status 127 (is wp-cli installed in the container? …)`. Use a `wordpress:cli` container on the same volume, as the web server's user, with the same database and `WORDPRESS_CONFIG_EXTRA` environment as the web container (otherwise WP-CLI sees a different environment type):
+The official `wordpress:*-apache` images don't include WP-CLI, so `--container` on the web container fails with `running wp-cli in shop-wp: exit status 127 (is wp-cli installed in the container? or copy the files with docker cp)`. Two other failures get their own hint: a container that doesn't exist (`no container named shop-cli; see: docker ps`) and a permission error (`wp-cli's user in the container can't write wp-content/mu-plugins; give that folder to it, or copy the files with docker cp`). Use a `wordpress:cli` container on the same volume, as the web server's user, with the same database and `WORDPRESS_CONFIG_EXTRA` environment as the web container (otherwise WP-CLI sees a different environment type):
 
 ```sh
 docker run -d --name shop-cli --user 33:33 --volumes-from shop-wp --network shop-net \
@@ -147,6 +156,8 @@ Installed /var/www/html/wp-content/mu-plugins/rhythm-echo.php
 Installed the Echo connector (wp-content/mu-plugins/rhythm-echo.php), reporting to http://host.docker.internal:8025.
 ```
 
+The `WP_ENVIRONMENT_TYPE` paragraph and the `Next:` lines follow. If `--url` points at `127.0.0.1` or `localhost`, a last line warns: `In Docker, 127.0.0.1 and localhost are the container itself: reinstall with --url http://host.docker.internal:8025`.
+
 Echo must listen where the container can reach it, which means beyond loopback and therefore with a token; see [FAQ](Echo-FAQ#the-site-runs-in-docker). Without `--user 33:33`, the `wordpress:cli` image can't create `wp-content/mu-plugins` in the Apache image's volume.
 
 ## Laravel
@@ -158,25 +169,24 @@ rhythm echo install laravel
 ```text
 Laravel: add the package and point it at Echo.
 
-  composer require --dev rhythmsh/echo-laravel
+  composer require rhythmsh/echo-laravel
 
-Then in .env (staging or local only; the connector stays off in production):
+It's a regular dependency, not --dev: staging deploys usually run composer install
+--no-dev, which would leave it out. It does nothing where APP_ENV is production or
+testing (RHYTHM_ECHO_FORCE=true overrides that, only for a box that isn't production).
+
+Then in .env on staging or your machine:
 
   RHYTHM_ECHO_URL=http://127.0.0.1:8025
   QUEUE_CONNECTION=sync          # or flush with: php artisan queue:work --stop-when-empty
 
-Check it: php artisan echo:status   ·   then: rhythm echo doctor
+Check it: php artisan echo:status, then: rhythm echo doctor
 Packages that skip Laravel's mailer and Http client (raw Guzzle, SDKs) are caught
 through Echo's proxy: rhythm echo up --proxy 127.0.0.1:8026 --mitm, then set
-HTTPS_PROXY=http://127.0.0.1:8026 and trust: /home/you/.cache/rhythm/echo/ca/ca.pem
+HTTPS_PROXY=http://127.0.0.1:8026 and trust: /home/you/.cache/rhythm/echo/ca/ca.pem (rhythm echo ca creates it)
 ```
 
-The package supports Laravel 11, 12 and 13 on PHP 8.2 or later, and its service provider is auto-discovered.
-
-> [!TIP]
-> `--dev` keeps it out of production builds. If your staging deploy runs `composer install --no-dev`, require it as a normal dependency instead: it does nothing in production anyway.
-
-<!-- TODO(lead): the CLI says `composer require --dev`, the package README says plain `composer require` ("inert in production, so staging can install it with --no-dev"). Settle on one and update this section. -->
+The package supports Laravel 11, 12 and 13 on PHP 8.2 or later, and its service provider is auto-discovered. With a token, a `RHYTHM_ECHO_TOKEN=<the token you started Echo with>` line is added under `RHYTHM_ECHO_URL`. The `(rhythm echo ca creates it)` note goes away once the CA exists.
 
 ### Environment
 
@@ -244,7 +254,7 @@ Next.js: add the package.
 
   npm install --save-dev @rhythmsh/echo
 
-Wrote src/instrumentation.ts, which starts Echo's connector (it stays off in production).
+Wrote instrumentation.ts, which starts Echo's connector (it stays off in production).
 
 Wrap your next.config so mail libraries run outside the bundle and get captured:
 
@@ -258,7 +268,7 @@ Environment (.env.local, or the Preview environment on Vercel):
 Then: rhythm echo up, and rhythm echo watch while you use the app.
 ```
 
-`install next` must run in the project (it looks for `package.json`). It writes `instrumentation.ts`, or `src/instrumentation.ts` when the app lives in `src/app`, unless one exists; then it prints the lines to add inside `register()`. The file starts the connector:
+`install next [dir]` needs the project folder (default `.`, with a `package.json`; otherwise `rhythm echo: <dir> has no package.json; run this in the Next.js project`, exit `2`). It writes `instrumentation.ts`, or `src/instrumentation.ts` when the app lives in `src/app`, unless one exists (`.ts` or `.js`, at the root or in `src/`). The file it writes starts the connector:
 
 ```ts
 // instrumentation.ts
@@ -268,7 +278,14 @@ export async function register() {
 }
 ```
 
-<!-- TODO(lead): `rhythm echo install next` currently writes `register();` without `await`, unlike the package README. Keep the awaited form here unless the installer stays as is. -->
+Run again, it sees the file already loads `@rhythmsh/echo` and says `instrumentation.ts already starts Echo's connector; nothing to add there.` A file of your own that doesn't load it gets the lines to add instead:
+
+```text
+You already have instrumentation.ts; add this inside its register(), which must be async:
+
+  const { register: registerEcho } = await import('@rhythmsh/echo/next');
+  await registerEcho();
+```
 
 `register()` runs in both runtimes: on **Node.js** it hooks `fetch`, `http`/`https` and Nodemailer; on **Edge** it hooks `fetch`. Next.js bundles server dependencies, and the connector can't reach a bundled Nodemailer, so `withEcho` adds `nodemailer` to `serverExternalPackages` and changes nothing else. On Next.js 14, add `nodemailer` to `experimental.serverComponentsExternalPackages` yourself.
 
@@ -307,6 +324,8 @@ Scripts and cron jobs run with `node --import @rhythmsh/echo/register script.js`
 
 `register(options)` takes the same settings in code (`url`, `token`, `force`, `site`) plus `maxBody` (default 256 KiB), `timeout` (milliseconds, default 5000), `logger` and `captureLoopback`.
 
+`rhythm echo install node` prints the install line (`npm install --save-dev @rhythmsh/echo`, or a regular dependency if staging installs without dev dependencies), the `--import` line and `RHYTHM_ECHO_URL`, and says: *The connector is off on VERCEL_ENV=production, and on NODE_ENV=production unless RHYTHM_ECHO_URL is set: setting it there turns the connector on.*
+
 The connector stays inert, with no hooks installed, when `VERCEL_ENV=production`, when `NODE_ENV=production` outside Vercel unless `RHYTHM_ECHO_URL` is set, and during `next build`. Preview and development deployments activate it, including `next start` on a preview. When active, it logs one line per runtime, such as `[rhythm-echo] active (VERCEL_ENV=preview, nodejs): capturing fetch, http, https, nodemailer via …`. Sealed and unable to reach Echo, requests fail as network errors and Nodemailer rejects.
 
 ### What it can't see
@@ -329,21 +348,24 @@ rhythm echo install generic
 Any stack: point mail and outbound HTTPS at Echo.
 
   Mail (SMTP):      host 127.0.0.1, port 1025, any username and password
-  Mail (PHP):       sendmail_path = "rhythm-echo sendmail -t -i"   (php.ini or php-fpm pool)
+  Mail (PHP):       sendmail_path = "/usr/local/bin/rhythm-echo sendmail -t -i"   (php.ini or php-fpm pool)
   HTTP(S):          rhythm echo up --proxy 127.0.0.1:8026 --mitm
                     HTTPS_PROXY=http://127.0.0.1:8026  https_proxy=http://127.0.0.1:8026
-                    and trust Echo's CA: /home/you/.cache/rhythm/echo/ca/ca.pem
+                    and trust Echo's CA: /home/you/.cache/rhythm/echo/ca/ca.pem (rhythm echo ca creates it)
                     (curl, PHP cURL, Python requests and Go honor these; Node needs
                     NODE_USE_ENV_PROXY=1 and NODE_EXTRA_CA_CERTS on 22.21+/24.5+)
   Tie to actions:   send X-Echo-Run: <run>/<action> on the request that triggers the work,
                     or set RHYTHM_ECHO_RUN for scripts and workers.
+
+For a seal that can't be bypassed, see docs/seal in the Echo repository: the app on an
+internal Docker network or behind a firewall, with Echo as its only way out.
 ```
 
-`install laravel` and `install generic` create Echo's CA the first time, so they can print its path.
+`sendmail_path` shows the full path of the `rhythm-echo` binary that printed it, since php-fpm runs without a `PATH`. The addresses come from `.echo/config.yaml`; when the SMTP sink listens beyond loopback, the first line says `any username, Echo's token as the password`. `install` doesn't create the CA: `rhythm echo ca`, or `up` with `--mitm`, does.
 
 ### SMTP
 
-Point any mailer at `127.0.0.1:1025`. The sink accepts any login (so a site set up for a real SMTP provider works unchanged), up to 500 recipients and 25 MB per message, and never delivers anything. Envelope recipients that aren't in `To` or `Cc` are recorded as `Bcc`. An `X-Echo-Run` header in the message ties it to an action; otherwise it belongs to whichever action is running. Try it with curl:
+Point any mailer at `127.0.0.1:1025`. On loopback the sink accepts any login, or none (so a site set up for a real SMTP provider works unchanged). Beyond loopback, which `up` only allows with a token, it asks for AUTH PLAIN with any username and the token as the password, and refuses mail until then (`530 Authentication required: log in with any username and Echo's token as the password`). It takes up to 500 recipients and 25 MB per message, never delivers anything, and records every message as `faked`, in observe mode too. Envelope recipients that aren't in `To` or `Cc` are recorded as `Bcc`. An `X-Echo-Run` header in the message ties it to an action; otherwise it belongs to whichever action is running. Try it with curl:
 
 ```sh
 curl smtp://127.0.0.1:1025 --mail-from shop@shop.test --mail-rcpt jamie@shop.test --upload-file mail.txt
@@ -371,7 +393,7 @@ sendmail_path = "/usr/local/bin/rhythm-echo sendmail -t -i"
 | `-o…`, `-B`, `-N`, `-R`, `-V`, `-X`, `-L`, `-v`, `-U`, `-bm`, `-em`, `-ep`, `-eq`, `-G` | Accepted and ignored, so callers that pass them keep working. |
 | other `-b…` modes | Refused: only sending is supported. |
 
-It adds `Date` and `Message-ID` when they're missing. It sends to the SMTP sink at `RHYTHM_ECHO_SMTP` (default `127.0.0.1:1025`), or, when only `RHYTHM_ECHO_URL` is set, to the capture API (with `RHYTHM_ECHO_TOKEN`). It refuses to run when `WP_ENVIRONMENT_TYPE`, `APP_ENV`, `VERCEL_ENV` or `NODE_ENV` says `production`, unless `RHYTHM_ECHO_FORCE=1`.
+It adds `Date` and `Message-ID` when they're missing, and `X-Echo-Run` from `RHYTHM_ECHO_RUN` when the message has none (a header already in the message wins), so mail from a `command` action is tied to it. It sends to the SMTP sink at `RHYTHM_ECHO_SMTP` (default `127.0.0.1:1025`), logging in with `RHYTHM_ECHO_TOKEN` when it's set, or, when only `RHYTHM_ECHO_URL` is set, to the capture API (with `RHYTHM_ECHO_TOKEN`). Like the sink's own mail, it's recorded as `faked` in every mode. It refuses to run when `WP_ENVIRONMENT_TYPE`, `APP_ENV`, `VERCEL_ENV` or `NODE_ENV` says `production`, unless `RHYTHM_ECHO_FORCE=1`.
 
 Its exit codes are sendmail's, which callers understand:
 
@@ -380,7 +402,7 @@ Its exit codes are sendmail's, which callers understand:
 | `0` | Handed to Echo | |
 | `64` | Usage | `no recipients (give them as arguments, or use -t)`, `mode -bs is not supported (only sending, -bm)` |
 | `65` | Bad message | headers that can't be read, over 25 MB |
-| `69` | Echo unreachable | ``echo is not reachable at 127.0.0.1:1025 (is `rhythm echo up` running? set RHYTHM_ECHO_SMTP)`` |
+| `69` | Echo unreachable | ``can't reach Echo at 127.0.0.1:1025 (is `rhythm echo up` running? set RHYTHM_ECHO_SMTP): … connection refused`` |
 | `75` | Temporary failure | the sink or API refused the message |
 | `78` | Refused on production | `refusing to run: APP_ENV says production (set RHYTHM_ECHO_FORCE=1 to force)` |
 
@@ -393,7 +415,7 @@ rhythm echo up --proxy 127.0.0.1:8026 --mitm
 export HTTPS_PROXY=http://127.0.0.1:8026 https_proxy=http://127.0.0.1:8026
 ```
 
-With `--mitm`, the proxy decrypts HTTPS with a certificate from Echo's own CA, so it can record and fake each request; the app must trust that CA. `rhythm echo ca` prints its path, `rhythm echo ca --pem` the certificate, and containers can fetch it from `http://<proxy>/ca.pem`. Without `--mitm`, sealed HTTPS to unknown hosts is refused outright, since it can't be answered. How each runtime picks up the proxy and the CA:
+With `--mitm`, the proxy decrypts HTTPS with a certificate from Echo's own CA, so it can record and fake each request; the app must trust that CA. `rhythm echo ca` prints its path, `rhythm echo ca --pem` the certificate, and containers can fetch it from `http://<proxy>/ca.pem`. Without `--mitm`, sealed HTTPS to unknown hosts is refused outright, since it can't be answered. Payment APIs (Stripe, live PayPal) are never tunnelled blind, in any mode and even when allowlisted: without `--mitm` a `CONNECT` to them is refused and recorded as `blocked` with `payment APIs need --mitm so Echo can tell test from live keys`; with `--mitm` they're decrypted so Echo can check the key. How each runtime picks up the proxy and the CA:
 
 | Client | Proxy | Trust Echo's CA |
 |---|---|---|
@@ -405,7 +427,7 @@ With `--mitm`, the proxy decrypts HTTPS with a certificate from Echo's own CA, s
 | Go `net/http` | `HTTPS_PROXY` | `SSL_CERT_FILE=bundle.pem`, or the system store |
 | Debian or Alpine system store | | copy to `/usr/local/share/ca-certificates/rhythm-echo.crt`, then `update-ca-certificates` |
 
-A client that **replaces** its trust store needs a bundle of the system CAs plus Echo's, because hosts on Echo's allowlist are tunneled to the real server with its real certificate:
+A client that **replaces** its trust store needs a bundle of the system CAs plus Echo's, because hosts on Echo's allowlist (other than payment APIs) are tunnelled to the real server with its real certificate:
 
 ```sh
 cat /etc/ssl/certs/ca-certificates.crt "$(rhythm echo ca)" > /etc/rhythm-echo/bundle.pem

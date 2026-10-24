@@ -24,7 +24,7 @@ rhythm echo headers received.eml --hops                   # what the receiving s
 | `--resolver <host:port>` | Ask this DNS server instead of the system's. |
 | `--json` | The parsed records and the issues, as JSON. |
 
-`check` takes a domain (`shop.com`); an address works too (`orders@shop.com` checks `shop.com`), a URL doesn't. The flags given override what `--from-mail` found. An unknown `--provider` name is used as a label only, with no provider-specific checks.
+`check` takes a domain (`shop.com`); an address works too (`orders@shop.com` checks `shop.com`), a URL doesn't. The flags given override what `--from-mail` found. An unknown `--provider` name is a usage error that lists the known ones: `rhythm echo: --provider "bogus": use one of sendgrid, mailgun, postmark, ses, resend, brevo, mailchimp, mandrill, sparkpost, google, microsoft, php-mail`. `Sender:` shows the service's name (`SendGrid`, `Amazon SES`).
 
 The output below comes from a fixture DNS server on `127.0.0.1` (`--resolver`), serving a zone for `shop.test` with two SPF records and a monitoring-only DMARC policy:
 
@@ -35,34 +35,35 @@ rhythm echo check shop.test --provider sendgrid --resolver 127.0.0.1:18753
 ```text
 rhythm echo 1.0.0 - shop.test
 
-Sender: sendgrid
+Sender: SendGrid
+Records: found DMARC, MX; no usable SPF, DKIM
 
-[ERROR] Multiple SPF records - shop.test: DMARC, MX found
+[ERROR] Multiple SPF records - shop.test
   shop.test publishes 2 v=spf1 records; receivers treat that as a permanent error and SPF fails for all mail:
   fix: Merge them into one TXT record at shop.test (one v=spf1, every include, one all at the end) and delete the others.
-[WARNING] No DKIM key found for the sending service - shop.test: DMARC, MX found
+[WARNING] No DKIM key found for the sending service - shop.test
   None of SendGrid's default selectors has a key: s1._domainkey.shop.test, s2._domainkey.shop.test. Without a DKIM signature from your own domain, DMARC can only pass on SPF, which breaks when mail is forwarded.
   fix: Set up domain authentication in SendGrid and publish the DKIM records it gives you under shop.test.
-[WARNING] DMARC sends no aggregate reports - shop.test: DMARC, MX found
+[WARNING] DMARC sends no aggregate reports - shop.test
   _dmarc.shop.test has no rua= tag, so nobody learns which servers send as shop.test or what fails.
   fix: Add rua=mailto:dmarc@shop.test (or a DMARC report service's address) to the TXT record at _dmarc.shop.test.
-[NOTICE] DMARC policy is none - shop.test: DMARC, MX found
+[NOTICE] DMARC policy is none - shop.test
   p=none is monitoring only: receivers send reports but do nothing to mail that fails DMARC, so spoofing shop.test still works. It meets the Gmail and Yahoo bulk-sender minimum. Move on once the reports show all legitimate mail passes.
-[NOTICE] No MTA-STS policy - shop.test: DMARC, MX found
+[NOTICE] No MTA-STS policy - shop.test
   Without MTA-STS, servers sending to shop.test fall back to plain text if TLS is stripped in transit.
 
-Messages have errors - 1 error, 2 warnings, 2 notices - 1 action, no messages
+Delivery has errors - 1 error, 2 warnings, 2 notices
 ```
 
-The label after each title (`shop.test: DMARC, MX found`) lists the records Echo could read. After the fixes, the same zone with one SPF record including SendGrid, the `s1` key and `p=quarantine` with reports:
+The `Records:` line lists the records Echo could read and the ones it found missing or unusable (here two SPF records, so neither counts), and each issue ends with the domain it's about. After the fixes, the same zone with one SPF record including SendGrid, the `s1` key and `p=quarantine` with reports:
 
 ```text
-[NOTICE] No MTA-STS policy - shop.test: SPF, DKIM, DMARC, MX found
+[NOTICE] No MTA-STS policy - shop.test
   Without MTA-STS, servers sending to shop.test fall back to plain text if TLS is stripped in transit.
-[NOTICE] No BIMI record - shop.test: SPF, DKIM, DMARC, MX found
+[NOTICE] No BIMI record - shop.test
   DMARC is enforced, so shop.test qualifies for BIMI: supporting inboxes can show its logo next to its mail.
 
-All clear - 0 errors, 0 warnings, 2 notices - 1 action, no messages
+All clear - 0 errors, 0 warnings, 2 notices
 ```
 
 With a message the site sent, Echo also checks the Return-Path domain SendGrid uses for bounces:
@@ -72,7 +73,7 @@ rhythm echo check shop.test --from-mail received.eml
 ```
 
 ```text
-[WARNING] Bounce domain has no SPF record - shop.test: SPF, DKIM, DMARC, MX found
+[WARNING] Bounce domain has no SPF record - shop.test
   Mail is sent with Return-Path domain em123.shop.test, which SPF checks, but it publishes no v=spf1 record.
   fix: Publish the TXT record your sending service gives for em123.shop.test (typically "v=spf1 include:sendgrid.net ~all").
 ```
@@ -170,28 +171,28 @@ Hop 1:  → web01.shop.example
 Hop 2: web01.shop.example → mx.google.com ESMTPS
 Hop 3:  → 2002:a05:6214:1c8e:b0:6b5:2e1d:3f10 SMTP
 
-[ERROR] DMARC failed - headers checked
+[ERROR] DMARC failed - phpmail.eml
   mx.google.com reports dmarc=fail for shop.example: neither SPF nor DKIM passed for a domain aligned with From. Mail like this goes to spam or is rejected under p=quarantine/reject.
-  fix: Run `echo check shop.example` with this message's sender, then publish the DKIM records of the sending service under shop.example.
-[ERROR] Message is not DKIM-signed - headers checked
+  fix: Run `rhythm echo check shop.example` with this message's sender, then publish the DKIM records of the sending service under shop.example.
+[ERROR] Message is not DKIM-signed - phpmail.eml
   There's no DKIM-Signature header. Without one DMARC can pass only on SPF, which breaks when mail is forwarded, and Gmail and Yahoo require DKIM from bulk senders.
   fix: Send through a service that signs mail (or enable DKIM signing on the server) and publish its key under shop.example.
-[WARNING] SPF softfail - headers checked
+[WARNING] SPF softfail - phpmail.eml
   mx.google.com reports spf=softfail: the SPF record at web01.shop.example doesn't list the relay 203.0.113.7 and ends in ~all.
   fix: Add the sending service's include (or the server's ip4:) to the SPF record at web01.shop.example.
-[WARNING] Mail header leaks a server script path - headers checked
+[WARNING] Mail header leaks a server script path - phpmail.eml
   X-PHP-Originating-Script: 33:class-phpmailer.php tells every recipient the server user ID and the script that sent the mail.
   fix: Set mail.add_x_header = Off in php.ini, or send through an SMTP or API mailer instead of mail().
-[WARNING] Sent with PHP mail() from the web server - headers checked
+[WARNING] Sent with PHP mail() from the web server - phpmail.eml
   The message was handed to the web server's local mail system, which doesn't sign it with DKIM and sends from an IP that mailbox providers distrust.
   fix: Send through an authenticated SMTP or API service (WP Mail SMTP, FluentSMTP or Laravel's mailers) with DKIM set up for shop.example.
-[NOTICE] Mail header reveals the PHP version - headers checked
+[NOTICE] Mail header reveals the PHP version - phpmail.eml
   X-Mailer: PHP/8.1.2-1ubuntu2.18 shows the server runs PHP/8.1.2.
 
-Messages have errors - 2 errors, 3 warnings, 1 notice - 1 action, no messages
+Delivery has errors - 2 errors, 3 warnings, 1 notice
 ```
 
-The fixes that say `echo check` mean `rhythm echo check`. A message from a properly set-up service is clean:
+Each issue ends with the file it's about. A message from a properly set-up service is clean:
 
 ```text
 rhythm echo 1.0.0 - postmark.eml
@@ -200,10 +201,10 @@ From: receipts@shop.example
 Sent by: Postmark
 Results: SPF pass · DKIM pass · DMARC pass
 
-All clear - 0 errors, 0 warnings, 0 notices - 1 action, no messages
+All clear - 0 errors, 0 warnings, 0 notices
 ```
 
-Echo recognizes SendGrid, Mailgun, Postmark, Amazon SES, Resend, Brevo, Mailchimp, Mandrill, SparkPost, Google Workspace, Microsoft 365 and PHP `mail()` from the headers. `--check` runs the DNS checks above for the sender it found, through the system resolver. `--json` prints the whole analysis: From, Return-Path, the sender, the verdict per method, the signatures (`d=`, `s=`, algorithm, signed headers) and the hops.
+Echo recognizes SendGrid, Mailgun, Postmark, Amazon SES, Resend, Brevo, Mailchimp, Mandrill, SparkPost, Google Workspace, Microsoft 365 and PHP `mail()` from the headers. `--check` runs the DNS checks above for the sender it found, and takes `--resolver` and `--mta-sts-fetch` like `check` does. `--json` prints the whole analysis: From, Return-Path, the sender, the verdict per method, the signatures (`d=`, `s=`, algorithm, signed headers) and the hops.
 
 | Level | Issue | Fix, in short |
 |---|---|---|
@@ -235,8 +236,6 @@ Echo recognizes SendGrid, Mailgun, Postmark, Amazon SES, Resend, Brevo, Mailchim
 - No request to the webhook endpoints, CRMs or automation hooks in your captures: Zapier, Make and n8n trigger on any request.
 - No request to the mail servers in your MX records.
 - The only HTTPS request is the optional `--mta-sts-fetch`, to `https://mta-sts.<domain>/.well-known/mta-sts.txt` on the domain you named, without following redirects.
-
-<!-- TODO(lead): `headers --check` ignores `--resolver`, so it can't be pointed at a fixture resolver; note it here if that stays. -->
 
 ---
 <sub>← [Replay](Echo-Replay) · [Home](Home) · [CI](Echo-CI) →</sub>
