@@ -5,24 +5,29 @@
 # Builds a static copy of the GitHub API layout for the installer tests:
 #   sh mkfake.sh ROOT
 #
-# ROOT gets repos/RhythmShahriar/rhythm/releases/{latest,tags/v<version>},
-# the archives under dl/rhythm/v<version>/ and a checksums.txt per release.
-# server.py serves it and fills in {{BASE}} in the release JSON.
+# ROOT gets repos/RhythmShahriar/<repo>/releases/{latest,tags/v<version>},
+# the archives under dl/<repo>/v<version>/ and a checksums.txt per release,
+# for rhythm, tuner, soundcheck and echo. server.py serves it and fills in
+# {{BASE}} in the release JSON.
 #
-# Each rhythm in an archive is a shell-script stand-in. It answers
-# --version and help, logs its argv to $RHYTHM_TEST_LOG and "installs" a
-# tool by writing a rhythm-<tool> stand-in into --dir. The versions differ
-# the way real releases do:
+# Every binary in an archive is a shell-script stand-in that prints its
+# version and logs its argv to $RHYTHM_TEST_LOG, so a test can assert what
+# the installer asked for. rhythm also answers help and "installs" a tool
+# by writing a rhythm-<tool> stand-in into --dir. It never downloads; the
+# tool releases are there for tests that run a real rhythm. The rhythm
+# versions differ the way real releases do:
 #   0.6.0 (latest)  knows tuner, soundcheck and echo; has install --dry-run
 #   0.5.0           knows all three, no --dry-run
 #   0.4.0           knows tuner and soundcheck, no --dry-run
 #   0.3.5           knows all three; its help has no "Tools:" block
-# One broken release tests the installer's URL check:
+# Broken releases test the installer's checks:
 #   9.0.1           downloads point at plain http on another host
+#   9.0.2           checksums.txt has a wrong sum for every archive
+#   9.0.3           has no checksums.txt
 set -eu
 
 root=${1:?usage: mkfake.sh ROOT}
-repo=RhythmShahriar/rhythm
+owner=RhythmShahriar
 
 sha256() {
 	if command -v sha256sum >/dev/null 2>&1; then
@@ -32,9 +37,21 @@ sha256() {
 	fi
 }
 
+# tool writes a tool stand-in to $1 that reports version $2. It takes its
+# name from the file it runs as. router's stand-ins are the same script.
+tool() {
+	printf '#!/bin/sh\nversion=%s\n' "$2" >"$1"
+	cat >>"$1" <<'EOF'
+name=${0##*/}
+[ -z "${RHYTHM_TEST_LOG:-}" ] || printf '%s %s\n' "$name" "$*" >>"$RHYTHM_TEST_LOG"
+echo "$name $version"
+EOF
+	chmod 0755 "$1"
+}
+
 # router writes a rhythm stand-in to $1: version $2, tools $3 (with their
 # aliases in parentheses), dry-run support $4 (yes or no), help with a
-# "Tools:" block $5 (yes or no).
+# "Tools:" block $5 (yes or no). The tools it writes are tool stand-ins.
 router() {
 	cat >"$1" <<EOF
 #!/bin/sh
@@ -108,7 +125,13 @@ if [ -n "$dry" ]; then
 	exit 0
 fi
 for n in $want; do
-	printf '#!/bin/sh\necho "rhythm-%s 0.0.0-test"\n' "$n" >"$dir/rhythm-$n"
+	cat >"$dir/rhythm-$n" <<'TOOL'
+#!/bin/sh
+version=0.0.0-test
+name=${0##*/}
+[ -z "${RHYTHM_TEST_LOG:-}" ] || printf '%s %s\n' "$name" "$*" >>"$RHYTHM_TEST_LOG"
+echo "$name $version"
+TOOL
 	chmod 0755 "$dir/rhythm-$n"
 	echo "Installed rhythm-$n 0.0.0-test to $dir/rhythm-$n"
 done
@@ -116,38 +139,58 @@ EOF
 	chmod 0755 "$1"
 }
 
-# release builds the archives, checksums.txt and release JSON for version
-# $1. Download URLs start with $2.
+# release builds the archives, checksums.txt and release JSON for repo $1,
+# version $2, from the files in $root/build/$1/$2. Download URLs start with
+# $3. $4 breaks the checksums on purpose: "badsum" or "nosums".
 release() {
-	v=$1 base=$2 out=$root/dl/rhythm/v$1 json=$root/repos/$repo/releases/tags/v$1
+	r=$1 v=$2 base=$3 broken=${4:-}
+	bin=rhythm-$r
+	[ "$r" != rhythm ] || bin=rhythm
+	src=$root/build/$r/$v out=$root/dl/$r/v$v json=$root/repos/$owner/$r/releases/tags/v$v
 	mkdir -p "$out" "$(dirname "$json")"
 	assets=
 	: >"$out/checksums.txt"
 	for os in linux darwin; do
 		for arch in amd64 arm64; do
-			name=rhythm_${os}_${arch}.tar.gz
-			tar -czf "$out/$name" -C "$root/build/$v" rhythm
-			printf '%s  %s\n' "$(sha256 "$out/$name")" "$name" >>"$out/checksums.txt"
+			name=${r}_${os}_${arch}.tar.gz
+			tar -czf "$out/$name" -C "$src" "$bin"
+			sum=$(sha256 "$out/$name")
+			[ "$broken" != badsum ] || sum=$(printf '%s' "$sum" | tr 0-9a-f 1-9a-f0)
+			printf '%s  %s\n' "$sum" "$name" >>"$out/checksums.txt"
 			assets="$assets{\"name\":\"$name\",\"browser_download_url\":\"$base/$name\"},"
 		done
 	done
-	assets="$assets{\"name\":\"checksums.txt\",\"browser_download_url\":\"$base/checksums.txt\"}"
+	if [ "$broken" = nosums ]; then
+		rm "$out/checksums.txt"
+		assets=${assets%,}
+	else
+		assets="$assets{\"name\":\"checksums.txt\",\"browser_download_url\":\"$base/checksums.txt\"}"
+	fi
 	printf '{"tag_name":"v%s","prerelease":false,"assets":[%s]}\n' "$v" "$assets" >"$json"
 }
 
 all="tuner (t) soundcheck (sc) echo (e)"
 for spec in "0.6.0|$all|yes|yes" "0.5.0|$all|no|yes" "0.4.0|tuner (t) soundcheck (sc)|no|yes" \
-	"0.3.5|$all|no|no" "9.0.1|$all|yes|yes"; do
+	"0.3.5|$all|no|no" "9.0.1|$all|yes|yes" "9.0.2|$all|yes|yes" "9.0.3|$all|yes|yes"; do
 	IFS='|' read -r v tools dry block <<EOF
 $spec
 EOF
-	mkdir -p "$root/build/$v"
-	router "$root/build/$v/rhythm" "$v" "$tools" "$dry" "$block"
+	mkdir -p "$root/build/rhythm/$v"
+	router "$root/build/rhythm/$v/rhythm" "$v" "$tools" "$dry" "$block"
 done
 
 for v in 0.6.0 0.5.0 0.4.0 0.3.5; do
-	release "$v" "{{BASE}}/dl/rhythm/v$v"
+	release rhythm "$v" "{{BASE}}/dl/rhythm/v$v"
 done
-release 9.0.1 http://example.invalid/dl/rhythm/v9.0.1
-cp "$root/repos/$repo/releases/tags/v0.6.0" "$root/repos/$repo/releases/latest"
+release rhythm 9.0.1 http://example.invalid/dl/rhythm/v9.0.1
+release rhythm 9.0.2 "{{BASE}}/dl/rhythm/v9.0.2" badsum
+release rhythm 9.0.3 "{{BASE}}/dl/rhythm/v9.0.3" nosums
+cp "$root/repos/$owner/rhythm/releases/tags/v0.6.0" "$root/repos/$owner/rhythm/releases/latest"
+
+for t in tuner soundcheck echo; do
+	mkdir -p "$root/build/$t/0.1.0"
+	tool "$root/build/$t/0.1.0/rhythm-$t" 0.1.0
+	release "$t" 0.1.0 "{{BASE}}/dl/$t/v0.1.0"
+	cp "$root/repos/$owner/$t/releases/tags/v0.1.0" "$root/repos/$owner/$t/releases/latest"
+done
 rm -rf "$root/build"

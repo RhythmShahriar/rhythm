@@ -76,8 +76,9 @@ function New-Zip([string]$Binary, [string]$Zip) {
 }
 
 # New-Release writes the zips, checksums.txt and release JSON for a version
-# whose downloads start with $Base.
-function New-Release([string]$Version, [string]$Binary, [string]$Base) {
+# whose downloads start with $Base. $Broken breaks the checksums on purpose:
+# 'badsum' writes a wrong sum, 'nosums' leaves checksums.txt out.
+function New-Release([string]$Version, [string]$Binary, [string]$Base, [string]$Broken = '') {
     $Out = Join-Path $Srv "dl/rhythm/v$Version"
     $Tags = Join-Path $Srv 'repos/RhythmShahriar/rhythm/releases/tags'
     New-Item -ItemType Directory -Force -Path $Out, $Tags | Out-Null
@@ -87,11 +88,14 @@ function New-Release([string]$Version, [string]$Binary, [string]$Base) {
         $Name = "rhythm_windows_$Arch.zip"
         New-Zip $Binary (Join-Path $Out $Name)
         $Hash = (Get-FileHash -Algorithm SHA256 -Path (Join-Path $Out $Name)).Hash.ToLower()
+        if ($Broken -eq 'badsum') { $Hash = -join ($Hash.ToCharArray() | ForEach-Object { if ($_ -eq '0') { '1' } else { '0' } }) }
         $Sums += "$Hash  $Name`n"
         $Assets += "{`"name`":`"$Name`",`"browser_download_url`":`"$Base/$Name`"}"
     }
-    $Assets += "{`"name`":`"checksums.txt`",`"browser_download_url`":`"$Base/checksums.txt`"}"
-    [IO.File]::WriteAllText((Join-Path $Out 'checksums.txt'), $Sums, $Utf8)
+    if ($Broken -ne 'nosums') {
+        $Assets += "{`"name`":`"checksums.txt`",`"browser_download_url`":`"$Base/checksums.txt`"}"
+        [IO.File]::WriteAllText((Join-Path $Out 'checksums.txt'), $Sums, $Utf8)
+    }
     $Json = "{`"tag_name`":`"v$Version`",`"prerelease`":false,`"assets`":[$($Assets -join ',')]}"
     [IO.File]::WriteAllText((Join-Path $Tags "v$Version"), $Json, $Utf8)
 }
@@ -104,11 +108,13 @@ foreach ($R in @(
         @('0.5.0', $All, 'no', 'yes'),
         @('0.4.0', 'tuner:t,soundcheck:sc', 'no', 'yes'),
         @('0.3.5', $All, 'no', 'no'),
-        @('9.0.1', $All, 'yes', 'yes'))) {
+        @('9.0.1', $All, 'yes', 'yes'),
+        @('9.0.2', $All, 'yes', 'yes', 'badsum'),
+        @('9.0.3', $All, 'yes', 'yes', 'nosums'))) {
     $Binary = Join-Path $Build "$($R[0])/rhythm$Exe"
     New-Stub $R[0] $R[1] $R[2] $R[3] $Binary
     $Base = if ($R[0] -eq '9.0.1') { 'http://example.invalid/dl/rhythm/v9.0.1' } else { "{{BASE}}/dl/rhythm/v$($R[0])" }
-    New-Release $R[0] $Binary $Base
+    New-Release $R[0] $Binary $Base $(if ($R.Count -gt 4) { $R[4] } else { '' })
 }
 Copy-Item (Join-Path $Srv 'repos/RhythmShahriar/rhythm/releases/tags/v0.6.0') (Join-Path $Srv 'repos/RhythmShahriar/rhythm/releases/latest')
 
@@ -137,7 +143,9 @@ function Set-Var([string]$Name, $Value) {
 # Invoke-Install runs install.ps1 for the current case with the defaults
 # below, overridden by $Set ($null clears a variable). $Prelude runs first
 # in the same session, so a case can stand in its own Invoke-RestMethod.
-function Invoke-Install([hashtable]$Set = @{}, [string]$Prelude = '') {
+# $Script runs instead of install.ps1, for the truncation case. It runs in
+# the case folder, so a relative RHYTHM_INSTALL_DIR lands there.
+function Invoke-Install([hashtable]$Set = @{}, [string]$Prelude = '', [string]$Script = $Installer) {
     $Tmp = Join-Path $script:CaseDir 'tmp'
     New-Item -ItemType Directory -Force -Path $Tmp | Out-Null
     $Values = @{
@@ -159,7 +167,7 @@ function Invoke-Install([hashtable]$Set = @{}, [string]$Prelude = '') {
     # A script file rather than -Command, because Windows PowerShell 5.1
     # mangles quotes in arguments to native programs.
     $Runner = Join-Path $script:CaseDir 'run-install.ps1'
-    [IO.File]::WriteAllText($Runner, "$Prelude`niex ([IO.File]::ReadAllText('$Installer'))`n", $Utf8)
+    [IO.File]::WriteAllText($Runner, "Set-Location -LiteralPath '$($script:CaseDir)'`n$Prelude`niex ([IO.File]::ReadAllText('$Script'))`n", $Utf8)
     $Prev = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
@@ -225,6 +233,56 @@ function Case-some {
     Invoke-Install @{ RHYTHM_TOOLS = 'soundcheck  echo' }
     Assert-Code 0
     Assert-Tools 'soundcheck', 'echo'
+}
+
+function Case-bad_checksum {
+    Invoke-Install @{ RHYTHM_VERSION = '9.0.2' }
+    Assert-Code 1
+    Assert-Out 'rhythm install: checksum mismatch for rhythm_windows_amd64.zip; nothing was installed'
+    if (Test-Path (Join-Path $script:CaseDir 'bin')) { Fail 'a wrong checksum created the install folder' }
+}
+
+function Case-no_checksums {
+    Clear-Requests
+    Invoke-Install @{ RHYTHM_VERSION = '9.0.3' }
+    Assert-Code 1
+    Assert-Out 'rhythm install: the release has no checksums.txt; refusing to install unverified binaries'
+    if (Test-Path (Join-Path $script:CaseDir 'bin')) { Fail 'a release without checksums created the install folder' }
+    if (Get-Requests | Where-Object { $_.Contains('/dl/') }) { Fail 'the installer downloaded from a release without checksums' }
+}
+
+function Case-missing_dir {
+    $Nested = Join-Path $script:CaseDir 'bin/a/b'
+    Invoke-Install @{ RHYTHM_INSTALL_DIR = $Nested; RHYTHM_TOOLS = 'tuner' }
+    Assert-Code 0
+    if (-not (Test-Path (Join-Path $Nested 'rhythm.exe'))) { Fail "rhythm.exe wasn't installed into a new nested folder" }
+    if (-not (Test-Path (Join-Path $Nested "rhythm-tuner$Exe"))) { Fail "tuner wasn't installed into a new nested folder" }
+}
+
+function Case-relative_dir {
+    Invoke-Install @{ RHYTHM_INSTALL_DIR = 'bin'; RHYTHM_TOOLS = 'tuner' }
+    Assert-Code 0
+    Assert-File 'rhythm.exe'
+    Assert-Tools 'tuner'
+    $Bin = Join-Path $script:CaseDir 'bin'
+    Assert-Out "Installed rhythm 0.6.0 to $Bin"
+    if (-not (Select-String -Path (Join-Path $script:CaseDir 'argv.log') -SimpleMatch "rhythm install tuner --dir $Bin" -Quiet)) {
+        Fail "rhythm wasn't given the absolute folder"
+    }
+}
+
+function Case-truncated {
+    # A cut-off download must not run at all: iex refuses the whole script.
+    $Text = [IO.File]::ReadAllText($Installer)
+    foreach ($Pct in 50, 90) {
+        $Cut = Join-Path $script:CaseDir "install-$Pct.ps1"
+        [IO.File]::WriteAllText($Cut, $Text.Substring(0, [int]($Text.Length * $Pct / 100)), $Utf8)
+        Clear-Requests
+        Invoke-Install @{} '' $Cut
+        if (Test-Path (Join-Path $script:CaseDir 'bin')) { Fail "a script cut at $Pct% created the install folder" }
+        if (Get-Requests) { Fail "a script cut at $Pct% made a request" }
+        Assert-Out 'Missing closing'
+    }
 }
 
 function Case-http_refused {
@@ -406,7 +464,7 @@ function Case-readonly_dir {
 }
 
 if (-not $Cases.Count) {
-    $Cases = 'default', 'none', 'some', 'http_refused', 'http_download_refused', 'github_token', 'rhythm_token',
+    $Cases = 'default', 'none', 'some', 'bad_checksum', 'no_checksums', 'missing_dir', 'relative_dir', 'truncated', 'http_refused', 'http_download_refused', 'github_token', 'rhythm_token',
     'rate_limit', 'old_router', 'old_router_named', 'router_without_dry_run', 'router_without_tools_block',
     'unknown_tool', 'running_exe', 'swap_fallback', 'swap_restore', 'readonly_dir'
 }

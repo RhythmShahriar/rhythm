@@ -77,13 +77,14 @@ install() {
 	mkdir -p "$cdir/home" "$cdir/tmp"
 	set +e
 	# $shell is split on purpose, so RHYTHM_TEST_SH can be "busybox sh".
+	# It runs in $cdir, so a relative RHYTHM_INSTALL_DIR lands in the case.
 	# shellcheck disable=SC2086
-	cat "${script:-$installer}" | env -i \
+	(cd "$cdir" && cat "${script:-$installer}" | env -i \
 		HOME="$cdir/home" PATH="${path:-/usr/local/bin:/usr/bin:/bin}" TMPDIR="$cdir/tmp" \
 		XDG_CONFIG_HOME="$cdir/home/.config" XDG_CACHE_HOME="$cdir/home/.cache" \
 		RHYTHM_GITHUB_API="$base" RHYTHM_INSTALL_DIR="$cdir/bin" \
 		RHYTHM_TEST_LOG="$cdir/argv.log" FAKE_CURL_LOG="$cdir/curl.log" \
-		"$@" $shell >"$cdir/out" 2>&1
+		"$@" $shell >"$cdir/out" 2>&1)
 	code=$?
 	set -e
 }
@@ -128,6 +129,55 @@ case_some() {
 	install RHYTHM_TOOLS='soundcheck  echo'
 	expect_code 0
 	expect_tools soundcheck echo
+}
+
+case_bad_checksum() {
+	: >"$work/requests.log"
+	install RHYTHM_VERSION=9.0.2
+	expect_code 1
+	expect_out "checksum mismatch for rhythm_"
+	expect_out "; nothing was installed"
+	[ ! -e "$cdir/bin" ] || fail "a wrong checksum created $cdir/bin"
+	! requests | grep -q 'releases/latest' || fail "the installer asked for another release"
+}
+
+case_no_checksums() {
+	: >"$work/requests.log"
+	install RHYTHM_VERSION=9.0.3
+	expect_code 1
+	expect_out "rhythm install: the release has no checksums.txt; refusing to install unverified binaries"
+	[ ! -e "$cdir/bin" ] || fail "a release without checksums created $cdir/bin"
+	! requests | grep -q '/dl/' || fail "the installer downloaded from a release without checksums"
+}
+
+case_missing_dir() {
+	install RHYTHM_INSTALL_DIR="$cdir/bin/a/b" RHYTHM_TOOLS=tuner
+	expect_code 0
+	[ -x "$cdir/bin/a/b/rhythm" ] || fail "rhythm wasn't installed into a new nested folder"
+	[ -x "$cdir/bin/a/b/rhythm-tuner" ] || fail "tuner wasn't installed into a new nested folder"
+}
+
+case_relative_dir() {
+	install RHYTHM_INSTALL_DIR=bin RHYTHM_TOOLS=tuner
+	expect_code 0
+	expect_file rhythm
+	expect_tools tuner
+	expect_out "Installed rhythm 0.6.0 to $cdir/bin"
+	grep -qx "rhythm install tuner --dir $cdir/bin" "$cdir/argv.log" || fail "rhythm wasn't given the absolute folder"
+}
+
+case_unwritable_dir() {
+	# root ignores the mode.
+	if [ "$(id -u)" = 0 ]; then
+		echo "skip $case"
+		return
+	fi
+	mkdir -p "$cdir/ro"
+	chmod 0555 "$cdir/ro"
+	install RHYTHM_INSTALL_DIR="$cdir/ro/bin"
+	chmod 0755 "$cdir/ro"
+	expect_code 1
+	expect_out "rhythm install: can't create $cdir/ro/bin"
 }
 
 # truncate writes the first $1 percent of install.sh to $2.
@@ -277,7 +327,7 @@ case_readme() {
 	! grep -qi 'other identity' "$readme" || fail "README claims other identities are rejected"
 }
 
-cases=${*:-default none some truncated proto http_refused http_download_refused github_token
+cases=${*:-default none some bad_checksum no_checksums missing_dir relative_dir unwritable_dir truncated proto http_refused http_download_refused github_token
 rhythm_token rate_limit old_router old_router_named router_without_dry_run
 router_without_tools_block unknown_tool readme}
 script='' path=''
