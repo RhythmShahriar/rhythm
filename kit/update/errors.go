@@ -97,6 +97,21 @@ func (e *ErrNoRelease) Error() string {
 // Unwrap returns the cause, for errors.Is and errors.As.
 func (e *ErrNoRelease) Unwrap() error { return e.Err }
 
+// ErrTooNew means every release that would match is younger than
+// Updater.MinAge, so none was picked.
+type ErrTooNew struct {
+	Repo   string
+	Newest string        // the newest matching version
+	Age    time.Duration // how old it is
+	MinAge time.Duration
+}
+
+// Error names the newest release, its age and the cooldown.
+func (e *ErrTooNew) Error() string {
+	return fmt.Sprintf("no release of %s is old enough: the newest, %s, is %s old (min age %s)",
+		e.Repo, e.Newest, FormatAge(e.Age), FormatAge(e.MinAge))
+}
+
 // ErrChecksum means a downloaded archive does not match its expected
 // sha256. Nothing is replaced when it is returned.
 type ErrChecksum struct {

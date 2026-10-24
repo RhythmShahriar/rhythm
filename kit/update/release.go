@@ -119,6 +119,9 @@ func (u *Updater) releases(ctx context.Context) ([]*Release, error) {
 //     release, as ByTag, prereleases included.
 //   - a partial version "X.Y" or "X": the newest X.Y.* or X.*.* release
 //     among the last 100, prereleases left out.
+//
+// MinAge applies to "latest" and partial specs. An exact version is
+// installed whatever its age: naming it is the user's own decision.
 func (u *Updater) Resolve(ctx context.Context, spec string) (*Release, error) {
 	s := strings.TrimPrefix(strings.TrimSpace(spec), "v")
 	if s == "" || strings.EqualFold(s, "latest") {
@@ -131,21 +134,41 @@ func (u *Updater) Resolve(ctx context.Context, spec string) (*Release, error) {
 	if exact {
 		return u.ByTag(ctx, s)
 	}
+	return u.newest(ctx, prefix, s+".*")
+}
+
+// newest lists the releases and picks the newest one, prereleases left
+// out, whose version starts with prefix and, when MinAge is set, that is
+// old enough. want names the spec in ErrNoRelease.
+func (u *Updater) newest(ctx context.Context, prefix []int, want string) (*Release, error) {
 	rels, err := u.releases(ctx)
 	if err != nil {
 		return nil, err
 	}
-	var best *Release
+	now := time.Now()
+	var best, top *Release // best is old enough, top is the newest at all
 	for _, r := range rels {
 		if r.Prerelease || !matches(r.Version, prefix) {
+			continue
+		}
+		if top == nil || Newer(top.Version, r.Version) {
+			top = r
+		}
+		// An unknown publish time can't prove the release is old enough.
+		if u.MinAge > 0 && (r.Published.IsZero() || now.Sub(r.Published) < u.MinAge) {
 			continue
 		}
 		if best == nil || Newer(best.Version, r.Version) {
 			best = r
 		}
 	}
-	if best == nil {
-		return nil, &ErrNoRelease{Repo: u.Repo, API: u.apiBase(), Version: s + ".*"}
+	switch {
+	case top == nil:
+		return nil, &ErrNoRelease{Repo: u.Repo, API: u.apiBase(), Version: want}
+	case best == nil:
+		return nil, &ErrTooNew{Repo: u.Repo, Newest: top.Version, Age: now.Sub(top.Published), MinAge: u.MinAge}
+	case best != top:
+		best.SkippedNewer = &Skipped{Version: top.Version, Age: now.Sub(top.Published)}
 	}
 	return best, nil
 }

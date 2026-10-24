@@ -67,6 +67,11 @@
 // InstallOptions.ExpectSHA256 then refuses an archive that no longer has
 // the locked hash.
 //
+// Updater.MinAge adds a cooldown: Latest and partial specs skip releases
+// younger than it and name the newest one skipped in
+// Release.SkippedNewer; ErrTooNew means none is old enough. ParseAge
+// reads ages such as "3d", "1w" or "36h" and FormatAge prints them.
+//
 // # Swap guarantees
 //
 // On macOS and Linux the new binary replaces the old one with a single

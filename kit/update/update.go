@@ -76,6 +76,14 @@ type Updater struct {
 	// nothing about it, so the caller should warn.
 	Verifier      Verifier
 	SkipSignature bool
+
+	// MinAge, when above zero, is a cooldown: Latest and Resolve pick the
+	// newest release published at least MinAge ago and report a newer
+	// one they passed over in Release.SkippedNewer. A release that turns
+	// out to be malicious is usually pulled within days, so waiting keeps
+	// it off machines. ParseAge reads the "3d" form; the tools take it
+	// from RHYTHM_MIN_RELEASE_AGE, which this package doesn't read.
+	MinAge time.Duration
 }
 
 // ErrOffline is returned by calls that need the network while offline
@@ -101,11 +109,25 @@ type Release struct {
 	Published  time.Time         // when it was published; zero when unknown
 	Prerelease bool              // marked as a prerelease
 	Assets     map[string]string // asset name → https download URL
+
+	// SkippedNewer is the newest release that Updater.MinAge passed over
+	// because it is too young; nil when none was.
+	SkippedNewer *Skipped
 }
 
-// Latest fetches the newest published release. GitHub picks it, so it is
-// never a draft or a prerelease.
+// Skipped is a release left out for being younger than Updater.MinAge.
+type Skipped struct {
+	Version string        // without the leading v
+	Age     time.Duration // how long ago it was published
+}
+
+// Latest fetches the newest published release, never a draft or a
+// prerelease. GitHub picks it, unless MinAge is set: then it is the
+// newest of the last 100 releases that is at least MinAge old.
 func (u *Updater) Latest(ctx context.Context) (*Release, error) {
+	if u.MinAge > 0 {
+		return u.newest(ctx, nil, "")
+	}
 	var v ghRelease
 	if err := u.getJSON(ctx, "/releases/latest", "", &v); err != nil {
 		return nil, err
