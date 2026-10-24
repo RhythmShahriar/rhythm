@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -45,7 +46,7 @@ func (e *ErrRateLimited) Error() string {
 	if e.API == "" || e.API == defaultAPI {
 		b.WriteString("GitHub rate limit reached")
 	} else {
-		fmt.Fprintf(&b, "rate limit reached at %s", e.API)
+		fmt.Fprintf(&b, "rate limit reached at %s", redactURL(e.API))
 		tokenVar = "RHYTHM_GITHUB_TOKEN" //nolint:gosec // a variable name, not a credential
 	}
 	if !e.TokenSet {
@@ -85,11 +86,11 @@ func (e *ErrNoRelease) Error() string {
 	mirror := e.API != "" && e.API != defaultAPI
 	switch {
 	case e.Version != "" && mirror:
-		return fmt.Sprintf("mirror %s has no release %s for %s", e.API, e.Version, e.Repo)
+		return fmt.Sprintf("mirror %s has no release %s for %s", redactURL(e.API), e.Version, e.Repo)
 	case e.Version != "":
 		return fmt.Sprintf("%s has no release %s", e.Repo, e.Version)
 	case mirror:
-		return fmt.Sprintf("mirror %s has no release for %s", e.API, e.Repo)
+		return fmt.Sprintf("mirror %s has no release for %s", redactURL(e.API), e.Repo)
 	}
 	return e.Repo + " has no published releases yet"
 }
@@ -126,6 +127,20 @@ func (e *ErrChecksum) Error() string {
 		return e.Asset + ": sha256 differs from the locked one; the release may have been replaced or tampered with, nothing was changed"
 	}
 	return e.Asset + ": checksum mismatch; the download may be corrupt or tampered with, nothing was changed"
+}
+
+// redactURL drops the user:password part, the query and the fragment of
+// raw, any of which can carry a token, so a URL taken from
+// RHYTHM_GITHUB_API can be shown in an error.
+func redactURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		// Without a host, url.Parse may keep "user:pass@..." as opaque
+		// text, so none of it is shown.
+		return "(unparsable URL)"
+	}
+	u.User, u.RawQuery, u.ForceQuery, u.Fragment, u.RawFragment = nil, "", false, "", ""
+	return strings.TrimSuffix(u.String(), "/")
 }
 
 // StatusError is an HTTP status other than 200. The typed errors above

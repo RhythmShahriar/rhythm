@@ -36,7 +36,11 @@ func rhythmBinary(t *testing.T) string {
 			return
 		}
 		builtBin = filepath.Join(dir, "rhythm")
-		out, err := exec.Command("go", "build", "-o", builtBin, ".").CombinedOutput()
+		// Build with the environment the tests started with: TestMain
+		// moves HOME and the config folders, which Go's caches follow.
+		build := exec.Command("go", "build", "-o", builtBin, ".")
+		build.Env = startEnv
+		out, err := build.CombinedOutput()
 		if err != nil {
 			buildErr = errors.New(string(out))
 		}
@@ -45,14 +49,6 @@ func rhythmBinary(t *testing.T) string {
 		t.Fatalf("building rhythm: %v", buildErr)
 	}
 	return builtBin
-}
-
-func TestMain(m *testing.M) {
-	code := m.Run()
-	if builtBin != "" {
-		os.RemoveAll(filepath.Dir(builtBin))
-	}
-	os.Exit(code)
 }
 
 // startRhythm runs the built router on `rhythm <tool>` with dir first on

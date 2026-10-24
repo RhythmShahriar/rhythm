@@ -136,6 +136,24 @@ func lookupTool(nameOrAlias string) (toolInfo, bool) {
 	return toolInfo{}, false
 }
 
+// toolRepo returns the repository of the tool with exactly this name
+// (not an alias); ok is false for any other name.
+func toolRepo(name string) (repo string, ok bool) {
+	for _, t := range registry {
+		if t.Name == name {
+			return t.Repo, true
+		}
+	}
+	return "", false
+}
+
+// repoOf returns the repository of a tool known to be in the registry,
+// or "" for any other name.
+func repoOf(name string) string {
+	repo, _ := toolRepo(name)
+	return repo
+}
+
 // toolNames returns every known tool name, sorted.
 func toolNames() []string {
 	names := make([]string, 0, len(registry))

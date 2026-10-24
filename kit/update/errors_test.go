@@ -200,3 +200,38 @@ func TestResetTime(t *testing.T) {
 		t.Errorf("two days out = %q", got)
 	}
 }
+
+// TestErrorsHideMirrorCredentials: a user:password, a ?token= or a
+// #fragment in the API base never shows in an error message.
+func TestErrorsHideMirrorCredentials(t *testing.T) {
+	for _, api := range []string{
+		"https://user:sekret@mirror.example",
+		"https://mirror.example?token=sekret",
+		"https://mirror.example#sekret",
+	} {
+		errs := []error{
+			&ErrNoRelease{Repo: "o/r", API: api},
+			&ErrNoRelease{Repo: "o/r", API: api, Version: "v1.2.3"},
+			&ErrRateLimited{API: api},
+			checkURL(strings.Replace(api, "https:", "http:", 1)),
+		}
+		// Without a scheme there is no host to show either.
+		if err := checkURL(strings.Replace(api, "https://", "", 1)); err == nil || strings.Contains(err.Error(), "sekret") {
+			t.Errorf("%s without a scheme: %v", api, err)
+		}
+		for _, err := range errs {
+			if err == nil {
+				t.Fatalf("%s: no error", api)
+			}
+			if msg := err.Error(); strings.Contains(msg, "sekret") || !strings.Contains(msg, "mirror.example") {
+				t.Errorf("%s: %q", api, msg)
+			}
+		}
+	}
+	if got := redactURL("://user:sekret@"); got != "(unparsable URL)" {
+		t.Errorf("unparsable: %q", got)
+	}
+	if err := checkURL("http://[::1"); err == nil || strings.Contains(err.Error(), "::1") {
+		t.Errorf("bad URL: %v", err)
+	}
+}

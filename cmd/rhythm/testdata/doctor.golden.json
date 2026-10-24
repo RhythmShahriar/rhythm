@@ -1,0 +1,40 @@
+{
+  "schema": "rhythm-doctor/v1",
+  "checks": [
+    {
+      "id": "path.rhythm",
+      "status": "ok",
+      "message": "rhythm runs from $SANDBOX/bin/rhythm"
+    },
+    {
+      "id": "path.rhythm-tuner",
+      "status": "ok",
+      "message": "rhythm-tuner runs from $SANDBOX/bin/rhythm-tuner"
+    },
+    {
+      "id": "install-dir",
+      "status": "ok",
+      "message": "$SANDBOX/bin is writable"
+    },
+    {
+      "id": "version.rhythm",
+      "status": "warn",
+      "message": "rhythm is a development build (dev); rhythm update leaves it alone"
+    },
+    {
+      "id": "update-check",
+      "status": "ok",
+      "message": "no update checks saved yet"
+    },
+    {
+      "id": "token",
+      "status": "ok",
+      "message": "token in use: GITHUB_TOKEN (value not shown); release API $API (from RHYTHM_GITHUB_API)"
+    },
+    {
+      "id": "api",
+      "status": "ok",
+      "message": "$HOST answers"
+    }
+  ]
+}

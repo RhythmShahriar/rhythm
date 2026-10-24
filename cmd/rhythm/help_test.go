@@ -63,6 +63,7 @@ Exit codes:
   1     findings (any other exit code from a tool also passes through)
   2     usage error or unknown tool
   3     tool not installed or can't start
+  10    rhythm update --check found an update
   130   interrupted
 `
 

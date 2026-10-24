@@ -111,14 +111,24 @@ func completeWords(words []string) []string {
 }
 
 // positionals completes the arguments of the commands that take a tool
-// or a shell. Only the first argument is completed; install and
-// uninstall accept several tools and get them all.
+// or a shell. Only the first argument is completed, except for the
+// commands in severalNames, which accept several tools and get them all.
 var positionals = map[string]func() []string{
 	"help":       func() []string { return suggestions() },
 	"install":    toolNames,
 	"uninstall":  toolNames,
-	"update":     toolNames,
+	"update":     updateNames,
 	"completion": func() []string { return shellNames },
+}
+
+// severalNames are the commands that take any number of names.
+var severalNames = map[string]bool{"install": true, "uninstall": true, "update": true}
+
+// updateNames is what rhythm update takes: rhythm itself, the tools and
+// the installed extensions.
+func updateNames() []string {
+	names := append([]string{selfName}, toolNames()...)
+	return append(names, extensionNames()...)
 }
 
 // completeCommand completes the words after one of rhythm's commands:
@@ -149,7 +159,7 @@ func completeCommand(c command, args []string) []string {
 			n++
 		}
 	}
-	if n > 0 && c.name != "install" && c.name != "uninstall" {
+	if n > 0 && !severalNames[c.name] {
 		return nil
 	}
 	return cli.FilterPrefix(values(), cur)
@@ -213,6 +223,24 @@ func isExtension(name string) bool {
 		return false
 	}
 	return slices.ContainsFunc(list, func(x lock.Extension) bool { return x.Name == name })
+}
+
+// extensionNames returns the names in the installed extensions list,
+// none when it can't be read.
+func extensionNames() []string {
+	store, err := lock.OpenExtensions()
+	if err != nil {
+		return nil
+	}
+	list, err := store.List()
+	if err != nil {
+		return nil
+	}
+	names := make([]string, len(list))
+	for i, x := range list {
+		names[i] = x.Name
+	}
+	return names
 }
 
 // answersComplete reports whether the tool at bin runs on kit/cli.Main

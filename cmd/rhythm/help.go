@@ -106,34 +106,13 @@ func suggestions() []string {
 
 // otherTools returns the names of rhythm-<name> programs on PATH that
 // rhythm doesn't know, sorted: third-party tools `rhythm <name>` will run.
-// Like exec.LookPath, it skips relative PATH entries.
+// Like exec.LookPath, it skips relative PATH entries (see thirdPartyTools).
 func otherTools() []string {
-	var names []string
-	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
-		if !filepath.IsAbs(dir) {
-			continue
-		}
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			continue
-		}
-		for _, e := range entries {
-			name, ok := strings.CutPrefix(e.Name(), "rhythm-")
-			if !ok {
-				continue
-			}
-			if name, ok = trimExecExt(name); !ok || !validToolName(name) {
-				continue
-			}
-			if _, known := lookupTool(name); known || slices.Contains(names, name) {
-				continue
-			}
-			if isExecutable(filepath.Join(dir, e.Name())) {
-				names = append(names, name)
-			}
-		}
+	found := thirdPartyTools()
+	names := make([]string, len(found))
+	for i, tp := range found {
+		names[i] = tp.name
 	}
-	slices.Sort(names)
 	return names
 }
 
@@ -218,6 +197,7 @@ Exit codes:
   1     findings (any other exit code from a tool also passes through)
   2     usage error or unknown tool
   3     tool not installed or can't start
+  10    rhythm update --check found an update
   130   interrupted
 `)
 }

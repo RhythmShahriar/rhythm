@@ -39,7 +39,8 @@ func (u *Updater) apiBase() string {
 func checkURL(raw string) error {
 	p, err := url.Parse(raw)
 	if err != nil {
-		return err
+		// url.Parse quotes the whole URL, credentials included.
+		return fmt.Errorf("not a valid URL: %s", redactURL(raw))
 	}
 	switch {
 	case p.Scheme == "https" && p.Host != "":
@@ -47,9 +48,9 @@ func checkURL(raw string) error {
 	case p.Scheme == "http" && isLoopback(p.Hostname()):
 		return nil
 	case p.Scheme == "":
-		return fmt.Errorf("not an https URL: %s", raw)
+		return fmt.Errorf("not an https URL: %s", redactURL(raw))
 	}
-	return fmt.Errorf("refusing to download over %s: %s", p.Scheme, raw)
+	return fmt.Errorf("refusing to download over %s: %s", p.Scheme, redactURL(raw))
 }
 
 func isLoopback(host string) bool {
