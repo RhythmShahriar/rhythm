@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/RhythmShahriar/rhythm/kit/config"
 	"github.com/RhythmShahriar/rhythm/kit/update"
@@ -26,6 +27,9 @@ Name tools, or rhythm itself, to update only those.
 --lock updates rhythm.lock instead of the installed binaries: it looks up
 the latest release of everything the lock pins, prints what changed and
 rewrites the lock. With --check it only prints the changes.
+
+--min-age (or RHYTHM_MIN_RELEASE_AGE) passes over releases younger than
+the age given, such as 3d, 1w or 36h, for rhythm and the tools alike.
 
 Exit status: 0 when everything worked, 1 when anything failed, 2 for a
 usage error and 130 when interrupted. With --check: 0 when everything is
@@ -48,9 +52,14 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 	noData := flags.Bool("no-data", false, "skip refreshing the tools' data")
 	quiet := flags.Bool("quiet", false, "print only updates, problems and the tools' own output")
 	toLock := flags.Bool("lock", false, "update rhythm.lock to the latest releases instead of the binaries")
+	ageFlag := flags.String("min-age", "", "skip releases younger than `age`, such as 3d or 1w (default $"+minAgeEnv+")")
 	names, code, ok := parseArgs(flags, args, stdout, stderr)
 	if !ok {
 		return code
+	}
+	age, ok := readMinAge(*ageFlag, stderr)
+	if !ok {
+		return exitUsage
 	}
 	switch {
 	case *asJSON && !*checkOnly:
@@ -67,7 +76,7 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 	if *toLock {
-		return updateLock(want, *checkOnly, stdout, stderr)
+		return updateLock(want, *checkOnly, age, stdout, stderr)
 	}
 	// With --json, stdout carries the JSON alone; the lines people read
 	// move to stderr.
@@ -124,14 +133,34 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 			continue
 		}
 		u := updater(t.repo, t.binary, t.current)
-		rel, err := u.Latest(ctx)
-		if err != nil {
+		rel, err := resolveSpec(ctx, u, "", age.d)
+		var tooNew *tooNewError
+		switch {
+		case errors.As(err, &tooNew):
+			// Nothing is old enough yet: the cooldown doing its job.
+			res.SkippedNewer = newSkippedJSON(&tooNew.skippedRelease)
+			fmt.Fprintln(human, age.skipNote(t.binary, &tooNew.skippedRelease, "staying on "+t.current))
+			rep.upToDate++
+			continue
+		case err != nil:
 			rep.fail(ctx, stderr, t.binary, err)
 			res.Error = describe(err)
 			continue
 		}
 		res.Latest = rel.Version
-		if !update.Newer(t.current, rel.Version) {
+		newer := update.Newer(t.current, rel.Version)
+		if s := rel.skippedNewer; s != nil {
+			res.SkippedNewer = newSkippedJSON(s)
+			then := "staying on " + t.current
+			switch {
+			case newer && *checkOnly:
+				then = rel.Version + " is the newest old enough"
+			case newer:
+				then = "updating to " + rel.Version
+			}
+			fmt.Fprintln(human, age.skipNote(t.binary, s, then))
+		}
+		if !newer {
 			if !*quiet {
 				fmt.Fprintf(human, "%-18s %s (up to date)\n", t.binary, t.current)
 			}
@@ -144,7 +173,7 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 			rep.updated++
 			continue
 		}
-		if err := installWithProgress(ctx, u, rel, t.real, progress); err != nil {
+		if err := installWithProgress(ctx, u, rel.Release, t.real, progress); err != nil {
 			rep.fail(ctx, stderr, t.binary, err)
 			continue
 		}
@@ -208,6 +237,23 @@ type updateTarget struct {
 	Signed    string `json:"signed"`     // "yes", "no" or "" when not checked
 	ManagedBy string `json:"managed_by"` // e.g. Homebrew, or ""
 	Error     string `json:"error"`
+	// SkippedNewer is a newer release passed over for being younger than
+	// --min-age; null when none was.
+	SkippedNewer *skippedJSON `json:"skipped_newer"`
+}
+
+// skippedJSON is the skipped_newer field of the rhythm-update/v1 report.
+type skippedJSON struct {
+	Version   string `json:"version"`
+	Published string `json:"published"` // RFC 3339; "" when the API didn't say
+}
+
+func newSkippedJSON(s *skippedRelease) *skippedJSON {
+	j := &skippedJSON{Version: s.version}
+	if !s.published.IsZero() {
+		j.Published = s.published.UTC().Format(time.RFC3339)
+	}
+	return j
 }
 
 // signedJSON is the signed field of the JSON reports: "" until signature
@@ -333,7 +379,7 @@ func updateScope(names []string, selfOnly bool, stderr io.Writer) (map[string]bo
 // pins (or those in want) to its latest release, prints the changes and,
 // unless checkOnly, rewrites the lock. Data pins are kept; rhythm lock
 // records new ones after an update.
-func updateLock(want map[string]bool, checkOnly bool, stdout, stderr io.Writer) int {
+func updateLock(want map[string]bool, checkOnly bool, age minAge, stdout, stderr io.Writer) int {
 	path, err := findLock(".")
 	if errors.Is(err, errNoLock) {
 		fmt.Fprintf(stderr, "rhythm: no %s in this folder or its parents up to the repository root; write one with: rhythm lock\n", lockFileName)
@@ -375,12 +421,26 @@ func updateLock(want map[string]bool, checkOnly bool, stdout, stderr io.Writer) 
 			continue
 		}
 		u := updater(e.Repo, binary, e.Version)
-		rel, err := resolveSpec(ctx, u, "", 0)
-		if err != nil {
+		rel, err := resolveSpec(ctx, u, "", age.d)
+		var tooNew *tooNewError
+		switch {
+		case errors.As(err, &tooNew):
+			fmt.Fprintln(stderr, age.skipNote(binary, &tooNew.skippedRelease, "keeping "+e.Version))
+			rep.upToDate++
+			continue
+		case err != nil:
 			rep.fail(ctx, stderr, binary, err)
 			continue
 		}
-		if !update.Newer(e.Version, rel.Version) {
+		newer := update.Newer(e.Version, rel.Version)
+		if s := rel.skippedNewer; s != nil {
+			then := "keeping " + e.Version
+			if newer {
+				then = "locking " + rel.Version
+			}
+			fmt.Fprintln(stderr, age.skipNote(binary, s, then))
+		}
+		if !newer {
 			rep.upToDate++
 			continue
 		}

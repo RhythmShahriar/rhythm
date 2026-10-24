@@ -835,3 +835,128 @@ func TestUpdateFailureHasNoAnnouncement(t *testing.T) {
 		t.Errorf("exit %d\n%s", code, out)
 	}
 }
+
+// cooldownSandbox serves Tuner 0.3.3 (a day old) and 0.3.2 (ten days)
+// with installed tools at the given versions.
+func cooldownSandbox(t *testing.T, installed map[string]string) *sandbox {
+	t.Helper()
+	s := newSandbox(t, installed, nil)
+	newReleaseAPI(t, s, map[string][]fakeRel{
+		tools["tuner"]: {{version: "0.3.3", age: 24*time.Hour + time.Minute}, {version: "0.3.2", age: 10 * 24 * time.Hour}},
+		selfRepo:       {{version: "0.8.0", age: 2 * 24 * time.Hour}, {version: "0.7.0", age: 30 * 24 * time.Hour}},
+	})
+	t.Setenv(minAgeEnv, "")
+	return s
+}
+
+func TestUpdateMinAgeStays(t *testing.T) {
+	s := cooldownSandbox(t, map[string]string{"rhythm-tuner": "0.3.2"})
+	before := s.content("rhythm-tuner")
+	code, out, errs := runCmd("update", "tuner", "--min-age", "3d", "--no-data")
+	if code != 0 || !strings.Contains(out, "rhythm-tuner 0.3.3 is 1 day old; staying on 0.3.2 (min age 3d)\n") {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	if s.content("rhythm-tuner") != before {
+		t.Error("the binary was replaced")
+	}
+}
+
+func TestUpdateMinAgeTakesTheOlderRelease(t *testing.T) {
+	s := cooldownSandbox(t, map[string]string{"rhythm-tuner": "0.3.1"})
+	t.Setenv(minAgeEnv, "3d") // the default when --min-age isn't given
+	code, out, errs := runCmd("update", "tuner", "--no-data")
+	if code != 0 || !strings.Contains(out, "rhythm-tuner 0.3.3 is 1 day old; updating to 0.3.2 (min age 3d)\nrhythm-tuner       0.3.1 → 0.3.2 ✔") {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	if !strings.Contains(s.content("rhythm-tuner"), "rhythm-tuner 0.3.2") {
+		t.Error("0.3.2 wasn't installed")
+	}
+	// The flag wins over the environment; 0 turns the cooldown off.
+	code, out, errs = runCmd("update", "tuner", "--no-data", "--min-age", "0")
+	if code != 0 || !strings.Contains(out, "0.3.2 → 0.3.3 ✔") {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+}
+
+func TestUpdateMinAgeAppliesToRhythm(t *testing.T) {
+	s := cooldownSandbox(t, nil)
+	fakeSelf(t, s.stub(t, "rhythm", "0.7.0", ""), "0.7.0")
+	code, out, errs := runCmd("update", "--self-only", "--min-age", "1w")
+	if code != 0 || !strings.Contains(out, "rhythm 0.8.0 is 2 days old; staying on 0.7.0 (min age 1w)\n") {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+}
+
+func TestUpdateMinAgeJSON(t *testing.T) {
+	cooldownSandbox(t, map[string]string{"rhythm-tuner": "0.3.1"})
+	code, out, errs := runCmd("update", "tuner", "--check", "--json", "--min-age", "3d")
+	if code != exitOutdated {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	var rep updateReportJSON
+	decodeStrict(t, out, &rep, "targets")
+	got := rep.Targets[0]
+	if got.Latest != "0.3.2" || got.SkippedNewer == nil || got.SkippedNewer.Version != "0.3.3" || got.SkippedNewer.Published == "" {
+		t.Errorf("got %+v %+v", got, got.SkippedNewer)
+	}
+	if !strings.Contains(errs, "rhythm-tuner 0.3.3 is 1 day old; 0.3.2 is the newest old enough (min age 3d)") {
+		t.Errorf("stderr:\n%s", errs)
+	}
+}
+
+func TestInstallMinAge(t *testing.T) {
+	s := cooldownSandbox(t, nil)
+	code, out, errs := runCmd("install", "tuner", "--dir", s.bin, "--min-age", "3d")
+	if code != 0 || !strings.Contains(out, "rhythm-tuner 0.3.3 is 1 day old; installing 0.3.2 (min age 3d)\nInstalled rhythm-tuner 0.3.2") {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	// An exact version is the user's call; the cooldown doesn't apply.
+	code, out, errs = runCmd("install", "tuner@0.3.3", "--dir", s.bin, "--min-age", "3d")
+	if code != 0 || !strings.Contains(out, "Installed rhythm-tuner 0.3.3") {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	// Nothing old enough.
+	code, _, errs = runCmd("install", "tuner", "--dir", t.TempDir(), "--min-age", "2w")
+	if code != 1 || !strings.Contains(errs, "no release of RhythmShahriar/tuner is old enough: the newest, 0.3.3, is 1 day old (min age 2 weeks)") {
+		t.Errorf("exit %d\n%s", code, errs)
+	}
+}
+
+func TestMinAgeInvalid(t *testing.T) {
+	cooldownSandbox(t, nil)
+	for _, args := range [][]string{{"update", "--min-age", "3"}, {"install", "tuner", "--min-age", "soon"}} {
+		code, _, errs := runCmd(args...)
+		if code != exitUsage || !strings.Contains(errs, "rhythm: --min-age: invalid age") || !strings.Contains(errs, "; use a duration such as 3d, 1w or 36h") {
+			t.Errorf("%v: exit %d\n%s", args, code, errs)
+		}
+	}
+	t.Setenv(minAgeEnv, "-1d")
+	code, _, errs := runCmd("update")
+	if code != exitUsage || !strings.Contains(errs, `rhythm: RHYTHM_MIN_RELEASE_AGE: invalid age "-1d"; use a duration such as 3d, 1w or 36h`) {
+		t.Errorf("exit %d\n%s", code, errs)
+	}
+}
+
+func TestParseAndFormatAge(t *testing.T) {
+	const day = 24 * time.Hour
+	for in, want := range map[string]time.Duration{
+		"3d": 3 * day, "1w": 7 * day, "36h": 36 * time.Hour, "1w2d": 9 * day, "1.5d": 36 * time.Hour, "90m": 90 * time.Minute, "0": 0, "1h30m": 90 * time.Minute,
+	} {
+		if got, err := parseAge(in); err != nil || got != want {
+			t.Errorf("parseAge(%q) = %v, %v; want %v", in, got, err, want)
+		}
+	}
+	for _, in := range []string{"", "3", "-1d", "3y", "d", "1d-", "99999999999w"} {
+		if _, err := parseAge(in); err == nil {
+			t.Errorf("parseAge(%q) worked", in)
+		}
+	}
+	for d, want := range map[time.Duration]string{
+		time.Minute: "less than an hour", time.Hour: "1 hour", 5 * time.Hour: "5 hours", day + time.Minute: "1 day",
+		36 * time.Hour: "36 hours", 3 * day: "3 days", 7 * day: "1 week", 14 * day: "2 weeks", 10 * day: "10 days",
+	} {
+		if got := formatAge(d); got != want {
+			t.Errorf("formatAge(%v) = %q, want %q", d, got, want)
+		}
+	}
+}

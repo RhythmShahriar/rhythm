@@ -9,7 +9,8 @@
       "outdated": false,
       "signed": "",
       "managed_by": "",
-      "error": ""
+      "error": "",
+      "skipped_newer": null
     },
     {
       "name": "rhythm-tuner",
@@ -19,7 +20,8 @@
       "outdated": true,
       "signed": "",
       "managed_by": "",
-      "error": ""
+      "error": "",
+      "skipped_newer": null
     }
   ]
 }

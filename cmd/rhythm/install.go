@@ -361,7 +361,8 @@ Separate names with spaces or commas; "none" installs nothing. A tool
 that fails doesn't stop the others.
 
 Pin a version with tool@version: tuner@0.3.1 installs exactly 0.3.1 and
-tuner@0.3 the newest 0.3.x. --locked installs the versions rhythm.lock
+tuner@0.3 the newest 0.3.x. --min-age (or RHYTHM_MIN_RELEASE_AGE) passes
+over releases younger than the age given, except a version named exactly. --locked installs the versions rhythm.lock
 pins (see rhythm lock), checking each archive against its locked sha256;
 it installs nothing unless every tool matches.
 
@@ -375,6 +376,7 @@ type installOptions struct {
 	quiet    bool
 	force    bool      // reinstall a binary already on the latest release
 	progress io.Writer // where the download progress line goes; nil for none
+	minAge   minAge    // skip releases younger than this, except exact versions
 }
 
 // installItem is one tool to install: its registry name, the version
@@ -401,9 +403,14 @@ func cmdInstall(args []string, stdout, stderr io.Writer) int {
 	defaults := flags.Bool("defaults", false, "also install the tools a fresh setup gets")
 	force := flags.Bool("force", false, "reinstall tools that are already on the latest release")
 	locked := flags.Bool("locked", false, "install the versions in rhythm.lock")
+	ageFlag := flags.String("min-age", "", "skip releases younger than `age`, such as 3d or 1w (default $"+minAgeEnv+")")
 	pos, code, ok := parseArgs(flags, args, stdout, stderr)
 	if !ok {
 		return code
+	}
+	age, ok := readMinAge(*ageFlag, stderr)
+	if !ok {
+		return exitUsage
 	}
 	// Every name is checked before anything is downloaded, so a typo in
 	// the third name doesn't leave the first two installed.
@@ -455,7 +462,7 @@ func cmdInstall(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "rhythm:", err)
 		return 1
 	}
-	opt := installOptions{dir: abs, quiet: *quiet, force: *force}
+	opt := installOptions{dir: abs, quiet: *quiet, force: *force, minAge: age}
 	if !*quiet && isTerminal(stderr) {
 		opt.progress = stderr
 	}
@@ -662,8 +669,11 @@ func installTool(ctx context.Context, it installItem, opt installOptions, stdout
 	rel := it.rel
 	if rel == nil {
 		var err error
-		if rel, err = resolveSpec(ctx, u, it.spec, 0); err != nil {
+		if rel, err = resolveSpec(ctx, u, it.spec, opt.minAge.d); err != nil {
 			return installResult{}, err
+		}
+		if rel.skippedNewer != nil {
+			fmt.Fprintln(stdout, opt.minAge.skipNote(binary, rel.skippedNewer, "installing "+rel.Version))
 		}
 	}
 	if !opt.force && current == rel.Version {
@@ -991,17 +1001,20 @@ func resolveSpec(ctx context.Context, u *update.Updater, spec string, minAge tim
 		}
 	}
 	n := candidates[0]
-	return nil, &tooNewError{repo: u.Repo, newest: n.Version, age: now.Sub(n.published), minAge: minAge}
+	return nil, &tooNewError{repo: u.Repo, minAge: minAge,
+		skippedRelease: skippedRelease{version: n.Version, published: n.published, age: now.Sub(n.published)}}
 }
 
-// tooNewError says no release is old enough for the cooldown.
+// tooNewError says no release is old enough for the cooldown. It
+// carries the newest release.
 type tooNewError struct {
-	repo, newest string
-	age, minAge  time.Duration
+	skippedRelease
+	repo   string
+	minAge time.Duration
 }
 
 func (e *tooNewError) Error() string {
-	return fmt.Sprintf("no release of %s is old enough: the newest, %s, is %s old (min age %s)", e.repo, e.newest, formatAge(e.age), formatAge(e.minAge))
+	return fmt.Sprintf("no release of %s is old enough: the newest, %s, is %s old (min age %s)", e.repo, e.version, formatAge(e.age), formatAge(e.minAge))
 }
 
 // ghRelease is the part of a GitHub release rhythm reads.
@@ -1143,6 +1156,42 @@ func checkLocked(ctx context.Context, u *update.Updater, rel *update.Release, wa
 	return nil
 }
 
+// ageUnit matches one number-and-unit step of an age such as 1w2d.
+var ageUnit = regexp.MustCompile(`^(\d+(?:\.\d+)?)(ns|us|µs|ms|s|m|h|d|w)`)
+
+// parseAge reads a release age: Go durations plus d (days) and w
+// (weeks), combinable and fractional, such as 3d, 1w, 36h, 1w2d or 1.5d.
+// "0" means no minimum.
+func parseAge(s string) (time.Duration, error) {
+	bad := fmt.Errorf("invalid age %q; use a duration such as 3d, 1w or 36h", s)
+	if s == "0" {
+		return 0, nil
+	}
+	unit := map[string]float64{
+		"ns": float64(time.Nanosecond), "us": float64(time.Microsecond), "µs": float64(time.Microsecond),
+		"ms": float64(time.Millisecond), "s": float64(time.Second), "m": float64(time.Minute),
+		"h": float64(time.Hour), "d": float64(24 * time.Hour), "w": float64(7 * 24 * time.Hour),
+	}
+	var total float64
+	rest := s
+	for rest != "" {
+		m := ageUnit.FindStringSubmatch(rest)
+		if m == nil {
+			return 0, bad
+		}
+		n, err := strconv.ParseFloat(m[1], 64)
+		if err != nil {
+			return 0, bad
+		}
+		total += n * unit[m[2]]
+		rest = rest[len(m[0]):]
+	}
+	if s == "" || total >= float64(1<<63-1) {
+		return 0, bad
+	}
+	return time.Duration(total), nil
+}
+
 // formatAge words d for people: "less than an hour", "5 hours",
 // "36 hours", "3 days", "2 weeks" or "10 days".
 func formatAge(d time.Duration) string {
@@ -1163,4 +1212,39 @@ func formatAge(d time.Duration) string {
 		return plural(int64(d/(7*day)), "week")
 	}
 	return plural(int64(d/day), "day")
+}
+
+// minAgeEnv names the default for --min-age.
+const minAgeEnv = "RHYTHM_MIN_RELEASE_AGE"
+
+// minAge is the release cooldown of one run: the value of --min-age, or
+// of RHYTHM_MIN_RELEASE_AGE when the flag isn't given.
+type minAge struct {
+	d    time.Duration
+	text string // as the user wrote it, for the messages
+}
+
+// readMinAge parses the flag value (empty when not given) or the
+// environment default. ok is false after a bad value, already reported.
+func readMinAge(flagValue string, stderr io.Writer) (minAge, bool) {
+	text, from := flagValue, "--min-age"
+	if text == "" {
+		text, from = strings.TrimSpace(os.Getenv(minAgeEnv)), minAgeEnv
+	}
+	if text == "" {
+		return minAge{}, true
+	}
+	d, err := parseAge(text)
+	if err != nil {
+		fmt.Fprintf(stderr, "rhythm: %s: %v\n", from, err)
+		return minAge{}, false
+	}
+	return minAge{d: d, text: text}, true
+}
+
+// skipNote says why a newer release wasn't taken, e.g. "rhythm-tuner
+// 0.3.3 is 1 day old; staying on 0.3.2 (min age 3d)". then is what
+// happens instead: "staying on 0.3.2" or "installing 0.3.2".
+func (m minAge) skipNote(binary string, s *skippedRelease, then string) string {
+	return fmt.Sprintf("%s %s is %s old; %s (min age %s)", binary, s.version, formatAge(s.age), then, m.text)
 }

@@ -691,3 +691,22 @@ func TestPlatformsOf(t *testing.T) {
 		t.Errorf("got %v", got)
 	}
 }
+
+func TestUpdateLockMinAge(t *testing.T) {
+	s, _ := pinSandbox(t)
+	t.Setenv(minAgeEnv, "")
+	s.stub(t, "rhythm-tuner", "0.3.1", "")
+	writeLock(t)
+	code, out, errs := runCmd("update", "--lock", "--check", "--min-age", "3d")
+	if code != 0 || !strings.HasSuffix(out, "rhythm.lock is current\n") {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	for _, want := range []string{
+		"rhythm 0.8.0 is 2 days old; keeping 0.7.0 (min age 3d)",
+		"rhythm-tuner 0.4.0 is 1 day old; keeping 0.3.1 (min age 3d)",
+	} {
+		if !strings.Contains(errs, want) {
+			t.Errorf("stderr lacks %q:\n%s", want, errs)
+		}
+	}
+}
