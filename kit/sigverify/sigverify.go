@@ -25,7 +25,8 @@
 // The trusted root is embedded at build time (go generate refreshes it).
 // Unless Options.Offline is set, the first verification refreshes it
 // through Sigstore's TUF repository into the rhythm cache and falls back to
-// the embedded copy when that fails.
+// the embedded copy when that fails. Verifier.RootSource and
+// Options.OnFallback tell the caller which root was used.
 //
 // Verifier satisfies kit/update.Verifier without importing it.
 package sigverify
@@ -39,6 +40,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/sigstore/sigstore-go/pkg/fulcio/certificate"
 	"github.com/sigstore/sigstore-go/pkg/root"
@@ -55,6 +57,17 @@ const (
 	Workflow = "https://github.com/RhythmShahriar/.github/.github/workflows/release-go.yml"
 	// MasterRef is the workflow ref that is always accepted.
 	MasterRef = "refs/heads/master"
+)
+
+// Where a Verifier's trusted root came from, as RootSource reports it.
+const (
+	// RootTUF means the root was refreshed through Sigstore's TUF
+	// repository (or read from its cache), so it carries any key rotation
+	// or revocation published since this build.
+	RootTUF = "tuf"
+	// RootEmbedded means the root compiled into this binary was used,
+	// because Options.Offline was set or the TUF refresh failed.
+	RootEmbedded = "embedded"
 )
 
 // Options configures a Verifier. The zero value verifies against the
@@ -74,6 +87,13 @@ type Options struct {
 	// HTTPClient fetches TUF metadata. Nil means a client with a short
 	// timeout, so a slow network delays an install by seconds, not minutes.
 	HTTPClient *http.Client
+	// OnFallback, when set, is called once with the reason the TUF refresh
+	// failed, just before the embedded root is used instead. The fallback
+	// is otherwise silent, and someone who blocks the TUF CDN keeps a
+	// client on the embedded root, which can't learn of key rotation or
+	// revocation, so callers can use it to say "using the built-in
+	// Sigstore root". It is not called when Offline is set.
+	OnFallback func(err error)
 }
 
 // Verifier checks release signatures. It is safe for concurrent use.
@@ -83,7 +103,8 @@ type Verifier struct {
 
 	once     sync.Once
 	material root.TrustedMaterial // set by tests to skip loading a root
-	rootFrom string               // "tuf" or "embedded", for tests
+	rootFrom string               // RootTUF or RootEmbedded, read through RootSource
+	loaded   atomic.Bool          // set once rootFrom is written
 	scts     int                  // SCTs required; tests lower it for a test CA without a CT log
 	sv       *verify.Verifier
 	err      error
@@ -156,6 +177,16 @@ func (v *Verifier) verifyEntity(ctx context.Context, entity verify.SignedEntity,
 	return res.Signature.Certificate.SubjectAlternativeName, nil
 }
 
+// RootSource reports where the trusted root came from: RootTUF or
+// RootEmbedded. It is empty until the first VerifyChecksums call has loaded
+// the root, and stays empty when a test or caller never needed one.
+func (v *Verifier) RootSource() string {
+	if !v.loaded.Load() {
+		return ""
+	}
+	return v.rootFrom
+}
+
 // identity is the certificate policy for one release of one repository.
 func (v *Verifier) identity(repo, version string) (verify.CertificateIdentity, error) {
 	san, err := verify.NewSANMatcher("", v.san.String())
@@ -180,6 +211,7 @@ func (v *Verifier) verifier(ctx context.Context) (*verify.Verifier, error) {
 	v.once.Do(func() {
 		if v.material == nil {
 			v.material, v.rootFrom, v.err = loadRoot(ctx, v.opts)
+			v.loaded.Store(true)
 			if v.err != nil {
 				return
 			}

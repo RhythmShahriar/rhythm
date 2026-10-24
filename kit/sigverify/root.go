@@ -30,15 +30,20 @@ const tufTimeout = 10 * time.Second
 // the TUF repository, which reuses metadata cached in the last day; any
 // failure there (offline, blocked, mirror down) falls back to the embedded
 // root, because a release signed today chains to keys that root already
-// holds and refusing every install would be worse.
+// holds and refusing every install would be worse. Options.OnFallback
+// hears about that fallback so it is never invisible to the caller.
 func loadRoot(ctx context.Context, opts Options) (root.TrustedMaterial, string, error) {
 	if !opts.Offline {
-		if tr, err := fetchRoot(ctx, opts); err == nil {
-			return tr, "tuf", nil
+		tr, err := fetchRoot(ctx, opts)
+		if err == nil {
+			return tr, RootTUF, nil
+		}
+		if opts.OnFallback != nil {
+			opts.OnFallback(err)
 		}
 	}
 	tr, err := root.NewTrustedRootFromJSON(embeddedRoot)
-	return tr, "embedded", err
+	return tr, RootEmbedded, err
 }
 
 func fetchRoot(ctx context.Context, opts Options) (*root.TrustedRoot, error) {

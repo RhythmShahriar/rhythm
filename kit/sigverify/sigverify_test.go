@@ -62,7 +62,12 @@ func offline(t *testing.T, opts Options) *Verifier {
 
 func TestRealBundleVerifies(t *testing.T) {
 	sums, b := fixtures(t)
-	v := offline(t, Options{})
+	v := offline(t, Options{OnFallback: func(err error) {
+		t.Errorf("OnFallback(%v) called with Offline set", err)
+	}})
+	if got := v.RootSource(); got != "" {
+		t.Errorf("RootSource before the first verify = %q, want empty", got)
+	}
 	for _, version := range []string{fixVersion, "v" + fixVersion} {
 		signer, err := v.VerifyChecksums(context.Background(), fixRepo, version, sums, b)
 		if err != nil {
@@ -72,8 +77,8 @@ func TestRealBundleVerifies(t *testing.T) {
 			t.Errorf("signer = %q, want %q", signer, fixSigner)
 		}
 	}
-	if v.rootFrom != "embedded" {
-		t.Errorf("root from %q, want embedded", v.rootFrom)
+	if got := v.RootSource(); got != RootEmbedded {
+		t.Errorf("RootSource = %q, want %q", got, RootEmbedded)
 	}
 }
 
@@ -280,15 +285,25 @@ func TestTUFFallback(t *testing.T) {
 	t.Cleanup(func() { _ = srv.Close() })
 
 	cache := filepath.Join(t.TempDir(), "tuf")
-	v, err := New(Options{Mirror: "http://127.0.0.1:20040", CacheDir: cache})
+	var fallbacks []error
+	v, err := New(Options{
+		Mirror:     "http://127.0.0.1:20040",
+		CacheDir:   cache,
+		OnFallback: func(err error) { fallbacks = append(fallbacks, err) },
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := v.VerifyChecksums(context.Background(), fixRepo, fixVersion, sums, b); err != nil {
-		t.Fatal(err)
+	for range 2 {
+		if _, err := v.VerifyChecksums(context.Background(), fixRepo, fixVersion, sums, b); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if v.rootFrom != "embedded" {
-		t.Errorf("root from %q, want embedded", v.rootFrom)
+	if got := v.RootSource(); got != RootEmbedded {
+		t.Errorf("RootSource = %q, want %q", got, RootEmbedded)
+	}
+	if len(fallbacks) != 1 || fallbacks[0] == nil {
+		t.Errorf("OnFallback calls = %v, want one with the TUF error", fallbacks)
 	}
 	if hits.Load() == 0 {
 		t.Error("the mirror was never asked")
@@ -297,7 +312,7 @@ func TestTUFFallback(t *testing.T) {
 
 func TestEmbeddedRootParses(t *testing.T) {
 	tm, from, err := loadRoot(context.Background(), Options{Offline: true})
-	if err != nil || from != "embedded" {
+	if err != nil || from != RootEmbedded {
 		t.Fatalf("from %q, err %v", from, err)
 	}
 	if len(tm.FulcioCertificateAuthorities()) == 0 || len(tm.RekorLogs()) == 0 {
