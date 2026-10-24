@@ -146,7 +146,7 @@ case_proto() {
 	grep -qF -- "--proto =https --tlsv1.2" "$cdir/curl.log" || fail "curl ran without --proto =https --tlsv1.2"
 	grep -qF -- "https://api.github.com/repos/RhythmShahriar/rhythm/releases/latest" "$cdir/curl.log" ||
 		fail "the default API isn't api.github.com"
-	expect_out "couldn't fetch the release from GitHub (https://api.github.com/"
+	expect_out "couldn't reach api.github.com"
 }
 
 case_http_refused() {
@@ -168,7 +168,54 @@ case_http_download_refused() {
 	expect_no_file rhythm
 }
 
-cases=${*:-default some truncated proto http_refused http_download_refused}
+case_github_token() {
+	# api.github.com gets GITHUB_TOKEN, on curl's stdin and not its argv.
+	path=$work/fakebin:/usr/bin:/bin
+	install RHYTHM_GITHUB_API= GITHUB_TOKEN=gh-test-secret
+	path=
+	expect_code 1
+	grep -qx 'header = "Authorization: Bearer gh-test-secret"' "$cdir/curl.log" ||
+		fail "GITHUB_TOKEN wasn't sent to api.github.com"
+	! grep -F -- "-K -" "$cdir/curl.log" | grep -qF gh-test-secret || fail "the token is in curl's argv"
+	expect_no_out gh-test-secret
+
+	# A mirror never sees GITHUB_TOKEN.
+	: >"$work/requests.log"
+	install GITHUB_TOKEN=gh-test-secret RHYTHM_TOOLS=
+	expect_code 0
+	requests | grep -q 'releases/latest auth=-$' || fail "the mirror wasn't asked for the release"
+	! requests | grep -qF gh-test-secret || fail "GITHUB_TOKEN reached the mirror"
+}
+
+case_rhythm_token() {
+	: >"$work/requests.log"
+	install GITHUB_TOKEN=gh-test-secret RHYTHM_GITHUB_TOKEN=mirror-test-secret RHYTHM_TOOLS=
+	expect_code 0
+	requests | grep -q 'releases/latest auth=Bearer mirror-test-secret$' ||
+		fail "RHYTHM_GITHUB_TOKEN wasn't sent to the mirror"
+	! requests | grep -qF gh-test-secret || fail "GITHUB_TOKEN reached the mirror"
+	! requests | grep '/dl/' | grep -qF mirror-test-secret || fail "the token went to a download"
+	expect_no_out mirror-test-secret
+
+	install RHYTHM_GITHUB_TOKEN='bad"token' RHYTHM_TOOLS=
+	expect_code 1
+	expect_out "the GitHub token has a character curl can't send in a header"
+}
+
+case_rate_limit() {
+	for status in 403 429; do
+		install RHYTHM_GITHUB_API="$base/status/$status"
+		expect_code 1
+		expect_out "rhythm install: GitHub rate limit reached; set GITHUB_TOKEN"
+		expect_no_out "curl:"
+	done
+	install RHYTHM_GITHUB_API="$base/status/500"
+	expect_code 1
+	expect_out "couldn't fetch the release from GitHub ($base/status/500/repos/RhythmShahriar/rhythm/releases/latest): HTTP 500"
+}
+
+cases=${*:-default some truncated proto http_refused http_download_refused github_token
+rhythm_token rate_limit}
 script='' path=''
 for case in $cases; do
 	cdir=$work/cases/$case

@@ -46,6 +46,9 @@ This installs `rhythm`, Tuner, Soundcheck and Echo to `~/.local/bin` (`/usr/loca
 | `RHYTHM_INSTALL_DIR` | install somewhere else |
 | `RHYTHM_VERSION` | install a specific version, e.g. `0.1.0` |
 | `RHYTHM_TOOLS` | tools to install alongside (default `tuner soundcheck echo`; empty for none) |
+| `GITHUB_TOKEN` | sent to `api.github.com` only, to lift GitHub's limit of 60 anonymous requests an hour (shared CI runners hit it) |
+| `RHYTHM_GITHUB_API` | a GitHub API mirror; it must be `https` (plain `http` only for `127.0.0.1`, `::1` and `localhost`) |
+| `RHYTHM_GITHUB_TOKEN` | a token for that mirror; sent to the `RHYTHM_GITHUB_API` host and used instead of `GITHUB_TOKEN` |
 
 ```sh
 curl -fsSL https://rythm.sh/install | RHYTHM_INSTALL_DIR=/opt/bin RHYTHM_TOOLS="" sh
@@ -107,6 +110,7 @@ On macOS the last two live at `~/Library/Caches/rhythm` and `~/Library/Applicati
 make hooks   # Conventional Commits check
 make check   # lint + tests
 sh scripts/test/run.sh          # install.sh against a fake GitHub API on 127.0.0.1
+pwsh scripts/test/run.ps1       # install.ps1 the same way (needs go and python3)
 ```
 
 `kit/` is the shared base every tool imports: theme, config and self-update.

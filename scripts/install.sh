@@ -11,6 +11,8 @@
 #   RHYTHM_TOOLS         tools to install as well (default "tuner soundcheck echo"; set empty for none)
 #   RHYTHM_GITHUB_API    GitHub API base, for mirrors (default https://api.github.com).
 #                        It must be https; plain http is accepted only for 127.0.0.1, ::1 and localhost.
+#   GITHUB_TOKEN         sent to api.github.com only, to lift the anonymous rate limit
+#   RHYTHM_GITHUB_TOKEN  sent to the RHYTHM_GITHUB_API host, whatever it is; wins over GITHUB_TOKEN
 #
 # Everything, helpers included, is inside main, called on the last line, so a
 # download cut off halfway through is a syntax error instead of a partial install.
@@ -81,6 +83,19 @@ main() {
 		curl -fsSL --proto "$proto" --tlsv1.2 -o "$2" "$1"
 	}
 
+	# api_get downloads API URL $1 to file $2 and prints the HTTP status. The
+	# token goes to curl on stdin, so it never shows up in a process listing.
+	api_get() {
+		if [ -n "$token" ]; then
+			printf 'header = "Authorization: Bearer %s"\n' "$token" |
+				curl -sSL --proto "$proto" --tlsv1.2 -K - -H 'Accept: application/vnd.github+json' \
+					-o "$2" -w '%{http_code}' "$1"
+		else
+			curl -sSL --proto "$proto" --tlsv1.2 -H 'Accept: application/vnd.github+json' \
+				-o "$2" -w '%{http_code}' "$1"
+		fi
+	}
+
 	# asset prints the download URL of a release asset by file name.
 	asset() {
 		tr ',' '\n' <"$tmp/release.json" | grep '"browser_download_url"' |
@@ -103,6 +118,20 @@ main() {
 	*) die "RHYTHM_GITHUB_API must be an https URL: $API" ;;
 	esac
 
+	# GITHUB_TOKEN belongs to github.com, so it never goes to a mirror.
+	token=
+	if [ -n "${RHYTHM_GITHUB_TOKEN:-}" ]; then
+		token=$RHYTHM_GITHUB_TOKEN
+	elif [ "$proto" = '=https' ] && [ "$(url_host "$API")" = api.github.com ]; then
+		token=${GITHUB_TOKEN:-}
+	fi
+	# curl reads the header from a config line, where these would break out.
+	case $token in
+	*[\"\\]*) die "the GitHub token has a character curl can't send in a header" ;;
+	esac
+	[ "$(printf '%s' "$token" | wc -l)" -eq 0 ] ||
+		die "the GitHub token has a character curl can't send in a header"
+
 	os=$(lower "$(uname -s)")
 	case $os in
 	linux | darwin) ;;
@@ -124,9 +153,13 @@ main() {
 	else
 		release_url="$API/repos/$REPO/releases/latest"
 	fi
-	curl -fsSL --proto "$proto" --tlsv1.2 -H 'Accept: application/vnd.github+json' \
-		-o "$tmp/release.json" "$release_url" ||
-		die "couldn't fetch the release from GitHub ($release_url)"
+	status=$(api_get "$release_url" "$tmp/release.json") ||
+		die "couldn't reach $(url_host "$API") ($release_url)"
+	case $status in
+	200) ;;
+	403 | 429) die "GitHub rate limit reached; set GITHUB_TOKEN" ;;
+	*) die "couldn't fetch the release from GitHub ($release_url): HTTP $status" ;;
+	esac
 
 	name="rhythm_${os}_${arch}.tar.gz"
 	archive_url=$(asset "$name")
