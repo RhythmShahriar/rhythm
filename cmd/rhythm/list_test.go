@@ -210,3 +210,18 @@ func TestListProbesInParallel(t *testing.T) {
 		t.Errorf("exit %d\n%s%s", code, out, errs)
 	}
 }
+
+func TestListJSON(t *testing.T) {
+	s := listSandbox(t)
+	code, out, errs := runManage("list", "--json")
+	if code != 0 || errs != "" {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	golden(t, "list.golden.json", out, s.dir, "$SANDBOX")
+	var rep listReport
+	objs := decodeStrict(t, out, &rep, "tools")
+	if rep.Schema != "rhythm-list/v1" || len(rep.Tools) != 3 || !rep.Tools[2].ThirdParty {
+		t.Errorf("%+v", rep)
+	}
+	requireKeys(t, objs, "name", "binary", "version", "latest", "signed", "path", "third_party", "managed_by", "error")
+}

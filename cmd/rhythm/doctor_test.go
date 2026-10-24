@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -455,5 +456,40 @@ func TestRunTool(t *testing.T) {
 	slow := script(t, dir, "slow", "sleep 5")
 	if _, _, err := runTool(context.Background(), 100*time.Millisecond, slow); err == nil || !strings.Contains(err.Error(), "no answer within") {
 		t.Errorf("err = %v", err)
+	}
+}
+
+func TestDoctorJSON(t *testing.T) {
+	s := newSandbox(t, map[string]string{"rhythm-tuner": "0.3.1"}, nil)
+	fakeSelf(t, s.stub(t, "rhythm", "dev", ""), "dev")
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	t.Cleanup(srv.Close)
+	env := fakeDoctorEnv(t, map[string]string{"RHYTHM_GITHUB_API": srv.URL, "GITHUB_TOKEN": "ghp_never_shown"})
+	env.http = srv.Client()
+	useDoctorEnv(t, env)
+
+	code, out, errs := runManage("doctor", "--json")
+	if code != 0 || errs != "" {
+		t.Errorf("exit %d\n%s", code, errs)
+	}
+	golden(t, "doctor.golden.json", out, s.dir, "$SANDBOX", srv.URL, "$API", hostOf(srv.URL), "$HOST")
+	var rep doctorReport
+	requireKeys(t, decodeStrict(t, out, &rep, "checks"), "id", "status", "message")
+	if rep.Schema != "rhythm-doctor/v1" || len(rep.Checks) == 0 || strings.Contains(out, "ghp_") {
+		t.Errorf("%+v", rep)
+	}
+
+	// A failed check exits 1, with the JSON still whole.
+	env.http = &http.Client{}
+	env.getenv = func(k string) string {
+		if k == "RHYTHM_GITHUB_API" {
+			return closedPort(t)
+		}
+		return ""
+	}
+	useDoctorEnv(t, env)
+	code, out, _ = runManage("doctor", "--json")
+	if err := json.Unmarshal([]byte(out), &rep); code != 1 || err != nil || rep.Checks[len(rep.Checks)-1].Status != statusFail {
+		t.Errorf("exit %d, %v\n%s", code, err, out)
 	}
 }
