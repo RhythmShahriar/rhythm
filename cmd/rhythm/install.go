@@ -657,15 +657,23 @@ func prepareDir(dir, target string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // a bin folder others may run from
 		return fmt.Errorf("can't create %s: %w", dir, err)
 	}
-	// Creating a file is the only check that holds everywhere: mode bits
-	// say nothing about ACLs, read-only mounts or Windows.
-	f, err := os.CreateTemp(target, ".rhythm-write-test-*")
-	if err != nil {
+	if !writable(target) {
 		return fmt.Errorf("can't write to %s; rerun with sudo, or install to a folder you own with --dir", target)
+	}
+	return nil
+}
+
+// writable reports whether a file can be created in dir. Creating one is
+// the only check that holds everywhere: mode bits say nothing about ACLs,
+// read-only mounts or Windows.
+func writable(dir string) bool {
+	f, err := os.CreateTemp(dir, ".rhythm-write-test-*")
+	if err != nil {
+		return false
 	}
 	_ = f.Close()
 	_ = os.Remove(f.Name()) //nolint:gosec // the probe file CreateTemp just made
-	return nil
+	return true
 }
 
 // pathNote explains why running binary may not reach the copy just

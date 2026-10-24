@@ -179,6 +179,7 @@ func resolve(p string) string {
 type manager struct {
 	name    string // e.g. Homebrew
 	upgrade string // the command that updates the install
+	remove  string // the command that uninstalls it
 }
 
 // managedBy reports which package manager installed the binary at real (a
@@ -193,17 +194,19 @@ func managedBy(real, binary string) *manager {
 	if len(lower) != len(p) {
 		p = lower // non-ASCII case folding changed the length; offsets must match
 	}
-	// segment returns the path element right after marker: the formula,
-	// app or plugin name in the managers' layouts.
-	segment := func(at int) string {
-		rest := p[at:]
-		if i := strings.IndexByte(rest, '/'); i >= 0 {
-			rest = rest[:i]
+	// segment returns the path element starting at at: the formula, app
+	// or plugin name in the managers' layouts. next is the element after
+	// it, the version folder in mise's and asdf's.
+	segment := func(at int) (name, next string) {
+		parts := strings.SplitN(p[at:], "/", 3)
+		name = parts[0]
+		if name == "" {
+			name = binary
 		}
-		if rest == "" {
-			return binary
+		if len(parts) > 1 {
+			next = parts[1]
 		}
-		return rest
+		return name, next
 	}
 	contains := func(marker string) (int, bool) {
 		i := strings.Index(lower, marker)
@@ -217,42 +220,57 @@ func managedBy(real, binary string) *manager {
 		prefix := strings.TrimSuffix(dir, "/") + sub
 		return len(prefix), strings.HasPrefix(lower, prefix)
 	}
+	mise := func(at int) *manager {
+		tool, v := segment(at)
+		return &manager{"mise", "mise upgrade " + tool, "mise uninstall " + tool + "@" + v}
+	}
+	asdf := func(at int) *manager {
+		plugin, v := segment(at)
+		return &manager{"asdf", "asdf install " + plugin + " latest", "asdf uninstall " + plugin + " " + v}
+	}
+	scoop := func(at int) *manager {
+		app, _ := segment(at)
+		return &manager{"Scoop", "scoop update " + app, "scoop uninstall " + app}
+	}
 
 	if at, ok := contains("/caskroom/"); ok {
-		return &manager{"Homebrew", "brew upgrade --cask " + segment(at)}
+		cask, _ := segment(at)
+		return &manager{"Homebrew", "brew upgrade --cask " + cask, "brew uninstall --cask " + cask}
 	}
 	if at, ok := contains("/cellar/"); ok {
-		return &manager{"Homebrew", "brew upgrade " + segment(at)}
+		formula, _ := segment(at)
+		return &manager{"Homebrew", "brew upgrade " + formula, "brew uninstall " + formula}
 	}
 	if strings.HasPrefix(lower, "/opt/homebrew/") || strings.HasPrefix(lower, "/home/linuxbrew/") {
-		return &manager{"Homebrew", "brew upgrade " + binary}
+		return &manager{"Homebrew", "brew upgrade " + binary, "brew uninstall " + binary}
 	}
 	if strings.HasPrefix(lower, "/nix/store/") {
-		return &manager{"Nix", "nix profile upgrade " + binary}
+		return &manager{"Nix", "nix profile upgrade " + binary, "nix profile remove " + binary}
 	}
 	if at, ok := under("MISE_DATA_DIR", "/installs/"); ok {
-		return &manager{"mise", "mise upgrade " + segment(at)}
+		return mise(at)
 	}
 	if at, ok := contains("/mise/installs/"); ok {
-		return &manager{"mise", "mise upgrade " + segment(at)}
+		return mise(at)
 	}
 	if at, ok := under("ASDF_DATA_DIR", "/installs/"); ok {
-		return &manager{"asdf", "asdf install " + segment(at) + " latest"}
+		return asdf(at)
 	}
 	if at, ok := contains("/.asdf/installs/"); ok {
-		return &manager{"asdf", "asdf install " + segment(at) + " latest"}
+		return asdf(at)
 	}
 	if at, ok := under("SCOOP", "/apps/"); ok {
-		return &manager{"Scoop", "scoop update " + segment(at)}
+		return scoop(at)
 	}
 	if at, ok := contains("/scoop/apps/"); ok {
-		return &manager{"Scoop", "scoop update " + segment(at)}
+		return scoop(at)
 	}
 	if at, ok := contains("/winget/packages/"); ok {
 		// Package folders are named <id>_<source>, e.g.
 		// RhythmShahriar.rhythm_Microsoft.Winget.Source_8wekyb3d8bbwe.
-		id, _, _ := strings.Cut(segment(at), "_")
-		return &manager{"WinGet", "winget upgrade --id " + id}
+		folder, _ := segment(at)
+		id, _, _ := strings.Cut(folder, "_")
+		return &manager{"WinGet", "winget upgrade --id " + id, "winget uninstall --id " + id}
 	}
 	return nil
 }
