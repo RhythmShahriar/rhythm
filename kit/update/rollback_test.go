@@ -250,7 +250,13 @@ func TestInstallSurvivesAFailedPrev(t *testing.T) {
 	if _, _, err := Rollback(dest); !errors.Is(err, ErrNoPrevious) {
 		t.Errorf("Rollback err = %v, want ErrNoPrevious", err)
 	}
-	if names := dirNames(t, filepath.Dir(dest)); len(names) != 1 {
-		t.Errorf("files = %v", names)
+	// On Windows the replaced binary was moved to .old first and may be
+	// the one running, so it stays for removeStaleOld to clear next time.
+	want := []string{filepath.Base(dest)}
+	if useOldSwap {
+		want = append(want, filepath.Base(dest)+".old")
+	}
+	if names := dirNames(t, filepath.Dir(dest)); !slices.Equal(names, want) {
+		t.Errorf("files = %v, want %v", names, want)
 	}
 }
