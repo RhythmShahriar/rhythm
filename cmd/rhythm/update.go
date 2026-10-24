@@ -4,6 +4,8 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -41,11 +43,11 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 
 	ctx, stop := signalContext()
 	defer stop()
-	status := 0
+	var rep updateReport
 	targets, missing := findTargets(want)
 	for _, tool := range missing {
 		fmt.Fprintf(stderr, "%-18s isn't installed; install it with: rhythm install %s\n", "rhythm-"+tool, tool)
-		status = 1
+		rep.failed = append(rep.failed, "rhythm-"+tool)
 	}
 
 	for _, t := range targets {
@@ -59,28 +61,25 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 		u := updater(t.repo, t.binary, t.current)
 		rel, err := u.Latest(ctx)
 		if err != nil {
-			if ctx.Err() == nil {
-				fmt.Fprintf(stderr, "%-18s %v\n", t.binary, err)
-				status = 1
-			}
+			rep.fail(ctx, stderr, t.binary, err)
 			continue
 		}
 		if !update.Newer(t.current, rel.Version) {
 			fmt.Fprintf(stdout, "%-18s %s (up to date)\n", t.binary, t.current)
+			rep.upToDate++
 			continue
 		}
 		if *checkOnly {
 			fmt.Fprintf(stdout, "%-18s %s → %s available\n", t.binary, t.current, rel.Version)
+			rep.updated++
 			continue
 		}
 		if err := u.Install(ctx, rel, t.path); err != nil {
-			if ctx.Err() == nil {
-				fmt.Fprintf(stderr, "%-18s %v\n", t.binary, err)
-				status = 1
-			}
+			rep.fail(ctx, stderr, t.binary, err)
 			continue
 		}
 		fmt.Fprintf(stdout, "%-18s %s → %s ✔\n", t.binary, t.current, rel.Version)
+		rep.updated++
 	}
 
 	if !*checkOnly && !*noData {
@@ -88,18 +87,65 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 			if t.tool == selfName || ctx.Err() != nil {
 				continue // rhythm has no data of its own; tools refresh theirs
 			}
-			cmd := exec.CommandContext(ctx, t.path, "update") //nolint:gosec // our own tool binaries
-			cmd.Stdout, cmd.Stderr = stdout, stderr
-			if err := cmd.Run(); err != nil {
-				status = 1
-			}
+			refreshData(ctx, t, stdout, stderr, &rep)
 		}
 	}
 	if ctx.Err() != nil {
 		fmt.Fprintln(stderr, "rhythm: update interrupted")
 		return exitInterrupted
 	}
-	return status
+	if len(rep.failed) > 0 {
+		fmt.Fprintln(stderr, rep.summary(*checkOnly))
+		return 1
+	}
+	return 0
+}
+
+// refreshData runs the tool's own update command, which refreshes its
+// data (Tuner's checks and vulnerability database, for example). The
+// tool explains a failure itself; rhythm adds which tool it was and how
+// it exited, so the failure isn't lost among the up-to-date lines.
+func refreshData(ctx context.Context, t target, stdout, stderr io.Writer, rep *updateReport) {
+	cmd := exec.CommandContext(ctx, t.path, "update") //nolint:gosec // our own tool binaries
+	cmd.Stdout, cmd.Stderr = stdout, stderr
+	err := cmd.Run()
+	if err == nil || ctx.Err() != nil {
+		return
+	}
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		fmt.Fprintf(stderr, "%s  data refresh failed (exit %d)\n", t.binary, ee.ExitCode())
+	} else {
+		fmt.Fprintf(stderr, "%s  data refresh failed (%v)\n", t.binary, err)
+	}
+	rep.failed = append(rep.failed, t.binary+" data")
+}
+
+// updateReport counts what rhythm update did, for the closing summary.
+type updateReport struct {
+	updated  int      // binaries replaced, or found outdated with --check
+	upToDate int      // binaries already on the latest release
+	failed   []string // "rhythm-tuner" for a binary, "rhythm-tuner data" for its data
+}
+
+// fail records a failed binary update. An error caused by Ctrl-C isn't a
+// failure to report: the command ends with "interrupted" instead.
+func (r *updateReport) fail(ctx context.Context, stderr io.Writer, binary string, err error) {
+	if ctx.Err() != nil {
+		return
+	}
+	fmt.Fprintf(stderr, "%-18s %v\n", binary, err)
+	r.failed = append(r.failed, binary)
+}
+
+// summary is the closing line printed when anything failed, e.g.
+// "Updated 2, up to date 1, failed 1: rhythm-tuner data".
+func (r *updateReport) summary(checkOnly bool) string {
+	verb := "Updated"
+	if checkOnly {
+		verb = "Available"
+	}
+	return fmt.Sprintf("%s %d, up to date %d, failed %d: %s", verb, r.updated, r.upToDate, len(r.failed), strings.Join(r.failed, ", "))
 }
 
 // updateScope turns the names given to rhythm update into the set of

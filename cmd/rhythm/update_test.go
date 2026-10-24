@@ -351,7 +351,7 @@ func TestUpdateNamedButNotInstalled(t *testing.T) {
 	delete(installed, "rhythm-echo")
 	newSandbox(t, installed, latest)
 	code, _, errs := runCmd("update", "echo")
-	if code != 1 || !strings.Contains(errs, "rhythm-echo        isn't installed; install it with: rhythm install echo") {
+	if code != 1 || !strings.Contains(errs, "rhythm-echo        isn't installed; install it with: rhythm install echo") || !strings.Contains(errs, "failed 1: rhythm-echo") {
 		t.Errorf("exit %d: %s", code, errs)
 	}
 }
@@ -402,5 +402,49 @@ func TestInterruptedExits130(t *testing.T) {
 		if strings.Contains(s.content(binary), "0.2.0") {
 			t.Errorf("%s changed after the interrupt", binary)
 		}
+	}
+}
+
+func TestUpdateReportsDataFailure(t *testing.T) {
+	installed, latest := allTools()
+	latest[tools["tuner"]] = "0.1.0" // tuner is up to date; only its data fails
+	s := newSandbox(t, installed, latest)
+	s.stub(t, "rhythm-tuner", "0.1.0", "echo 'checks: fetch failed' >&2; exit 3")
+
+	code, out, errs := runCmd("update")
+	if code != 1 {
+		t.Errorf("exit %d", code)
+	}
+	if !strings.Contains(errs, "rhythm-tuner  data refresh failed (exit 3)\n") {
+		t.Errorf("no failure line:\n%s", errs)
+	}
+	if !strings.HasSuffix(errs, "Updated 2, up to date 1, failed 1: rhythm-tuner data\n") {
+		t.Errorf("no closing summary:\n%s", errs)
+	}
+	if !strings.Contains(errs, "checks: fetch failed") || !strings.Contains(out, "rhythm-tuner       0.1.0 (up to date)") {
+		t.Errorf("the tool's own output is lost:\n%s%s", out, errs)
+	}
+}
+
+func TestUpdateSummaryNamesFailedBinaries(t *testing.T) {
+	installed, latest := allTools()
+	delete(latest, tools["echo"]) // echo has no release: the binary update fails
+	newSandbox(t, installed, latest)
+	code, _, errs := runCmd("update", "--check")
+	if code != 1 || !strings.HasSuffix(errs, "Available 2, up to date 0, failed 1: rhythm-echo\n") {
+		t.Errorf("exit %d:\n%s", code, errs)
+	}
+	code, _, errs = runCmd("update", "echo", "soundcheck")
+	if code != 1 || !strings.HasSuffix(errs, "Updated 1, up to date 0, failed 1: rhythm-echo\n") {
+		t.Errorf("exit %d:\n%s", code, errs)
+	}
+}
+
+func TestUpdateSuccessHasNoSummary(t *testing.T) {
+	installed, latest := allTools()
+	newSandbox(t, installed, latest)
+	code, out, errs := runCmd("update")
+	if code != 0 || strings.Contains(errs, "failed") || strings.Contains(out+errs, "Updated ") {
+		t.Errorf("exit %d\n%s%s", code, out, errs)
 	}
 }
