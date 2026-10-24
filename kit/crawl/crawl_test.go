@@ -97,6 +97,7 @@ func TestDefaultExcludesSideEffects(t *testing.T) {
 		"/newsletter/unsubscribe/?id=4", "/?mailpoet_page=Unsubscribe", "/opt-out/", "/optout?u=1",
 		"/confirm/abc", "/subscribe/confirm", "/post/?action=delete&id=3", "/?action=trash&post=9",
 		"/?rest_route=/wp/v2/users", "/verify/?token=abc", "/?a=1&_wpnonce=f00", "/?CSRF_TOKEN=1",
+		"/confirm-email/abc123", "/newsletter/confirm_subscription?id=1", "/verify-email/abc", "/account/activate/xyz",
 	} {
 		if !Excluded(mustURL(t, "https://x.example"+p), DefaultExcludes) {
 			t.Errorf("%s should be excluded", p)
@@ -105,6 +106,7 @@ func TestDefaultExcludesSideEffects(t *testing.T) {
 	for _, p := range []string{
 		"/blog/logout-tips-for-teams/", "/confirmation-of-order-policy", "/tokens-of-appreciation/",
 		"/restaurant", "/blog/signout-checklist/", "/rest/route/", "/?page=2",
+		"/confirmation/", "/blog/confirmed-speakers/", "/activated-carbon/", "/verify-emails-guide/",
 	} {
 		if Excluded(mustURL(t, "https://x.example"+p), DefaultExcludes) {
 			t.Errorf("%s should not be excluded", p)

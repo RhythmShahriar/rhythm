@@ -180,7 +180,8 @@ func IsPage(u *url.URL) bool { return !nonPage.MatchString(u.Path) }
 
 // DefaultExcludes skips admin, login, feeds, APIs and URLs with side
 // effects: logout, add to cart, comment replies, unsubscribe and opt-out
-// links, confirmations, delete and trash actions and links carrying a
+// links, confirmations (/confirm, /confirm-email/..., /confirm_sub),
+// e-mail verification and account activation, delete and trash actions and links carrying a
 // token or nonce, which can act on a real person's account just by being
 // visited. Patterns match the lower-cased path and query.
 var DefaultExcludes = append([]string{
@@ -190,11 +191,14 @@ var DefaultExcludes = append([]string{
 	"*?*customize_changeset_uuid=*", "*?s=*", "*&s=*", "/cart/?*", "/my-account/customer-logout*",
 	"*unsubscribe*", "*/opt-out*", "*/optout*",
 	"*?*action=delete*", "*?*action=trash*", "*?*rest_route=*", "*?*token=*", "*?*_wpnonce=*",
-}, segment("logout", "log-out", "signout", "sign-out", "logoff", "confirm")...)
+	"*/confirm-*", "*/confirm_*",
+}, segment("logout", "log-out", "signout", "sign-out", "logoff", "confirm", "verify-email", "activate")...)
 
 // segment returns patterns that match each name only as a whole path
 // segment (/logout, /logout/, /logout/now, /logout.php, /logout?next=/),
 // so /blog/logout-tips-for-teams/ and /confirmation-policy are crawled.
+// Names that start a longer word, such as confirm-email, need their own
+// pattern in DefaultExcludes.
 func segment(names ...string) []string {
 	var out []string
 	for _, n := range names {
