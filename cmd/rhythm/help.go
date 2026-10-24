@@ -177,7 +177,11 @@ func usage(w io.Writer) {
 		width = max(width, len(labels[i]))
 	}
 	for i, t := range registry {
-		fmt.Fprintf(w, "  %-*s  %s\n", width, labels[i], t.Description)
+		desc := t.Description
+		if needsNewerRhythm(t) {
+			desc += fmt.Sprintf(" (needs rhythm >= %s)", t.MinRhythm)
+		}
+		fmt.Fprintf(w, "  %-*s  %s\n", width, labels[i], desc)
 	}
 
 	if others := otherTools(); len(others) > 0 {
