@@ -82,6 +82,17 @@
 // the next update, only while the binary itself exists. Temp files
 // are removed on every error, including a canceled context.
 //
+// # Rollback
+//
+// Every install over an existing binary keeps the one it replaced as
+// <binary>.prev: on Unix a hard link (or a copy) made before the rename,
+// on Windows the .old file once the swap has worked. <binary>.prev.json
+// records its version, sha256 and replaced_at time, plus the version and
+// sha256 of the binary that replaced it. Rollback swaps the two back and
+// forth with the same undo on failure, refuses a .prev whose sha256 has
+// changed and returns ErrNoPrevious when there is none. Failing to keep
+// .prev never fails an install; it removes any older .prev instead.
+//
 // # Errors
 //
 // Network failures come back as ErrUnreachable, ErrRateLimited or

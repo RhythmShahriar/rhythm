@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -54,28 +55,31 @@ func dirNames(t *testing.T, dir string) []string {
 func TestWindowsSwap(t *testing.T) {
 	windowsSwap(t, nil)
 	dest := installed(t)
-	if err := replace(dest, strings.NewReader("NEW BINARY")); err != nil {
+	if err := replace(dest, strings.NewReader("NEW BINARY"), swapInfo{}); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := os.ReadFile(dest); string(got) != "NEW BINARY" {
 		t.Errorf("binary = %q", got)
 	}
-	// The running binary stays as .old until the next update.
-	if got, _ := os.ReadFile(dest + ".old"); string(got) != "OLD BINARY" {
-		t.Errorf(".old = %q", got)
+	// The running binary moves on to .prev once the swap has worked.
+	if got, _ := os.ReadFile(dest + ".prev"); string(got) != "OLD BINARY" {
+		t.Errorf(".prev = %q", got)
 	}
-	if err := replace(dest, strings.NewReader("NEWER BINARY")); err != nil {
+	if err := replace(dest, strings.NewReader("NEWER BINARY"), swapInfo{}); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := os.ReadFile(dest + ".old"); string(got) != "NEW BINARY" {
-		t.Errorf(".old after a second update = %q, want the previous binary", got)
+	if got, _ := os.ReadFile(dest + ".prev"); string(got) != "NEW BINARY" {
+		t.Errorf(".prev after a second update = %q, want the previous binary", got)
+	}
+	if names := dirNames(t, filepath.Dir(dest)); !slices.Equal(names, []string{"rhythm-tuner", "rhythm-tuner.prev", "rhythm-tuner.prev.json"}) {
+		t.Errorf("files = %v", names)
 	}
 }
 
 func TestWindowsSwapFreshInstall(t *testing.T) {
 	windowsSwap(t, nil)
 	dest := filepath.Join(t.TempDir(), "rhythm-tuner")
-	if err := replace(dest, strings.NewReader("NEW BINARY")); err != nil {
+	if err := replace(dest, strings.NewReader("NEW BINARY"), swapInfo{}); err != nil {
 		t.Fatal(err)
 	}
 	if names := dirNames(t, filepath.Dir(dest)); len(names) != 1 {
@@ -92,7 +96,7 @@ func TestWindowsSwapRestoresOnFailure(t *testing.T) {
 		}
 		return nil
 	})
-	err := replace(dest, strings.NewReader("NEW BINARY"))
+	err := replace(dest, strings.NewReader("NEW BINARY"), swapInfo{})
 	if !errors.Is(err, locked) || !strings.Contains(err.Error(), dest) {
 		t.Fatalf("err = %v", err)
 	}
@@ -117,7 +121,7 @@ func TestWindowsSwapReportsBothFailures(t *testing.T) {
 		}
 		return nil
 	})
-	err := replace(dest, strings.NewReader("NEW BINARY"))
+	err := replace(dest, strings.NewReader("NEW BINARY"), swapInfo{})
 	if !errors.Is(err, locked) || !errors.Is(err, stuck) {
 		t.Fatalf("err = %v, want both failures", err)
 	}
@@ -149,12 +153,11 @@ func TestStaleOldIsRemoved(t *testing.T) {
 		if err := u.Install(context.Background(), rel, dest); err != nil {
 			t.Fatal(err)
 		}
-		old, err := os.ReadFile(dest + ".old")
-		switch {
-		case !swap && !errors.Is(err, os.ErrNotExist):
-			t.Errorf("unix: stale .old left behind (%q, %v)", old, err)
-		case swap && string(old) != "OLD BINARY":
-			t.Errorf("windows: .old = %q, want the binary just replaced", old)
+		if old, err := os.ReadFile(dest + ".old"); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("swap %v: stale .old left behind (%q, %v)", swap, old, err)
+		}
+		if prev, _ := os.ReadFile(dest + ".prev"); string(prev) != "OLD BINARY" {
+			t.Errorf("swap %v: .prev = %q, want the binary just replaced", swap, prev)
 		}
 		useOldSwap = oldSwap
 	}
@@ -174,16 +177,18 @@ func TestUnixSwapIsOneRename(t *testing.T) {
 	oldRename, oldSwap := rename, useOldSwap
 	t.Cleanup(func() { rename, useOldSwap = oldRename, oldSwap })
 	useOldSwap = false
-	calls := 0
-	rename = func(from, to string) error { calls++; return os.Rename(from, to) }
+	var onto []string
+	rename = func(from, to string) error { onto = append(onto, filepath.Base(to)); return os.Rename(from, to) }
 	dest := installed(t)
-	if err := replace(dest, strings.NewReader("NEW BINARY")); err != nil {
+	if err := replace(dest, strings.NewReader("NEW BINARY"), swapInfo{}); err != nil {
 		t.Fatal(err)
 	}
-	if calls != 1 {
-		t.Errorf("%d renames, want 1", calls)
+	// dest is never missing: it is renamed onto once and .prev was linked
+	// before that.
+	if !slices.Equal(onto, []string{"rhythm-tuner", "rhythm-tuner.prev"}) {
+		t.Errorf("renames onto %v", onto)
 	}
-	if names := dirNames(t, filepath.Dir(dest)); len(names) != 1 {
+	if names := dirNames(t, filepath.Dir(dest)); len(names) != 3 {
 		t.Errorf("files = %v", names)
 	}
 }

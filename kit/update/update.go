@@ -6,6 +6,8 @@ package update
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -364,7 +366,11 @@ func (u *Updater) InstallWith(ctx context.Context, rel *Release, dest string, op
 	if goos == "windows" {
 		bin += ".exe"
 	}
-	if err := extract(archive, name, bin, func(r io.Reader) error { return replace(dest, r) }); err != nil {
+	info := swapInfo{New: rel.Version}
+	if IsRelease(u.Current) {
+		info.Old = strings.TrimPrefix(u.Current, "v")
+	}
+	if err := extract(archive, name, bin, func(r io.Reader) error { return replace(dest, r, info) }); err != nil {
 		return res, err
 	}
 	return InstallResult{Version: rel.Version, SHA256: got, Signer: signer}, nil
@@ -377,18 +383,21 @@ var (
 	useOldSwap = runtime.GOOS == "windows"
 )
 
-// replace writes data next to dest and renames it into place. On Unix that
-// one rename is atomic. On Windows a running executable can't be
-// overwritten but can be renamed away, so dest moves to dest.old first and
-// moves back if the new binary can't take its place.
-func replace(dest string, r io.Reader) error {
+// replace writes data next to dest and renames it into place, keeping
+// the binary it replaces as dest.prev for Rollback. On Unix that one
+// rename is atomic and dest.prev is a hard link (or copy) made before it.
+// On Windows a running executable can't be overwritten but can be renamed
+// away, so dest moves to dest.old first, moves back if the new binary
+// can't take its place, and becomes dest.prev once it has.
+func replace(dest string, r io.Reader, info swapInfo) error {
 	removeStaleOld(dest)
 	tmp, err := createTemp(filepath.Dir(dest), "."+filepath.Base(dest)+".new-*")
 	if err != nil {
 		return err
 	}
 	defer func() { _ = os.Remove(tmp.Name()) }()
-	if _, err := io.Copy(tmp, &capReader{r: r, left: maxBinary}); err != nil {
+	h := sha256.New()
+	if _, err := io.Copy(io.MultiWriter(tmp, h), &capReader{r: r, left: maxBinary}); err != nil {
 		_ = tmp.Close()
 		return err
 	}
@@ -398,17 +407,40 @@ func replace(dest string, r io.Reader) error {
 	if err := os.Chmod(tmp.Name(), 0o755); err != nil { //nolint:gosec // an executable must be executable
 		return err
 	}
+	rec := prevRecord{Version: info.Old, ReplacedBy: &binRecord{Version: info.New, SHA256: hex.EncodeToString(h.Sum(nil))}}
+	oldSum, err := hashFile(dest)
+	fresh := errors.Is(err, os.ErrNotExist) // nothing to keep or move away
+	if err != nil && !fresh {
+		return fmt.Errorf("replacing %s: %w", dest, err)
+	}
+	rec.SHA256 = oldSum
+
 	if !useOldSwap {
-		return rename(tmp.Name(), dest)
+		var keep string
+		if !fresh {
+			if keep, err = snapshot(dest); err != nil {
+				dropPrev(dest) // no rollback this time, but never a stale one
+				keep = ""
+			} else {
+				defer func() { _ = os.Remove(keep) }()
+			}
+		}
+		if err := rename(tmp.Name(), dest); err != nil {
+			return err
+		}
+		if keep != "" {
+			rec.ReplacedAt = time.Now().UTC()
+			keepPrev(dest, keep, rec)
+		}
+		return nil
 	}
 	old := dest + ".old"
 	_ = os.Remove(old)
-	moved := true
-	if err := rename(dest, old); err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
+	moved := !fresh
+	if moved {
+		if err := rename(dest, old); err != nil {
 			return fmt.Errorf("replacing %s: %w", dest, err)
 		}
-		moved = false // a fresh install: nothing to move away
 	}
 	if err := rename(tmp.Name(), dest); err != nil {
 		if moved {
@@ -417,6 +449,13 @@ func replace(dest string, r io.Reader) error {
 			}
 		}
 		return fmt.Errorf("replacing %s: %w", dest, err)
+	}
+	if moved {
+		// .old is the running binary when a tool updates itself; Windows
+		// lets it be renamed, and if it can't, removeStaleOld clears it
+		// next time.
+		rec.ReplacedAt = time.Now().UTC()
+		keepPrev(dest, old, rec)
 	}
 	return nil
 }

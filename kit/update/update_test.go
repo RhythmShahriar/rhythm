@@ -146,8 +146,9 @@ func TestInstall(t *testing.T) {
 	if fi, _ := os.Stat(dest); fi.Mode().Perm()&0o100 == 0 {
 		t.Errorf("not executable: %v", fi.Mode())
 	}
-	if entries, _ := os.ReadDir(filepath.Dir(dest)); len(entries) != 1 {
-		t.Errorf("temp files left behind: %v", entries)
+	// Only the binary and the one it replaced, kept for Rollback.
+	if names := dirNames(t, filepath.Dir(dest)); len(names) != 3 {
+		t.Errorf("temp files left behind: %v", names)
 	}
 }
 
