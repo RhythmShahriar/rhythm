@@ -91,14 +91,30 @@ rhythm version
 
 ## Verify a release
 
-Release checksums are signed with keyless [cosign](https://docs.sigstore.dev/) from GitHub Actions:
+`rhythm update`, `rhythm install` and both installers check every download against the release's `checksums.txt`. That catches a corrupted or cut-off download. It can't tell you who published the release: `checksums.txt` sits on the same release page as the archives, so anyone who can upload there can upload a matching pair.
+
+The signature closes that gap. The release workflow signs `checksums.txt` with keyless [cosign](https://docs.sigstore.dev/), and the signing certificate records which repository and which tag the run was for. Download `checksums.txt` and `checksums.txt.sigstore.json` from the release next to your archive, then run (cosign 2.4 or later):
 
 ```sh
 cosign verify-blob --bundle checksums.txt.sigstore.json \
-  --certificate-identity https://github.com/RhythmShahriar/.github/.github/workflows/release-go.yml@refs/heads/master \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity https://github.com/RhythmShahriar/.github/.github/workflows/release-go.yml@refs/heads/master \
+  --certificate-github-workflow-repository RhythmShahriar/rhythm \
+  --certificate-github-workflow-ref refs/tags/v<version> \
   checksums.txt
+sha256sum --ignore-missing -c checksums.txt   # macOS: shasum -a 256 --ignore-missing -c checksums.txt
 ```
+
+Replace `<version>` with the release you downloaded, e.g. `refs/tags/v0.5.0`. For a tool, use its repository: `RhythmShahriar/tuner`, `RhythmShahriar/soundcheck` or `RhythmShahriar/echo`. All four flags matter. `--certificate-identity` names the shared release workflow, which any public repository can call, so on its own it would accept a signature made for someone else's project. The repository and ref flags pin the run to this project and this tag.
+
+Releases published with GitHub artifact attestations can also be checked with the GitHub CLI, for `checksums.txt` or any archive:
+
+```sh
+gh attestation verify checksums.txt --repo RhythmShahriar/rhythm \
+  --signer-workflow RhythmShahriar/.github/.github/workflows/release-go.yml
+```
+
+Older releases have no attestations; use cosign for those.
 
 ## Uninstall
 

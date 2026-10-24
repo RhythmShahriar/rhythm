@@ -264,9 +264,22 @@ case_unknown_tool() {
 	expect_tools
 }
 
+# The README's cosign command must pin the calling repository and tag: the
+# workflow identity alone is shared by every repository that calls it.
+case_readme() {
+	readme=$here/../../README.md
+	for flag in '--certificate-oidc-issuer https://token.actions.githubusercontent.com' \
+		'--certificate-github-workflow-repository RhythmShahriar/rhythm' \
+		'--certificate-github-workflow-ref refs/tags/v<version>' \
+		'gh attestation verify checksums.txt --repo RhythmShahriar/rhythm'; do
+		grep -qF -- "$flag" "$readme" || fail "README lacks: $flag"
+	done
+	! grep -qi 'other identity' "$readme" || fail "README claims other identities are rejected"
+}
+
 cases=${*:-default none some truncated proto http_refused http_download_refused github_token
 rhythm_token rate_limit old_router old_router_named router_without_dry_run
-router_without_tools_block unknown_tool}
+router_without_tools_block unknown_tool readme}
 script='' path=''
 for case in $cases; do
 	cdir=$work/cases/$case
