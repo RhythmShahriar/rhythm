@@ -236,7 +236,7 @@ if [ -n "$dry" ]; then
 fi
 os=$(uname -s | tr ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz)
 case $(uname -m) in aarch64 | arm64) arch=arm64 ;; *) arch=amd64 ;; esac
-ok=0 failed= count=0
+ok=0 failed= nfailed=0 count=0
 for spec in $names; do
 	n=${spec%@*} v=${spec#*@}
 	count=$((count + 1))
@@ -256,6 +256,7 @@ for spec in $names; do
 		if [ "$code" != 200 ]; then
 			printf '%-18s downloading %s: HTTP %s\n' "rhythm-$n" "$archive" "$code" >&2
 			failed="$failed rhythm-$n"
+			nfailed=$((nfailed + 1))
 			continue
 		fi
 	fi
@@ -272,7 +273,7 @@ TOOL
 done
 ! has dry-run || [ -n "$quiet" ] || on_path "$dir" || echo "Note: $dir isn't on your PATH."
 if [ -n "$failed" ]; then
-	[ "$count" -lt 2 ] || printf 'Installed %s, failed %s:%s\n' "$ok" "$(echo $failed | wc -w)" "$(echo "$failed" | sed 's/ /, /g; s/^,//')" >&2
+	[ "$count" -lt 2 ] || printf 'Installed %s, failed %s:%s\n' "$ok" "$nfailed" "$(echo "$failed" | sed 's/ /, /g; s/^,//')" >&2
 	exit 1
 fi
 EOF

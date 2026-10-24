@@ -226,7 +226,7 @@ case_some() {
 	expect_code 0
 	expect_tools tuner echo
 	expect_started echo tuner
-	[ "$(grep -c '^rhythm install \(e\|echo\) ' "$cdir/argv.log")" = 1 ] || fail "echo was installed more than once"
+	[ "$(grep -cE '^rhythm install (e|echo) ' "$cdir/argv.log")" = 1 ] || fail "echo was installed more than once"
 }
 
 case_commas() {
@@ -550,7 +550,8 @@ case_signature_cosign() {
 	# The same check README tells people to run, flag for flag.
 	sed -n '/^cosign verify-blob/,/^  checksums.txt$/p' "$here/../../README.md" | grep -o -- '--[a-z-]* [^ ]*' |
 		sed 's|v<version>|v0.7.0|' >"$cdir/readme.flags"
-	[ "$(wc -l <"$cdir/readme.flags")" = 5 ] || fail "README's cosign command has $(wc -l <"$cdir/readme.flags") flags, want 5"
+	# -eq, not =: BSD wc pads the count with spaces.
+	[ "$(wc -l <"$cdir/readme.flags")" -eq 5 ] || fail "README's cosign command has $(($(wc -l <"$cdir/readme.flags"))) flags, want 5"
 	while read -r flag; do
 		case $flag in
 		--bundle*) flag="--bundle $cdir/tmp/" ;;
