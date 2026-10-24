@@ -88,6 +88,8 @@ func TestExtensionsRejects(t *testing.T) {
 		{Name: "../evil", Repo: "a/b"},
 		{Name: "", Repo: "a/b"},
 		{Name: "zap", Repo: "zap"},
+		{Name: "zap", Repo: "a/.."}, // the repo becomes part of the release API path
+		{Name: "zap", Repo: "a/."},
 	} {
 		if err := s.Add(x); err == nil {
 			t.Errorf("Add(%+v) took it", x)

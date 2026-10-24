@@ -148,7 +148,7 @@ func (x Extension) validate() error {
 	switch {
 	case !nameRE.MatchString(x.Name):
 		return fmt.Errorf("extension name %q isn't a tool name", x.Name)
-	case !repoRE.MatchString(x.Repo):
+	case !validRepo(x.Repo):
 		return fmt.Errorf("extension %q: repo %q isn't owner/name", x.Name, x.Repo)
 	}
 	return nil

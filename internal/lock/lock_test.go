@@ -144,7 +144,7 @@ func TestValidate(t *testing.T) {
 		{"v prefix", func(f *File) { f.Tools[0].Version = "v1.0.0" }, `version "v1.0.0" isn't an exact version`},
 		{"partial version", func(f *File) { f.Tools[0].Version = "1.0" }, `version "1.0" isn't`},
 		{"leading zero", func(f *File) { f.Tools[0].Version = "1.02.0" }, `version "1.02.0" isn't`},
-		{"bad name", func(f *File) { f.Tools[0].Name = "../zap" }, `name "../zap" isn't a tool name`},
+		{"bad name", func(f *File) { f.Tools[0].Name = "../zap" }, `"../zap" isn't a tool name`},
 		{"bad repo", func(f *File) { f.Tools[0].Repo = "zap" }, `repo "zap" isn't owner/name`},
 		{"bad platform", func(f *File) { f.Tools[0].Platforms["linux"] = hash('a') }, `platform "linux" isn't os_arch`},
 		{"no platforms", func(f *File) { f.Tools[0].Platforms = nil }, "no platforms"},
@@ -152,6 +152,12 @@ func TestValidate(t *testing.T) {
 		{"duplicate tool", func(f *File) { f.Tools = append(f.Tools, f.Tools[0]) }, "tools[3] (zap): listed twice"},
 		{"duplicate pack", func(f *File) { f.Tools[1].Data = append(f.Tools[1].Data, f.Tools[1].Data[0]) }, `data "wpvulnerability" listed twice`},
 		{"rhythm misnamed", func(f *File) { f.Rhythm.Name = "tuner" }, `rhythm: name "tuner" isn't "rhythm"`},
+		{"tool named rhythm", func(f *File) { f.Tools[0].Name = "rhythm" }, `"rhythm" isn't a tool name`},
+		{"dot repo", func(f *File) { f.Tools[0].Repo = "a/.." }, `repo "a/.." isn't owner/name`},
+		// A "," or "=" would add pins to update --pin name=version,...
+		{"pin in a pack version", func(f *File) { f.Tools[1].Data[0].Version = "1,vulns=0" },
+			`data "wpvulnerability" version "1,vulns=0" may only use letters, digits and . _ + -`},
+		{"space in a pack name", func(f *File) { f.Tools[1].Data[0].Name = "a b" }, `data "a b" version`},
 	}
 	ok := sample()
 	ok.Schema = Schema
@@ -326,5 +332,35 @@ func TestDiff(t *testing.T) {
 	ch := Diff(sample(), edit(func(f *File) { f.Tools[1].Version = "0.3.2" }))
 	if len(ch) != 1 || ch[0] != (Change{Kind: Bumped, Name: "tuner", From: "0.3.1-rc.2", To: "0.3.2"}) {
 		t.Errorf("Diff = %+v", ch)
+	}
+}
+
+func TestEntryEntriesClone(t *testing.T) {
+	f := sample()
+	if e := f.Entry("rhythm"); e == nil || e != f.Rhythm {
+		t.Errorf("Entry(rhythm) = %v", e)
+	}
+	if e := f.Entry("tuner"); e == nil || e.Name != "tuner" {
+		t.Errorf("Entry(tuner) = %v", e)
+	}
+	if e := f.Entry("nope"); e != nil {
+		t.Errorf("Entry(nope) = %v", e)
+	}
+	names := []string{}
+	for _, e := range f.Entries() {
+		names = append(names, e.Name)
+	}
+	if len(names) != len(f.Tools)+1 || names[0] != "rhythm" {
+		t.Errorf("Entries() = %v", names)
+	}
+	c := f.Clone()
+	c.Rhythm.Version = "9.9.9"
+	c.Entry("tuner").Platforms["linux_amd64"] = "changed"
+	c.Entry("tuner").Data[0].Version = "changed"
+	if f.Rhythm.Version == "9.9.9" || f.Entry("tuner").Platforms["linux_amd64"] == "changed" || f.Entry("tuner").Data[0].Version == "changed" {
+		t.Error("changing the clone changed the original")
+	}
+	if (&File{}).Clone().Tools != nil {
+		t.Error("a clone of no tools has tools")
 	}
 }

@@ -35,6 +35,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -186,6 +187,57 @@ func (e *Entry) sortData() {
 	slices.SortFunc(e.Data, func(a, b DataPack) int { return strings.Compare(a.Name, b.Name) })
 }
 
+// Entry returns the entry for name, "rhythm" or a tool, or nil when f
+// doesn't pin it.
+func (f *File) Entry(name string) *Entry {
+	for _, e := range f.Entries() {
+		if e.Name == name {
+			return e
+		}
+	}
+	return nil
+}
+
+// Entries returns rhythm's entry, when f pins rhythm, then the tools'.
+// They point into f, so changing one changes f.
+func (f *File) Entries() []*Entry {
+	var list []*Entry
+	if f.Rhythm != nil {
+		list = append(list, f.Rhythm)
+	}
+	for i := range f.Tools {
+		list = append(list, &f.Tools[i])
+	}
+	return list
+}
+
+// Clone returns a deep copy of f.
+func (f *File) Clone() *File {
+	c := &File{Schema: f.Schema}
+	if f.Rhythm != nil {
+		r := f.Rhythm.clone()
+		c.Rhythm = &r
+	}
+	if f.Tools != nil {
+		c.Tools = make([]Entry, len(f.Tools))
+		for i := range f.Tools {
+			c.Tools[i] = f.Tools[i].clone()
+		}
+	}
+	return c
+}
+
+func (e *Entry) clone() Entry {
+	c := *e
+	if e.Platforms != nil {
+		c.Platforms = maps.Clone(e.Platforms)
+	}
+	if e.Data != nil {
+		c.Data = slices.Clone(e.Data)
+	}
+	return c
+}
+
 // Tool returns the entry for the named tool.
 func (f *File) Tool(name string) (Entry, bool) {
 	for _, e := range f.Tools {
@@ -274,7 +326,19 @@ var (
 	semverRE   = regexp.MustCompile(`^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$`)
 	sha256RE   = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	platformRE = regexp.MustCompile(`^[a-z0-9]+_[a-z0-9]+$`)
+	// packRE is what a data pack's name and version may be. They are
+	// joined into update --pin name=version,..., so a "," or "=" would
+	// add pins the lock doesn't hold.
+	packRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+-]*$`)
 )
+
+// validRepo reports whether repo is a GitHub owner/name. Release API
+// paths are built from it, so "." and ".." (which the pattern allows, as
+// GitHub allows dots in names) are refused too.
+func validRepo(repo string) bool {
+	_, name, _ := strings.Cut(repo, "/")
+	return repoRE.MatchString(repo) && name != "." && name != ".."
+}
 
 // Validate reports every problem with f: an unknown schema, duplicate
 // tools, names, repos, versions or sources that aren't valid and
@@ -296,6 +360,11 @@ func (f *File) Validate() error {
 		if e.Name != "" {
 			where += " (" + e.Name + ")"
 		}
+		// Names pick the registry repo a lock's repo is checked
+		// against, so a tool can't be called rhythm.
+		if e.Name == "rhythm" {
+			errs = append(errs, fmt.Errorf("%s: %q isn't a tool name", where, e.Name))
+		}
 		if seen[e.Name] {
 			errs = append(errs, fmt.Errorf("%s: listed twice", where))
 		}
@@ -311,9 +380,9 @@ func (e *Entry) validate(where string) []error {
 		errs = append(errs, fmt.Errorf(where+": "+format, a...))
 	}
 	if !nameRE.MatchString(e.Name) {
-		bad("name %q isn't a tool name", e.Name)
+		bad("%q isn't a tool name", e.Name)
 	}
-	if !repoRE.MatchString(e.Repo) {
+	if !validRepo(e.Repo) {
 		bad("repo %q isn't owner/name", e.Repo)
 	}
 	if !semverRE.MatchString(e.Version) {
@@ -332,24 +401,39 @@ func (e *Entry) validate(where string) []error {
 	}
 	packs := map[string]bool{}
 	for _, d := range e.Data {
-		switch {
-		case d.Name == "":
-			bad("a data pack has no name")
-		case packs[d.Name]:
+		if packs[d.Name] && d.Name != "" {
 			bad("data %q listed twice", d.Name)
 		}
 		packs[d.Name] = true
-		if d.Version == "" {
-			bad("data %q has no version", d.Name)
-		}
-		if !sha256RE.MatchString(d.SHA256) {
-			bad("data %q: sha256 %q isn't 64 lowercase hex digits", d.Name, d.SHA256)
+		for _, err := range checkPack(d) {
+			bad("%w", err)
 		}
 	}
 	switch e.Source {
 	case "", SourceRegistry, SourceExtension:
 	default:
 		bad("source %q isn't %q or %q", e.Source, SourceRegistry, SourceExtension)
+	}
+	return errs
+}
+
+// CheckPack reports what keeps a data pack, as a tool's update --json
+// reports it, out of a lock file, or nil when it can be locked.
+func CheckPack(d DataPack) error { return errors.Join(checkPack(d)...) }
+
+func checkPack(d DataPack) []error {
+	var errs []error
+	bad := func(format string, a ...any) { errs = append(errs, fmt.Errorf(format, a...)) }
+	switch {
+	case d.Name == "":
+		bad("a data pack has no name")
+	case d.Version == "":
+		bad("data %q has no version", d.Name)
+	case !packRE.MatchString(d.Name) || !packRE.MatchString(d.Version):
+		bad("data %q version %q may only use letters, digits and . _ + -", d.Name, d.Version)
+	}
+	if !sha256RE.MatchString(d.SHA256) {
+		bad("data %q: sha256 %q isn't 64 lowercase hex digits", d.Name, d.SHA256)
 	}
 	return errs
 }
