@@ -72,7 +72,7 @@ func TestParseArgsBadFlag(t *testing.T) {
 	fs.String("dir", "", "install into `dir`")
 	_, err := ParseArgs(fs, []string{"--nope"})
 	var ue UsageError
-	if !errors.As(err, &ue) || ue.Msg != "flag provided but not defined: -nope" {
+	if !errors.As(err, &ue) || ue.Msg != "flag provided but not defined: -nope" || !ue.Reported {
 		t.Fatalf("got %v", err)
 	}
 	got := out.String()

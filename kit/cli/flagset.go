@@ -73,7 +73,8 @@ func showDefault(f *flag.Flag) bool {
 // positional arguments (see ParseInterspersed). It returns ErrHelp for -h
 // and --help and wraps any other flag error in a UsageError so callers
 // can exit 2. The flag package has already printed the error and the
-// usage to fs.Output() by then, so callers shouldn't print them again.
+// usage to fs.Output() by then, so the UsageError is marked Reported and
+// callers shouldn't print it again.
 func ParseArgs(fs *flag.FlagSet, args []string) ([]string, error) {
 	pos, err := ParseInterspersed(fs, args)
 	switch {
@@ -82,5 +83,5 @@ func ParseArgs(fs *flag.FlagSet, args []string) ([]string, error) {
 	case errors.Is(err, flag.ErrHelp):
 		return nil, ErrHelp
 	}
-	return nil, UsageError{Msg: err.Error()}
+	return nil, UsageError{Msg: err.Error(), Reported: true}
 }

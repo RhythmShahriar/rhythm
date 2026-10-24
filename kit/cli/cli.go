@@ -59,12 +59,18 @@ func (r *RepeatFlag) Set(v string) error { *r = append(*r, v); return nil }
 
 // UsageError marks an error caused by how the tool was called (exit 2),
 // as opposed to one that happened while it worked.
-type UsageError struct{ Msg string }
+type UsageError struct {
+	Msg string
+	// Reported means the message has already been printed (ParseArgs
+	// sets it, since the flag package prints its own errors), so Main
+	// doesn't print it twice.
+	Reported bool
+}
 
 func (e UsageError) Error() string { return e.Msg }
 
 // Usagef returns a UsageError.
-func Usagef(format string, a ...any) error { return UsageError{fmt.Sprintf(format, a...)} }
+func Usagef(format string, a ...any) error { return UsageError{Msg: fmt.Sprintf(format, a...)} }
 
 // IsTerminal reports whether w is an interactive terminal.
 func IsTerminal(w io.Writer) bool {
