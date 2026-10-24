@@ -134,8 +134,19 @@ func listEntries(ctx context.Context, offline bool) ([]listEntry, *netReport) {
 		entries = append(entries, e)
 	}
 	<-probed
+	// An extension rhythm installed has a signature on record, like the
+	// registry's tools; any other rhythm-* program isn't checked.
+	installed := map[string]bool{}
+	if exts, err := readExtensions(); err == nil {
+		for _, x := range exts {
+			installed[x.Name] = true
+		}
+	}
 	for _, t := range others {
 		e := listEntry{name: t.tool, binary: t.binary, version: t.current, signed: "-", path: t.path, thirdParty: true}
+		if installed[t.tool] {
+			e.signed = signed(t.real)
+		}
 		if t.current == unknownVersion {
 			e.versionErr = "version unknown (" + t.probe + ")"
 		}

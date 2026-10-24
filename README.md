@@ -77,7 +77,7 @@ On Windows, `RHYTHM_TOOLS = 'none'` is the way to install no tools: Windows Powe
 - run: rhythm tuner scan .
 ```
 
-The action installs rhythm with the installer from the same tag, then the tools with `rhythm install` (signatures checked). It puts them on `PATH` on Linux, macOS and Windows runners. It caches the verified archives (keyed on the runner OS, architecture, `rhythm.lock` and the inputs), so a pipeline downloads each release once. Inputs: `tools`, `version` (of rhythm, default the latest), `locked`, `skip-signature`, `token` (default `github.token`, sent to `api.github.com` only), `install-dir` and `working-directory`. Outputs: `rhythm-version`, `tool-versions` (`tuner@0.3.2 soundcheck@0.4.1`), `install-dir`, `cache-dir` and `cache-hit`. With `locked`, a version in `tools` that `rhythm.lock` doesn't pin fails the step.
+The action installs rhythm with the installer from the same tag, then the tools with `rhythm install` (signatures checked). It puts them on `PATH` on Linux, macOS and Windows runners. It caches the verified archives (keyed on the runner OS, architecture, `rhythm.lock` and the inputs), so a pipeline downloads each release once. Inputs: `tools`, `version` (of rhythm, default the latest), `locked`, `skip-signature`, `token` (default `github.token`, sent to `api.github.com` only), `install-dir` and `working-directory`. Outputs: `rhythm-version`, `tool-versions` (`tuner@0.3.2 soundcheck@0.4.1`), `install-dir`, `cache-dir` and `cache-hit`. With `locked`, a version in `tools` that `rhythm.lock` doesn't pin fails the step. `locked` and `skip-signature` take `true`, `false`, `yes`, `no`, `1` or `0` on every runner; any other value fails the step before anything is installed.
 
 ## Tools
 
@@ -160,7 +160,7 @@ rhythm: unknown tool "tunr"
   run 'rhythm help' to see the tools
 ```
 
-`rhythm install` and `rhythm update` check each release's signature, then each download against the release checksums. They swap binaries atomically, so a failed update never leaves a broken install. A release whose signature is missing or doesn't verify is refused and nothing changes; `--skip-signature` installs it anyway with a warning, for a mirror you trust. `rhythm list` shows `yes` under SIGNED for a binary that passed the check and hasn't changed since. The binary it replaced stays next to the new one as `<binary>.prev`, which `--rollback` restores. Tools mention when a new release is out, at most once a day; set `RHYTHM_NO_UPDATE_CHECK=1` to silence that.
+`rhythm install` and `rhythm update` check each release's signature, then each download against the release checksums. They swap binaries atomically, so a failed update never leaves a broken install. A release whose signature is missing or doesn't verify is refused and nothing changes; `--skip-signature` installs it anyway with a warning, for a mirror you trust. `rhythm list` shows `yes` under SIGNED for a binary that passed the check and hasn't changed since, extensions installed with `rhythm ext install` included. The binary it replaced stays next to the new one as `<binary>.prev`, which `--rollback` restores. Tools mention when a new release is out, at most once a day; set `RHYTHM_NO_UPDATE_CHECK=1` to silence that.
 
 ### Exit codes
 
