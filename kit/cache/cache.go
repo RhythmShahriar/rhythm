@@ -72,8 +72,8 @@ type entry[T any] struct {
 //
 // Within a process, concurrent calls for one kind, key and type share a
 // single lookup and a successful result is remembered for later calls.
-// A failed lookup is not remembered, so the next call tries again, and
-// neither is a stale copy returned because the fetch failed. When
+// A failed lookup is not remembered, so the next call tries again. Nor
+// is a stale copy returned because the fetch failed. When
 // the caller running the lookup gives up (its context ends), the others
 // waiting on it start their own lookup instead of getting its context
 // error.
@@ -183,14 +183,19 @@ const maxPrefix = 40
 // The name ends in a hash of the whole key, so keys that differ only in
 // characters a file name can't hold, or only in case, or that are too
 // long for a file name, still get files of their own. The readable
-// prefix only helps a person browsing the folder.
+// prefix only helps a person browsing the folder. A key that may carry a
+// credential (a query, a fragment, user:password@ or name=value, as in
+// ?apikey=...) gets no prefix, so no part of it lands in a file name.
 func (s *Store) path(kind, key string) string {
 	if s.Dir == "" || !filepath.IsLocal(filepath.FromSlash(kind)) {
 		return ""
 	}
 	sum := sha256.Sum256([]byte(key))
 	name := hex.EncodeToString(sum[:16])
-	prefix := strings.TrimLeft(unsafeKey.ReplaceAllString(key, "_"), "._")
+	prefix := ""
+	if !strings.ContainsAny(key, "?#@=") {
+		prefix = strings.TrimLeft(unsafeKey.ReplaceAllString(key, "_"), "._")
+	}
 	if len(prefix) > maxPrefix {
 		prefix = prefix[:maxPrefix]
 	}

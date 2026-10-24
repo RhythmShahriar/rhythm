@@ -39,7 +39,7 @@ func TestLoad(t *testing.T) {
 	if _, _, err := Load(&Store{Dir: dir, Force: true}, ctx, "k", "a", fail); err == nil {
 		t.Error("forced refresh must report a failed fetch")
 	}
-	// Offline: cached data however old, and no fetch.
+	// Offline: cached data however old with no fetch.
 	if v, _, err := Load(&Store{Dir: dir, TTL: -1, Offline: true}, ctx, "k", "a", fail); v != "v1" || err != nil {
 		t.Errorf("offline: %q %v", v, err)
 	}
@@ -232,6 +232,20 @@ func TestPathNames(t *testing.T) {
 	}
 	if s.path("../x", "a") != "" || (&Store{}).path("k", "a") != "" {
 		t.Error("an unsafe kind or no Dir gives no path")
+	}
+	// Keys that may carry a credential keep none of it in the name.
+	for _, key := range []string{
+		"https://api.example/v1?apikey=s3cret",
+		"https://bot:s3cret@api.example/v1",
+		"https://api.example/v1#token-s3cret",
+		"token=s3cret",
+	} {
+		if name := filepath.Base(s.path("k", key)); strings.Contains(name, "s3cret") || len(name) != 32+len(".json") {
+			t.Errorf("%s gives %s", key, name)
+		}
+	}
+	if name := filepath.Base(s.path("k", "https://api.example/v1/plugins")); !strings.HasPrefix(name, "https_api.example_v1_plugins-") {
+		t.Errorf("plain URL lost its readable prefix: %s", name)
 	}
 }
 
