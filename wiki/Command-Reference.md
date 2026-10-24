@@ -216,20 +216,22 @@ Usage errors exit 2 before any request:
 ```console
 $ rhythm list
 TOOL        VERSION  LATEST  SIGNED  PATH
-rhythm      dev      0.6.0   no      /home/me/.local/bin/rhythm
+rhythm      0.7.1    0.7.1   yes     /home/me/.local/bin/rhythm
 echo        1.0.0    1.0.0   yes     /home/me/.local/bin/rhythm-echo
-soundcheck  1.1.0    1.1.0   yes     /home/me/.local/bin/rhythm-soundcheck
+soundcheck  1.1.0    1.1.0   -       /home/me/.local/bin/rhythm-soundcheck
 tuner       0.3.2    0.3.2   yes     /home/me/.local/bin/rhythm-tuner
 zap (3rd)   1.2.0    -       -       /home/me/.local/bin/rhythm-zap
+
+SIGNED - means rhythm hasn't checked that binary yet; rhythm verify checks it.
 ```
 
-One row for rhythm, one for each installed tool and one for every other `rhythm-*` program on your `PATH`, marked `(3rd)`.
+One row for rhythm, one for each installed tool and one for every other `rhythm-*` program on your `PATH`, marked `(3rd)`. When rhythm, a tool or an extension shows `-` under SIGNED, the table ends with the line above; a third-party program's `-` doesn't add it.
 
 | Column | Shows |
 |---|---|
 | VERSION | what the binary reports; `dev` for a development build, `unknown` when it doesn't say |
 | LATEST | the latest release; `-` for a third-party program, `?` when the lookup failed (the reason follows on stderr) |
-| SIGNED | `yes` for a binary that passed a signature check (at install, update or `rhythm verify`) and hasn't changed since; `no` otherwise; `-` for a third-party program. Extensions installed with `rhythm ext install` show `yes` or `no` too. No network is needed: rhythm compares the file's sha256 with what it recorded in `verified.json`. |
+| SIGNED | `yes` for a binary that passed a signature check (at install, update or `rhythm verify`) and hasn't changed since; `no` for one whose bytes changed since; `-` for one rhythm hasn't checked yet (installed by a rhythm older than 0.7.0 or with `--skip-signature`; `rhythm verify` checks it) and for a third-party program. Extensions installed with `rhythm ext install` show `yes`, `no` or `-` too. No network is needed: rhythm compares the file's sha256 with what it recorded in `verified.json`. See [The SIGNED column](Verifying-Releases#the-signed-column). |
 | PATH | where it runs from, with the package manager after it when one installed it: `/opt/homebrew/bin/rhythm-tuner (Homebrew)` |
 
 `--offline` (or `RHYTHM_OFFLINE`) leaves out the LATEST column and makes no request. `--json` prints [`rhythm-list/v1`](#json-output). `rhythm list tuner` exits 2 with `rhythm: list takes no names (got "tuner")`. A failed lookup doesn't change the exit code: the list was shown, so it exits 0. A config folder rhythm can't read, such as a relative `RHYTHM_CONFIG_DIR`, exits 1 before anything is listed, as `rhythm ext list` and `rhythm update` do: `rhythm: RHYTHM_CONFIG_DIR must be an absolute path, got "rel"`.
@@ -359,7 +361,7 @@ rhythm-tuner       0.3.1 → 0.3.2 available
 }
 ```
 
-`signed` is `yes`, `no` or `""` (third-party). `current` and `version` are `""` when unknown; `latest` is `""` when it wasn't looked up. `rhythm.lock` (`rhythm-lock/v1`) and bundle manifests (`rhythm-bundle/v1`) are described in [Pinning and locking](Pinning-And-Locking#the-lock-file) and [Offline installs](Offline-Installs#whats-in-a-bundle).
+`signed` is `yes`, `no` or `""` (not checked yet, or third-party); the text table's `-` is `""` here and the hint line is left out. `current` and `version` are `""` when unknown; `latest` is `""` when it wasn't looked up. `rhythm.lock` (`rhythm-lock/v1`) and bundle manifests (`rhythm-bundle/v1`) are described in [Pinning and locking](Pinning-And-Locking#the-lock-file) and [Offline installs](Offline-Installs#whats-in-a-bundle).
 
 ## Exit codes
 

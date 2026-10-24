@@ -111,18 +111,20 @@ More are on the way. Each lives in its own repository and releases on its own sc
 | `rhythm completion bash\|zsh\|fish\|powershell` | print a shell completion script |
 | `rhythm version` | print rhythm's version (also `-v`, `-V`, `--version`) |
 
-Sample output from rhythm built from `master` (soon 0.7.0, which says its version where this says `dev`), with Tuner, Soundcheck and Echo installed:
+Sample output from rhythm 0.7.1 with Tuner, Soundcheck and Echo installed. Soundcheck came from a rhythm older than 0.7.0, which didn't check signatures, so it shows `-` until `rhythm verify` or the next update checks it:
 
 ```console
 $ rhythm list
 TOOL        VERSION  LATEST  SIGNED  PATH
-rhythm      dev      0.6.0   no      /home/me/.local/bin/rhythm
+rhythm      0.7.1    0.7.1   yes     /home/me/.local/bin/rhythm
 echo        1.0.0    1.0.0   yes     /home/me/.local/bin/rhythm-echo
-soundcheck  1.1.0    1.1.0   yes     /home/me/.local/bin/rhythm-soundcheck
+soundcheck  1.1.0    1.1.0   -       /home/me/.local/bin/rhythm-soundcheck
 tuner       0.3.2    0.3.2   yes     /home/me/.local/bin/rhythm-tuner
 
+SIGNED - means rhythm hasn't checked that binary yet; rhythm verify checks it.
+
 $ rhythm update --check            # exit 10: an update is available
-rhythm             dev (development build, not updated)
+rhythm             0.7.1 (up to date)
 rhythm-echo        1.0.0 (up to date)
 rhythm-soundcheck  1.1.0 (up to date)
 rhythm-tuner       0.3.1 → 0.3.2 available
@@ -172,7 +174,7 @@ rhythm: unknown tool "tunr"
   run 'rhythm help' to see the tools
 ```
 
-`rhythm install` and `rhythm update` check each release's signature, then each download against the release checksums. They swap binaries atomically, so a failed update never leaves a broken install. A release whose signature is missing or doesn't verify is refused and nothing changes; `--skip-signature` installs it anyway with a warning, for a mirror you trust. `rhythm list` shows `yes` under SIGNED for a binary that passed the check and hasn't changed since, extensions installed with `rhythm ext install` included. The binary it replaced stays next to the new one as `<binary>.prev`, which `--rollback` restores. Tools mention when a new release is out, at most once a day; set `RHYTHM_NO_UPDATE_CHECK=1` to silence that.
+`rhythm install` and `rhythm update` check each release's signature, then each download against the release checksums. They swap binaries atomically, so a failed update never leaves a broken install. A release whose signature is missing or doesn't verify is refused and nothing changes; `--skip-signature` installs it anyway with a warning, for a mirror you trust. `rhythm list` shows `yes` under SIGNED for a binary that passed the check and hasn't changed since, extensions installed with `rhythm ext install` included. It shows `no` for a binary whose bytes changed after the check and `-` for one rhythm hasn't checked yet, such as a binary an older rhythm installed; `rhythm verify` checks those. The binary it replaced stays next to the new one as `<binary>.prev`, which `--rollback` restores. Tools mention when a new release is out, at most once a day; set `RHYTHM_NO_UPDATE_CHECK=1` to silence that.
 
 ### Exit codes
 

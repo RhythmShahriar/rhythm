@@ -37,13 +37,21 @@ The Sigstore trusted root is refreshed online (through TUF, into `~/.cache/rhyth
 ```console
 $ rhythm list --offline
 TOOL        VERSION  SIGNED  PATH
-rhythm      dev      no      /home/me/.local/bin/rhythm
+rhythm      0.7.1    yes     /home/me/.local/bin/rhythm
 echo        1.0.0    no      /home/me/.local/bin/rhythm-echo
-soundcheck  1.1.0    yes     /home/me/.local/bin/rhythm-soundcheck
+soundcheck  1.1.0    -       /home/me/.local/bin/rhythm-soundcheck
 tuner       0.3.2    yes     /home/me/.local/bin/rhythm-tuner
+
+SIGNED - means rhythm hasn't checked that binary yet; rhythm verify checks it.
 ```
 
-`yes` means the binary passed a signature check (at install, update or `rhythm verify`) and hasn't changed since. rhythm records the sha256 of each verified binary in `verified.json` in its config folder and compares the file with it, so the column needs no network. Above, one byte was added to `rhythm-echo` after it was installed. `rhythm` is a build from source, which has no release to check. A third-party `rhythm-*` program shows `-`.
+| SIGNED | Means |
+|---|---|
+| `yes` | the binary passed a signature check (at install, update or `rhythm verify`) and hasn't changed since |
+| `no` | the binary passed a check once and its bytes changed since. Above, one byte was added to `rhythm-echo` after it was installed. `rhythm verify echo` says what differs; `rhythm install echo --force` puts the signed release back |
+| `-` | rhythm hasn't checked the binary yet. A binary installed by a rhythm older than 0.7.0, which didn't check signatures, shows `-` until `rhythm verify` or the next `rhythm update` checks it. So does one installed with `--skip-signature`. A third-party `rhythm-*` program is always `-` |
+
+rhythm records the sha256 of each verified binary in `verified.json` in its config folder and compares the file with it, so the column needs no network. When rhythm, a tool or an extension shows `-`, the table ends with the line `SIGNED - means rhythm hasn't checked that binary yet; rhythm verify checks it.` A third-party program's `-` doesn't add it. `rhythm list --json` never has that line and gives `""` for `-`.
 
 ### rhythm verify
 

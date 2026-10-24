@@ -152,7 +152,7 @@ Every binary update, every `rhythm install` and `rhythm lock` go through the sam
 5. Compare the archive's SHA-256 with its entry in `checksums.txt` (and with `rhythm.lock` for `install --locked`). If the release has no `checksums.txt`, has no entry for the archive, or the hash differs, the update stops and nothing is changed.
 6. Keep the old binary as `<binary>.prev`, then rename the new one over it. A rename is atomic, so a failed or interrupted update never leaves a broken install. Ctrl-C exits 130 with `rhythm: update interrupted` and removes the temporary files.
 
-After a verified update, the `Signature ok` and `Checksum ok` lines say who signed the release and which archive went in. `rhythm list` then shows `yes` under SIGNED. A refused release reads:
+After a verified update, the `Signature ok` and `Checksum ok` lines say who signed the release and which archive went in. `rhythm list` then shows `yes` under SIGNED, also for a binary that showed `-` before because an older rhythm installed it. A refused release reads:
 
 ```text
 rhythm-tuner       refusing to install RhythmShahriar/tuner 0.4.0: signature check failed: <reason>; nothing was changed. The release may have been tampered with, or a mirror re-packed it. Only if you trust where it comes from, rerun with --skip-signature
