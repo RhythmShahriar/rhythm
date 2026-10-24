@@ -25,6 +25,9 @@ const (
 	// or a bare one (the last alternative is added by each rule).
 	dq = `"((?:[^"\\\r\n]|\\.)*)"`
 	sq = `'((?:[^'\\\r\n]|\\.)*)'`
+	// scheme is an HTTP auth scheme word written before a token, which
+	// rules skip so the token itself is masked.
+	scheme = `(?i:bearer|token|basic|digest)`
 )
 
 // secretRules is the catalog, applied in order. Specific formats come
@@ -137,17 +140,24 @@ var secretRules = []secretRule{
 		// The password runs to the last @ before the host, since
 		// generated passwords often contain / and @.
 		re: regexp.MustCompile(`\b[a-zA-Z][a-zA-Z0-9+.\-]*://[^:\s/@"'<>]*:([^\s"'<>?#]+)@[^\s/@?#"'<>]+`), value: 1, keep: 2,
-		valid: notPort},
+		valid: notPort, anyLength: true},
 	{id: "authorization", desc: "HTTP Authorization header, whatever the scheme", tags: []string{"auth", "web"}, hint: []string{"authorization"},
 		re: regexp.MustCompile(`(?i)\b((?:proxy-)?authorization)["']?[ \t]*:[ \t]*(?:"([^"\r\n]*)"|'([^'\r\n]*)'|(\S(?:[^\r\n]*\S)?))`), name: 1, value: 2},
 	{id: "cookie", desc: "Cookie and Set-Cookie values (names stay readable)", tags: []string{"auth", "web"}, hint: []string{"cookie"},
 		re:   regexp.MustCompile(`(?i)\b((?:set-)?cookie)["']?[ \t]*:[ \t]*(?:"([^"\r\n]*)"|(\S(?:[^\r\n]*\S)?))`),
 		name: 1, value: 2, keep: 0, split: cookieValues},
 	{id: "header-token", desc: "API key and token headers (X-Auth-Token, X-Api-Key, Private-Token…)", tags: []string{"auth", "web"}, hint: []string{"x-", "api-key", "apikey", "private-token"},
-		re:   regexp.MustCompile(`(?i)\b(x-[a-z0-9-]*(?:token|key|secret|auth|nonce|signature|password)[a-z0-9-]*|api-?key|private-token)["']?[ \t]*[:=][ \t]*["']?([^\s"',;]{6,})`),
+		// An optional scheme word (X-Api-Key: Bearer abc...) stays readable
+		// and the token after it is masked.
+		re:   regexp.MustCompile(`(?i)\b(x-[a-z0-9-]*(?:token|key|secret|auth|nonce|signature|password)[a-z0-9-]*|api-?key|private-token)["']?[ \t]*[:=][ \t]*["']?(?:` + scheme + `[ \t]+)?([^\s"',;]{6,})`),
 		name: 1, value: 2},
-	{id: "wp-reset-key", desc: "WordPress password reset key (key= next to action=rp or login=)", tags: []string{"wordpress", "auth", "url"}, hint: []string{"key="},
-		re: regexp.MustCompile(`[?&;]key=([^&\s"'<>#]+)`), value: 1, valid: resetQuery},
+	{id: "wp-reset-key", desc: "Password reset key or one-time code in a link (key=, k=, code=, otp= next to action=rp or login=)", tags: []string{"wordpress", "auth", "url"}, hint: []string{"key=", "k=", "code=", "otp="},
+		re: regexp.MustCompile(`(?i)[?&;](?:amp;)?(key|k|code|otp)=([^&\s"'<>#]+)`), value: 2, valid: resetQuery},
+	{id: "oauth-code", desc: "OAuth authorization code in a callback link (code= next to state=)", tags: []string{"auth", "url"}, hint: []string{"code="},
+		re: regexp.MustCompile(`(?i)[?&;](?:amp;)?code=([^&\s"'<>#]+)`), value: 1, valid: oauthQuery},
+	{id: "key-path-token", desc: "Token in a /key/ or /token/ path segment", tags: []string{"auth", "url"}, hint: []string{"/key/", "/token/", "/apikey/", "/api-key/"},
+		re:    regexp.MustCompile(`(?i)/(?:key|token|api-?key)/([A-Za-z0-9_\-.%=]{12,})`),
+		value: 1, keep: 0, valid: hasDigitAndLetter},
 	{id: "reset-link-token", desc: "Token in a password reset, verification or magic link path", tags: []string{"auth", "url"}, hint: []string{"reset", "verify", "confirm", "magic", "login"},
 		re:    regexp.MustCompile(`(?i)/[a-z0-9_\-]*(?:reset|verify|confirm|magic|login)[a-z0-9_\-]*(?:/[^/\s?#"'<>]{1,12})?/([A-Za-z0-9_\-.%=]{16,})`),
 		value: 1, keep: 0, valid: hasDigitAndLetter},
@@ -158,12 +168,12 @@ var secretRules = []secretRule{
 	{id: "npmrc-auth", desc: "Registry credentials in .npmrc", tags: []string{"config", "packages"}, hint: []string{":_auth", ":_password"},
 		re: regexp.MustCompile(`:(_authToken|_auth|_password)[ \t]*=[ \t]*(\S+)`), name: 1, value: 2, keep: 2},
 	{id: "curl-user", desc: "Password in curl -u user:password", tags: []string{"auth"}, hint: []string{"-u", "--user"},
-		re: regexp.MustCompile(`(?:\s-u|--user)[ =]["']?[^:\s"']+:([^\s"']+)`), value: 1, keep: 2},
+		re: regexp.MustCompile(`(?:\s-u|--user)[ =]["']?[^:\s"']+:([^\s"']+)`), value: 1, keep: 2, anyLength: true},
 
 	// Secret-looking names. These run last, so a known format inside the
 	// value keeps its own kind.
 	{id: "env", desc: "Secret-looking variable in an env file or shell export", tags: []string{"config"}, hint: nameHints,
-		re:   regexp.MustCompile(`(?m)^[ \t]*(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_.]*)[ \t]*=[ \t]*(?:` + dq + `|` + sq + `|(\S+))`),
+		re:   regexp.MustCompile(`(?m)^[ \t]*(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_.]*)[ \t]*=[ \t]*(?:` + dq + `|` + sq + `|(?:` + scheme + `[ \t]+)?(\S+))`),
 		name: 1, value: 2, keep: 2, secretName: true, valid: notQuery},
 	{id: "yaml", desc: "Secret-looking key in YAML", tags: []string{"config"}, hint: nameHints,
 		re:   regexp.MustCompile(`(?m)^[ \t]*(?:-[ \t]+)?([A-Za-z_][A-Za-z0-9_.\-]*)[ \t]*:[ \t]+(?:` + dq + `|` + sq + `|([^\s"'#&*!|>{\[][^\r\n]*?))[ \t]*(?:[ \t]#[^\r\n]*)?\r?$`),
@@ -175,7 +185,7 @@ var secretRules = []secretRule{
 		re:   regexp.MustCompile(`(?:^|[^A-Za-z0-9_$])\$?([A-Za-z_][A-Za-z0-9_.]*)["']?\]?[ \t]*(?:=>|:=|[:=])[ \t]*(?:` + dq + `|` + sq + `)`),
 		name: 1, value: 2, keep: 2, secretName: true},
 	{id: "form-field", desc: "Secret-looking parameter in a query string or form body (pwd, pass1, password…)", tags: []string{"web"}, hint: nameHints,
-		re:   regexp.MustCompile(`(?:^|[?&;\s])([A-Za-z0-9_.\-\[\]]+)=([^&\s"'<>;]+)`),
+		re:   regexp.MustCompile(`(?:^|[?&;\s])([A-Za-z0-9_.\-\[\]]+)=(?:` + scheme + `(?:\+|%20|[ \t]+))?([^&\s"'<>;]+)`),
 		name: 1, value: 2, keep: 2, secretName: true},
 }
 
@@ -192,18 +202,29 @@ var portPath = regexp.MustCompile(`^\d{1,5}/`)
 
 func notPort(s string, m []int) bool { return !portPath.MatchString(s[m[2]:m[3]]) }
 
-// resetQuery accepts a key= value only when its query string also has
-// action=rp or login=, the shape of a WordPress password reset link.
-// Elsewhere key= is too often an ordinary parameter.
+// resetQuery accepts a key=, k=, code= or otp= value only when its query
+// string also has action=rp, action=resetpass or login=, the shape of a
+// WordPress password reset link. Elsewhere these are too often ordinary
+// parameters (a map key, a coupon code).
 func resetQuery(s string, m []int) bool {
+	return queryHas(s, m, "action=rp", "action=resetpass", "login=")
+}
+
+// oauthQuery accepts a code= value when its query string also has state=,
+// the shape of an OAuth callback.
+func oauthQuery(s string, m []int) bool { return queryHas(s, m, "state=") }
+
+// queryHas reports whether the query string around match m has one of
+// the name=value pairs in want ("&amp;" counts as "&").
+func queryHas(s string, m []int, want ...string) bool {
 	start := strings.LastIndexAny(s[:m[0]+1], "? \t\r\n\"'<>")
 	if start < 0 || s[start] != '?' {
 		return false
 	}
 	end := m[1] + strings.IndexAny(s[m[1]:]+" ", " \t\r\n\"'<>#")
 	q := strings.ToLower(strings.ReplaceAll(s[start:end], "&amp;", "&"))
-	for _, want := range []string{"action=rp", "action=resetpass", "login="} {
-		if strings.Contains(q, "?"+want) || strings.Contains(q, "&"+want) {
+	for _, w := range want {
+		if strings.Contains(q, "?"+w) || strings.Contains(q, "&"+w) || strings.Contains(q, ";"+w) {
 			return true
 		}
 	}

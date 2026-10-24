@@ -23,7 +23,8 @@
 //     Perplexity and xAI keys
 //   - generic shapes: private keys in PEM blocks, JWTs, URLs with a user
 //     and password, Authorization and Cookie headers, token headers,
-//     password reset links, curl -u and .npmrc credentials
+//     password reset links and codes, OAuth callback codes, /key/ and
+//     /token/ path segments, curl -u and .npmrc credentials
 //   - secret-looking names (password, api_key, AUTH_KEY...) in
 //     wp-config.php, PHP serialized data, .env files, YAML, JSON, code and
 //     form bodies
@@ -32,7 +33,9 @@
 // header or cookie name is kept as written, so a report still says which
 // setting leaked. A value keeps at most 4 leading characters (never more
 // than a third of it) followed by a fixed run of bullets, so neither the
-// secret nor its length is printed. FindSecrets returns what it found,
+// secret nor its length is printed. A value under 3 characters is left
+// alone, except when its name looks like a secret's or it is a URL or
+// curl password, which are masked at any length. FindSecrets returns what it found,
 // Redact masks secrets inside text and RedactHeader masks one HTTP header.
 package secrets
 
@@ -100,6 +103,9 @@ type secretRule struct {
 	split func(v string) []part
 	// multiline rules run over the whole text instead of line by line.
 	multiline bool
+	// anyLength masks values shorter than 3 characters too, for rules
+	// whose shape alone says the value is a secret.
+	anyLength bool
 }
 
 // part is one secret inside a larger value, at v[start:end].
@@ -121,8 +127,17 @@ func findSpans(s string) []span {
 	var spans []span
 	lower := asciiLower(s)
 	add := func(r *secretRule, name string, vs, ve int) {
+		if r.secretName {
+			// "password: Bearer abc" keeps the scheme word readable.
+			if m := schemePrefix.FindStringIndex(s[vs:ve]); m != nil {
+				vs += m[1] - 1 // up to the token, not into it
+			}
+		}
 		v := s[vs:ve]
-		if len(v) < 3 || placeholder(v) {
+		// A value named as a secret (password=ab) or written as a URL
+		// password is masked however short. Elsewhere one or two
+		// characters (a=1 in a cookie) are too short to hold a secret.
+		if v == "" || len(v) < 3 && !r.secretName && !r.anyLength || placeholder(v) {
 			return
 		}
 		spans = append(spans, span{vs, ve, Secret{Kind: r.id, Name: name, Masked: Mask(v, r.keep)}})
@@ -183,6 +198,10 @@ func findSpans(s string) []span {
 	}
 	return out
 }
+
+// schemePrefix is an HTTP auth scheme word and the space after it, at the
+// start of a value with more after it.
+var schemePrefix = regexp.MustCompile(`^` + scheme + `[ \t]+\S`)
 
 // group returns the bounds of the first capture group from g on that took
 // part in match m. Rules put the value's alternatives last, so the last
