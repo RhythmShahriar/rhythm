@@ -122,3 +122,20 @@ func TestSoundcheckRegistered(t *testing.T) {
 		t.Error("usage doesn't list soundcheck")
 	}
 }
+
+func TestExitCodeMapping(t *testing.T) {
+	cases := []struct{ code, sig, want int }{
+		{0, -1, 0},
+		{1, -1, 1},
+		{42, -1, 42},
+		{-1, 2, 130},  // SIGINT
+		{-1, 15, 143}, // SIGTERM
+		{-1, 9, 137},  // SIGKILL
+		{0xC000013A, -1, 130},
+	}
+	for _, c := range cases {
+		if got := exitCode(c.code, c.sig); got != c.want {
+			t.Errorf("exitCode(%#x, %d) = %d, want %d", c.code, c.sig, got, c.want)
+		}
+	}
+}

@@ -11,8 +11,10 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"sort"
 	"strings"
+	"syscall"
 
 	"github.com/RhythmShahriar/rhythm/kit"
 	"github.com/RhythmShahriar/rhythm/kit/cli"
@@ -92,16 +94,83 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cli.ExitUsage
 	}
 
-	cmd := exec.Command(bin, args[1:]...) //nolint:gosec // running rhythm-<tool> from PATH is the extension model
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, stdout, stderr
-	if err := cmd.Run(); err != nil {
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
-			return ee.ExitCode() // the tool's own code, passed through
-		}
+	// rhythm can only become the tool when the tool would write to
+	// rhythm's own streams; tests pass buffers and take the child path.
+	if stdout == os.Stdout && stderr == os.Stderr {
+		execTool(bin, args[1:]) // returns only if the exec failed
+	}
+	code, err := runChild(bin, args[1:], stdout, stderr)
+	if err != nil {
 		return startFailed(stderr, tool, known, err)
 	}
-	return 0
+	return code
+}
+
+// runChild runs a tool as a child process, for Windows (which has no
+// exec) and for when exec fails. It returns the tool's exit code mapped
+// the way a shell reports it, and an error only when the tool could not
+// start.
+func runChild(bin string, args []string, stdout, stderr io.Writer) (int, error) {
+	cmd := exec.Command(bin, args...) //nolint:gosec // running rhythm-<tool> from PATH is the extension model
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, stdout, stderr
+
+	// Catch signals while the child runs, so rhythm waits for the tool to
+	// clean up instead of exiting under it. Ctrl-C already reaches the
+	// child (the terminal or console signals the whole group), so it is
+	// only swallowed here; forwarding it would look like a second Ctrl-C.
+	// Signals sent to rhythm alone, like SIGTERM from docker stop, are
+	// passed on. signal.Ignore would be simpler but an ignored signal
+	// stays ignored in every process rhythm starts.
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, append([]os.Signal{os.Interrupt}, forwardSignals...)...)
+	defer signal.Stop(sigs)
+
+	if err := cmd.Start(); err != nil {
+		return 0, err
+	}
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		for {
+			select {
+			case s := <-sigs:
+				if s != os.Interrupt {
+					_ = cmd.Process.Signal(s)
+				}
+			case <-done:
+				return
+			}
+		}
+	}()
+	err := cmd.Wait()
+	var ee *exec.ExitError
+	if err != nil && !errors.As(err, &ee) {
+		return 0, err
+	}
+	sig := -1
+	if ws, ok := cmd.ProcessState.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+		sig = int(ws.Signal())
+	}
+	return exitCode(cmd.ProcessState.ExitCode(), sig), nil
+}
+
+// statusControlCExit is the exit status Windows gives a console process
+// that Ctrl-C or Ctrl-Break ended (STATUS_CONTROL_C_EXIT).
+const statusControlCExit = 0xC000013A
+
+// exitCode maps how a tool ended to rhythm's exit code. code is the
+// tool's exit status and sig the signal that killed it, or -1. A tool
+// killed by signal n gives 128+n, as in a shell, rather than Go's -1
+// (which os.Exit would turn into 255); a Windows Ctrl-C exit gives 130 so
+// scripts see the same code on every platform.
+func exitCode(code, sig int) int {
+	switch {
+	case sig > 0:
+		return 128 + sig
+	case uint32(code) == statusControlCExit: //nolint:gosec // exit statuses are 32-bit on Windows
+		return cli.ExitInterrupted
+	}
+	return code
 }
 
 // startFailed reports a tool binary that was found but could not be
