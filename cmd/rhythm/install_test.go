@@ -777,3 +777,27 @@ func TestMirrorGetsOnlyItsToken(t *testing.T) {
 		}
 	}
 }
+
+func TestInstallRefusesAnotherReleaseForATag(t *testing.T) {
+	s := newSandbox(t, nil, nil)
+	// A mirror that answers the v0.2.0 tag with the 0.1.0 release.
+	mirror := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/RhythmShahriar/tuner/releases/tags/v0.2.0" {
+			http.NotFound(w, r)
+			return
+		}
+		fmt.Fprintf(w, `{"tag_name":"v0.1.0","assets":[{"name":"rhythm-tuner_%s_%s.tar.gz","browser_download_url":"%s/dl"}]}`,
+			runtime.GOOS, runtime.GOARCH, "http://"+r.Host)
+	}))
+	t.Cleanup(mirror.Close)
+	t.Setenv("RHYTHM_GITHUB_API", mirror.URL)
+
+	code, out, errs := runCmd("install", "tuner@0.2.0", "--dir", s.bin)
+	want := mirror.URL + ` answered RhythmShahriar/tuner v0.2.0 with release "v0.1.0"; refusing it`
+	if code != 1 || strings.Contains(out, "Installed") || !strings.Contains(errs, want) {
+		t.Errorf("exit %d\n%s%s", code, out, errs)
+	}
+	if len(files(t, s.bin)) != 0 {
+		t.Errorf("installed %v", files(t, s.bin))
+	}
+}

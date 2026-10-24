@@ -1188,6 +1188,11 @@ func resolveSpec(ctx context.Context, u *update.Updater, spec string, minAge tim
 		if r.Draft {
 			return nil, &noReleaseError{api: apiOrDefault(u.API), repo: u.Repo, version: "v" + v}
 		}
+		// A broken or hostile mirror could answer with another release,
+		// an older one still signed, to downgrade a pinned install.
+		if got := strings.TrimPrefix(r.Tag, "v"); got != v {
+			return nil, &update.ErrTagMismatch{Repo: u.Repo, API: apiOrDefault(u.API), Want: "v" + v, Got: r.Tag}
+		}
 		return r.picked(), nil
 	}
 	prefix, want := "", "*"
