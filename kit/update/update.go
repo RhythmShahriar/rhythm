@@ -6,7 +6,6 @@ package update
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -94,58 +93,24 @@ func envOffline() bool {
 }
 
 // Release is one published release and its downloadable assets, as
-// Latest returns it. Install needs the platform archive and checksums.txt
-// among the Assets.
+// Latest, ByTag and Resolve return it. Install needs the platform archive
+// and checksums.txt among the Assets.
 type Release struct {
-	Version string            // without the leading v
-	Assets  map[string]string // asset name → https download URL
+	Version    string            // without the leading v
+	Tag        string            // the git tag, e.g. v0.3.1
+	Published  time.Time         // when it was published; zero when unknown
+	Prerelease bool              // marked as a prerelease
+	Assets     map[string]string // asset name → https download URL
 }
 
-// Latest fetches the newest published release.
+// Latest fetches the newest published release. GitHub picks it, so it is
+// never a draft or a prerelease.
 func (u *Updater) Latest(ctx context.Context) (*Release, error) {
-	if u.offline() {
-		return nil, ErrOffline
-	}
-	api := u.apiBase()
-	if err := checkURL(api); err != nil {
-		return nil, fmt.Errorf("release API: %w", err)
-	}
-	req, err := u.newRequest(ctx, api+"/repos/"+u.Repo+"/releases/latest")
-	if err != nil {
+	var v ghRelease
+	if err := u.getJSON(ctx, "/releases/latest", "", &v); err != nil {
 		return nil, err
 	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	resp, err := u.client().Do(req)
-	if err != nil {
-		return nil, netError(req, err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, &ErrNoRelease{Repo: u.Repo, API: api, Err: &StatusError{Code: resp.StatusCode}}
-	}
-	if resp.StatusCode != http.StatusOK {
-		err := u.statusError(req, resp)
-		var rl *ErrRateLimited
-		if errors.As(err, &rl) {
-			return nil, err // already one plain line
-		}
-		return nil, fmt.Errorf("checking %s releases: %w", u.Repo, err)
-	}
-	var v struct {
-		TagName string `json:"tag_name"`
-		Assets  []struct {
-			Name string `json:"name"`
-			URL  string `json:"browser_download_url"`
-		} `json:"assets"`
-	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&v); err != nil {
-		return nil, fmt.Errorf("checking %s releases: %w", u.Repo, err)
-	}
-	rel := &Release{Version: strings.TrimPrefix(v.TagName, "v"), Assets: map[string]string{}}
-	for _, a := range v.Assets {
-		rel.Assets[a.Name] = a.URL
-	}
-	return rel, nil
+	return v.release(), nil
 }
 
 // Newer reports whether latest is a newer release than current. Dev builds
@@ -314,7 +279,13 @@ func (u *Updater) Install(ctx context.Context, rel *Release, dest string) error 
 
 // InstallOptions tunes one InstallWith call. The zero value installs the
 // way Install does.
-type InstallOptions struct{}
+type InstallOptions struct {
+	// ExpectSHA256, when set, is the hex sha256 the archive must have,
+	// as a lock file recorded it. The install fails with ErrChecksum when
+	// the archive differs, even if checksums.txt agrees with it: a
+	// release whose assets were replaced after locking is refused.
+	ExpectSHA256 string
+}
 
 // InstallResult describes a finished install.
 type InstallResult struct {
@@ -325,37 +296,32 @@ type InstallResult struct {
 
 // InstallWith downloads rel for this platform, checks the signature over
 // checksums.txt when u.Verifier is set, verifies the archive against
-// checksums.txt and atomically replaces (or creates) the binary at dest.
-// dest is untouched unless every check passes.
-func (u *Updater) InstallWith(ctx context.Context, rel *Release, dest string, _ InstallOptions) (InstallResult, error) {
+// checksums.txt (and opts.ExpectSHA256) and atomically replaces (or
+// creates) the binary at dest. dest is untouched unless every check
+// passes.
+func (u *Updater) InstallWith(ctx context.Context, rel *Release, dest string, opts InstallOptions) (InstallResult, error) {
 	var res InstallResult
 	if u.offline() {
 		return res, ErrOffline
+	}
+	expect := strings.ToLower(strings.TrimSpace(opts.ExpectSHA256))
+	if expect != "" && !isSHA256(expect) {
+		return res, fmt.Errorf("expected sha256 %q is not 64 hex digits", opts.ExpectSHA256)
 	}
 	name := u.ArchiveName()
 	archiveURL, ok := rel.Assets[name]
 	if !ok {
 		return res, fmt.Errorf("release %s has no build for this platform (%s)", rel.Version, name)
 	}
-	sumsURL, ok := rel.Assets["checksums.txt"]
-	if !ok {
-		return res, fmt.Errorf("release %s has no checksums.txt; refusing to install unverified binaries", rel.Version)
-	}
 
 	removeStaleOld(dest)
-	sums, err := u.download(ctx, sumsURL, 1<<20)
-	if err != nil {
-		return res, fmt.Errorf("downloading checksums: %w", err)
-	}
-	// Before reading any checksum: a checksums.txt that isn't signed by
-	// the release workflow could list a tampered archive's hash.
-	signer, err := u.verifySignature(ctx, rel, sums)
+	sums, signer, err := u.checksumsFile(ctx, rel)
 	if err != nil {
 		return res, err
 	}
-	want, err := checksumFor(sums, name)
-	if err != nil {
-		return res, err
+	want, ok := parseChecksums(sums)[name]
+	if !ok {
+		return res, fmt.Errorf("checksums.txt has no entry for %s", name)
 	}
 	// The archive goes to a temp file next to dest and is hashed on the
 	// way, so memory stays flat however big the release is.
@@ -366,6 +332,9 @@ func (u *Updater) InstallWith(ctx context.Context, rel *Release, dest string, _ 
 	defer func() { _ = os.Remove(archive) }()
 	if got != want {
 		return res, &ErrChecksum{Asset: name, Want: want, Got: got}
+	}
+	if expect != "" && got != expect {
+		return res, &ErrChecksum{Asset: name, Want: expect, Got: got, Locked: true}
 	}
 
 	goos, _ := u.platform()

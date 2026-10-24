@@ -53,9 +53,19 @@
 //  4. checksums.txt must list the platform archive.
 //  5. The archive is streamed to a temp file next to the destination (at
 //     most 200 MB) and hashed on the way; its sha256 must match
-//     checksums.txt; otherwise Install returns ErrChecksum.
+//     checksums.txt and, when InstallOptions.ExpectSHA256 is set, that
+//     hash too; otherwise Install returns ErrChecksum.
 //  6. The binary is unpacked from that file into a second temp file next
 //     to the destination and swapped into place.
+//
+// # Pinning
+//
+// Resolve turns a version spec into a release: "latest", an exact
+// version (found by tag, prereleases included) or a partial "X.Y" for the
+// newest X.Y.* release. Checksums returns every platform's archive hash
+// from a release's checksums.txt, signature checked, for a lock file;
+// InstallOptions.ExpectSHA256 then refuses an archive that no longer has
+// the locked hash.
 //
 // # Swap guarantees
 //

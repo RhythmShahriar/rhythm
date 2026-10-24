@@ -70,21 +70,28 @@ func resetTime(t, now time.Time) string {
 	return t.Format("Jan 2 15:04")
 }
 
-// ErrNoRelease means the release API has no release for Repo. When API is
-// a mirror the message names it, because a wrong RHYTHM_GITHUB_API is the
-// usual cause.
+// ErrNoRelease means the release API has no release for Repo, or none
+// matching Version. When API is a mirror the message names it, because a
+// wrong RHYTHM_GITHUB_API is the usual cause.
 type ErrNoRelease struct {
-	Repo string
-	API  string // the API base asked
-	Err  error  // the HTTP status
+	Repo    string
+	API     string // the API base asked
+	Version string // the tag or spec asked for, e.g. v0.3.9 or 0.3.*; "" for the latest
+	Err     error  // the HTTP status; nil when the API answered but nothing matched
 }
 
-// Error names the mirror when there is one.
+// Error names the version asked for and the mirror when there is one.
 func (e *ErrNoRelease) Error() string {
-	if e.API == "" || e.API == defaultAPI {
-		return e.Repo + " has no published releases yet"
+	mirror := e.API != "" && e.API != defaultAPI
+	switch {
+	case e.Version != "" && mirror:
+		return fmt.Sprintf("mirror %s has no release %s for %s", e.API, e.Version, e.Repo)
+	case e.Version != "":
+		return fmt.Sprintf("%s has no release %s", e.Repo, e.Version)
+	case mirror:
+		return fmt.Sprintf("mirror %s has no release for %s", e.API, e.Repo)
 	}
-	return fmt.Sprintf("mirror %s has no release for %s", e.API, e.Repo)
+	return e.Repo + " has no published releases yet"
 }
 
 // Unwrap returns the cause, for errors.Is and errors.As.
@@ -95,10 +102,14 @@ func (e *ErrNoRelease) Unwrap() error { return e.Err }
 type ErrChecksum struct {
 	Asset     string // archive name
 	Want, Got string // hex sha256
+	Locked    bool   // Want came from InstallOptions.ExpectSHA256, not checksums.txt
 }
 
 // Error says nothing was changed.
 func (e *ErrChecksum) Error() string {
+	if e.Locked {
+		return e.Asset + ": sha256 differs from the locked one; the release may have been replaced or tampered with, nothing was changed"
+	}
 	return e.Asset + ": checksum mismatch; the download may be corrupt or tampered with, nothing was changed"
 }
 

@@ -6,8 +6,6 @@ package update
 import (
 	"archive/tar"
 	"archive/zip"
-	"bufio"
-	"bytes"
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
@@ -18,7 +16,6 @@ import (
 	"net/http"
 	"os"
 	"path"
-	"strings"
 	"time"
 )
 
@@ -229,17 +226,4 @@ func fromZip(f *os.File, name, bin string, use func(io.Reader) error) error {
 		}
 	}
 	return fmt.Errorf("%s: no %s in the archive", name, bin)
-}
-
-// checksumFor finds name's sha256 in a checksums.txt in the sha256sum
-// format GoReleaser writes.
-func checksumFor(sums []byte, name string) (string, error) {
-	sc := bufio.NewScanner(bytes.NewReader(sums))
-	for sc.Scan() {
-		f := strings.Fields(sc.Text())
-		if len(f) == 2 && strings.TrimPrefix(f[1], "*") == name && len(f[0]) == 64 {
-			return strings.ToLower(f[0]), nil
-		}
-	}
-	return "", fmt.Errorf("checksums.txt has no entry for %s", name)
 }

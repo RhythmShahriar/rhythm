@@ -34,11 +34,14 @@ func releaseServer() *httptest.Server {
 
 	var srv *httptest.Server
 	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		release := `{"tag_name":"v0.3.0","published_at":"2026-10-01T12:00:00Z","assets":[
+			{"name":"rhythm-tuner_linux_amd64.tar.gz","browser_download_url":"%[1]s/dl/archive"},
+			{"name":"checksums.txt","browser_download_url":"%[1]s/dl/checksums.txt"}]}`
 		switch r.URL.Path {
-		case "/repos/RhythmShahriar/tuner/releases/latest":
-			fmt.Fprintf(w, `{"tag_name":"v0.3.0","assets":[
-				{"name":"rhythm-tuner_linux_amd64.tar.gz","browser_download_url":"%[1]s/dl/archive"},
-				{"name":"checksums.txt","browser_download_url":"%[1]s/dl/checksums.txt"}]}`, srv.URL)
+		case "/repos/RhythmShahriar/tuner/releases/latest", "/repos/RhythmShahriar/tuner/releases/tags/v0.3.0":
+			fmt.Fprintf(w, release, srv.URL)
+		case "/repos/RhythmShahriar/tuner/releases":
+			fmt.Fprintf(w, "["+release+"]", srv.URL)
 		case "/dl/archive":
 			_, _ = w.Write(archive)
 		case "/dl/checksums.txt":
@@ -86,4 +89,35 @@ func ExampleUpdater_Install() {
 	// installed 0.3.0 from rhythm-tuner_linux_amd64.tar.gz
 	// #!/bin/sh
 	// echo rhythm-tuner 0.3.0
+}
+
+// Pin a tool to the newest 0.3.x release and install it only if the
+// archive still has the sha256 a lock file recorded.
+func ExampleUpdater_Resolve() {
+	srv := releaseServer()
+	defer srv.Close()
+	dir, _ := os.MkdirTemp("", "example")
+	defer func() { _ = os.RemoveAll(dir) }()
+
+	u := &update.Updater{Repo: "RhythmShahriar/tuner", Binary: "rhythm-tuner", API: srv.URL, OS: "linux", Arch: "amd64"}
+	ctx := context.Background()
+	rel, err := u.Resolve(ctx, "0.3") // or "latest", or an exact "0.3.0"
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	sums, err := u.Checksums(ctx, rel) // every platform, for the lock file
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	locked := sums[u.ArchiveName()]
+	res, err := u.InstallWith(ctx, rel, filepath.Join(dir, "rhythm-tuner"), update.InstallOptions{ExpectSHA256: locked})
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Println(rel.Tag, rel.Published.Format("2006-01-02"), res.SHA256 == locked)
+	// Output:
+	// v0.3.0 2026-10-01 true
 }
