@@ -101,6 +101,50 @@ func TestExtInstallRecordsTheSigner(t *testing.T) {
 	}
 }
 
+// rhythm list shows the signature an installed extension has on record,
+// as ext list does, while a rhythm-* program rhythm didn't install stays
+// unchecked.
+func TestListShowsAnExtensionsSignature(t *testing.T) {
+	s, _ := extSandbox(t)
+	if code, out, errs := runCmd("ext", "install", zapRepo+"@1.0.0", "--dir", s.bin, "--quiet"); code != 0 {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	script(t, s.bin, "rhythm-other", "echo rhythm-other 2.0.0")
+	code, out, errs := runCmd("list", "--offline")
+	if code != 0 {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	row := func(name string) string {
+		for _, l := range strings.Split(out, "\n") {
+			if strings.HasPrefix(l, name+" (3rd)") {
+				return strings.Join(strings.Fields(l), " ")
+			}
+		}
+		return ""
+	}
+	if got, want := row("zap"), "zap (3rd) 1.0.0 yes "+filepath.Join(s.bin, "rhythm-zap"); got != want {
+		t.Errorf("zap row %q, want %q in\n%s", got, want, out)
+	}
+	if got, want := row("other"), "other (3rd) 2.0.0 - "+filepath.Join(s.bin, "rhythm-other"); got != want {
+		t.Errorf("other row %q, want %q in\n%s", got, want, out)
+	}
+	code, out, _ = runCmd("list", "--offline", "--json")
+	var rep listReport
+	if code != 0 || json.Unmarshal([]byte(out), &rep) != nil {
+		t.Fatalf("--json: exit %d\n%s", code, out)
+	}
+	for _, tl := range rep.Tools {
+		if want := map[string]string{"zap": "yes", "other": ""}[tl.Name]; tl.ThirdParty && tl.Signed != want {
+			t.Errorf("%s: signed %q, want %q", tl.Name, tl.Signed, want)
+		}
+	}
+	// A changed binary no longer matches what was verified.
+	appendTo(t, filepath.Join(s.bin, "rhythm-zap"), "# tampered\n")
+	if _, out, _ = runCmd("list", "--offline"); !strings.HasPrefix(row("zap"), "zap (3rd) 1.0.0 no ") {
+		t.Errorf("tampered zap shows %q in\n%s", row("zap"), out)
+	}
+}
+
 // A later release signed by another workflow, even one in the same
 // repository, is refused: the first install pinned the signer.
 func TestExtUpdateRefusesAnotherSigner(t *testing.T) {
@@ -247,6 +291,39 @@ func TestExtSearch(t *testing.T) {
 	code, _, errs = runCmd("ext", "search", "zap")
 	if code != 1 || !strings.Contains(errs, "can't reach") {
 		t.Errorf("unreachable: exit %d\n%s", code, errs)
+	}
+}
+
+// The suggestion names the first result that can be installed, or none
+// when every name is taken.
+func TestExtSearchSuggestsAnInstallableOne(t *testing.T) {
+	_, f := extSandbox(t)
+	for _, c := range []struct{ items, want string }{
+		{`{"full_name":"someone/rhythm-tuner","name":"rhythm-tuner","stargazers_count":30},
+		  {"full_name":"someone/rhythm-list","name":"rhythm-list","stargazers_count":20},
+		  {"full_name":"someone/rhythm-zap","name":"rhythm-zap","stargazers_count":10}`,
+			"Install one with: rhythm ext install someone/rhythm-zap\n"},
+		{`{"full_name":"someone/rhythm-tuner","name":"rhythm-tuner","stargazers_count":30},
+		  {"full_name":"someone/rhythm-list","name":"rhythm-list","stargazers_count":20}`,
+			""},
+	} {
+		f.mu.Lock()
+		f.search = `{"items":[` + c.items + `]}`
+		f.mu.Unlock()
+		code, out, errs := runCmd("ext", "search")
+		if code != 0 || errs != "" {
+			t.Fatalf("exit %d\n%s%s", code, out, errs)
+		}
+		got := ""
+		if i := strings.Index(out, "Install one with:"); i >= 0 {
+			got = out[i:]
+		}
+		if got != c.want {
+			t.Errorf("suggestion %q, want %q in\n%s", got, c.want, out)
+		}
+		if !strings.Contains(out, "tuner (name taken)") || !strings.Contains(out, "list (name taken)") {
+			t.Errorf("taken names not marked:\n%s", out)
+		}
 	}
 }
 
