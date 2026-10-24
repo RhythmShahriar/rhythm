@@ -17,7 +17,9 @@
 # tool releases are there for tests that run a real rhythm. The rhythm
 # versions differ the way real releases do:
 #   0.6.0 (latest)  knows tuner, soundcheck and echo; has install --dry-run
-#   0.5.0           knows all three, no --dry-run
+#                   and --quiet, and says once that --dir isn't on PATH
+#   0.5.0           knows all three, no --dry-run or --quiet; says for each
+#                   tool that --dir isn't on PATH
 #   0.4.0           knows tuner and soundcheck, no --dry-run
 #   0.3.5           knows all three; its help has no "Tools:" block
 # Broken releases test the installer's checks:
@@ -51,7 +53,8 @@ EOF
 
 # router writes a rhythm stand-in to $1: version $2, tools $3 (with their
 # aliases in parentheses), dry-run support $4 (yes or no), help with a
-# "Tools:" block $5 (yes or no). The tools it writes are tool stand-ins.
+# "Tools:" block $5 (yes or no). A router with --dry-run also has --quiet,
+# as in the real releases. The tools it writes are tool stand-ins.
 router() {
 	cat >"$1" <<EOF
 #!/bin/sh
@@ -63,6 +66,12 @@ tools_block=$5
 EOF
 	cat >>"$1" <<'EOF'
 [ -z "${RHYTHM_TEST_LOG:-}" ] || printf 'rhythm %s\n' "$*" >>"$RHYTHM_TEST_LOG"
+on_path() {
+	case ":$PATH:" in
+	*":$1:"*) return 0 ;;
+	esac
+	return 1
+}
 case ${1:-help} in
 --version | version)
 	echo "rhythm $version"
@@ -88,12 +97,32 @@ install) shift ;;
 	exit 1
 	;;
 esac
-dir=. dry= want=
+dir=. dry= quiet= want=
 while [ $# -gt 0 ]; do
 	case $1 in
 	--dir)
 		dir=$2
 		shift 2
+		;;
+	-h | --help)
+		if [ "$dry_run" != yes ]; then
+			printf 'Usage of install:\n  -dir string\n    \tinstall directory (default: next to rhythm)\n' >&2
+			echo 'usage: rhythm install <tool> [--dir <dir>]' >&2
+			exit 2
+		fi
+		printf 'Usage: rhythm install <tool>... [flags]\n\nFlags:\n'
+		printf '  --dir dir        install into dir (default: next to rhythm)\n'
+		printf '  --dry-run        check the names and print the tools, one per line, without installing\n'
+		printf '  --quiet          print only the Installed lines and errors\n'
+		exit 0
+		;;
+	--quiet)
+		if [ "$dry_run" != yes ]; then
+			echo 'flag provided but not defined: -quiet' >&2
+			exit 2
+		fi
+		quiet=1
+		shift
 		;;
 	--dry-run)
 		if [ "$dry_run" != yes ]; then
@@ -137,7 +166,9 @@ echo "$name $version"
 TOOL
 	chmod 0755 "$dir/rhythm-$n"
 	echo "Installed rhythm-$n 0.0.0-test to $dir/rhythm-$n"
+	[ "$dry_run" = yes ] || on_path "$dir" || echo "Note: $dir isn't on your PATH."
 done
+[ "$dry_run" != yes ] || [ -n "$quiet" ] || on_path "$dir" || echo "Note: $dir isn't on your PATH."
 EOF
 	chmod 0755 "$1"
 }

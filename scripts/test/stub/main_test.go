@@ -57,6 +57,38 @@ func TestDryRun(t *testing.T) {
 	}
 }
 
+func TestQuietAndPathNote(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("PATH", "")
+	stubAs(t, "0.6.0", "tuner:t,echo:e", "yes", "yes")
+	if code, out, _ := call("install", "--help"); code != 0 || !strings.Contains(out, "--quiet") {
+		t.Fatalf("install --help = %d %q", code, out)
+	}
+	note := "Note: " + dir + " isn't on your PATH.\n"
+	if _, out, _ := call("install", "tuner", "echo", "--dir", dir); strings.Count(out, note) != 1 {
+		t.Fatalf("want one PATH note:\n%s", out)
+	}
+	if _, out, _ := call("install", "tuner", "--dir", dir, "--quiet"); strings.Contains(out, "Note:") {
+		t.Fatalf("--quiet printed a note:\n%s", out)
+	}
+	t.Setenv("PATH", dir)
+	if _, out, _ := call("install", "tuner", "--dir", dir); strings.Contains(out, "Note:") {
+		t.Fatalf("a note for a folder on PATH:\n%s", out)
+	}
+
+	t.Setenv("PATH", "")
+	stubAs(t, "0.5.0", "tuner:t,echo:e", "no", "yes")
+	if code, out, _ := call("install", "--help"); code != 2 || strings.Contains(out, "--quiet") {
+		t.Fatalf("old install --help = %d %q", code, out)
+	}
+	if code, _, _ := call("install", "tuner", "--quiet"); code != 2 {
+		t.Fatalf("old install --quiet = %d", code)
+	}
+	if _, out, _ := call("install", "tuner", "echo", "--dir", dir); strings.Count(out, note) != 2 {
+		t.Fatalf("want a PATH note for each tool:\n%s", out)
+	}
+}
+
 func TestInstallCopiesItselfAndLogs(t *testing.T) {
 	stubAs(t, "0.6.0", "tuner:t", "yes", "yes")
 	dir := t.TempDir()

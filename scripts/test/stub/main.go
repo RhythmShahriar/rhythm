@@ -7,11 +7,13 @@
 //
 //	-X main.version=0.4.0          what --version prints
 //	-X main.tools=tuner:t,echo:e   the tools it knows, with their aliases
-//	-X main.dryRun=yes             whether install takes --dry-run
+//	-X main.dryRun=yes             whether install takes --dry-run and --quiet
 //	-X main.toolsBlock=yes         whether help has a "Tools:" block
 //
 // It logs its argv to $RHYTHM_TEST_LOG, "installs" a tool by copying itself
-// to rhythm-<tool>(.exe) in --dir; `hold` keeps it running for a minute
+// to rhythm-<tool>(.exe) in --dir and notes when --dir isn't on PATH: once
+// with dryRun (unless --quiet), after each tool without, like the real
+// releases. `hold` keeps it running for a minute
 // so a test can install over a running rhythm.exe. scripts/test/mkfake.sh
 // has the same stand-in as a shell script for install.sh.
 package main
@@ -76,10 +78,27 @@ func help(w io.Writer) {
 }
 
 func install(args []string, stdout, stderr io.Writer) int {
-	dir, dry := ".", false
+	dir, dry, quiet := ".", false, false
 	var want []string
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
+		case "-h", "--help":
+			if dryRun != "yes" {
+				fmt.Fprintln(stderr, "Usage of install:\n  -dir string\n    \tinstall directory (default: next to rhythm)")
+				fmt.Fprintln(stderr, "usage: rhythm install <tool> [--dir <dir>]")
+				return 2
+			}
+			fmt.Fprintln(stdout, "Usage: rhythm install <tool>... [flags]\n\nFlags:")
+			fmt.Fprintln(stdout, "  --dir dir        install into dir (default: next to rhythm)")
+			fmt.Fprintln(stdout, "  --dry-run        check the names and print the tools, one per line, without installing")
+			fmt.Fprintln(stdout, "  --quiet          print only the Installed lines and errors")
+			return 0
+		case "--quiet":
+			if dryRun != "yes" {
+				fmt.Fprintln(stderr, "flag provided but not defined: -quiet")
+				return 2
+			}
+			quiet = true
 		case "--dir":
 			if i+1 < len(args) {
 				i++
@@ -123,8 +142,24 @@ func install(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		fmt.Fprintf(stdout, "Installed rhythm-%s 0.0.0-test to %s\n", name, dest)
+		if dryRun != "yes" && !onPath(dir) {
+			fmt.Fprintf(stdout, "Note: %s isn't on your PATH.\n", dir)
+		}
+	}
+	if dryRun == "yes" && !quiet && !dry && !onPath(dir) {
+		fmt.Fprintf(stdout, "Note: %s isn't on your PATH.\n", dir)
 	}
 	return 0
+}
+
+// onPath reports whether dir is one of the folders on PATH.
+func onPath(dir string) bool {
+	for _, p := range filepath.SplitList(os.Getenv("PATH")) {
+		if p == dir {
+			return true
+		}
+	}
+	return false
 }
 
 func copySelf(dest string) error {
