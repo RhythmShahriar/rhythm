@@ -67,24 +67,30 @@ func TestCrawlNoQuadraticCopy(t *testing.T) {
 	}
 }
 
+// TestCrawlScalesLinearly is the timing side of TestCrawlNoQuadraticCopy,
+// which checks the cause without a clock. Eight times the pages is about
+// 8x the time when the crawl is linear and 64x with the old quadratic
+// copy. The bound sits between the two with room for a loaded runner, the
+// race detector and the garbage collector, which grow a big crawl's cost
+// faster than linearly.
 func TestCrawlScalesLinearly(t *testing.T) {
 	if testing.Short() {
 		t.Skip("timing test")
 	}
-	// Best of three runs each, to keep scheduler noise out of the ratio.
-	best := func(n int) time.Duration {
-		d := time.Duration(1 << 62)
-		for range 3 {
-			t0 := time.Now()
-			crawlMem(t, n)
-			d = min(d, time.Since(t0))
-		}
-		return d
+	// The best of three runs each, small and large taken in turn so a
+	// slow spell on the runner hits both sizes alike.
+	const factor, bound = 8, 24
+	small, large := time.Duration(1<<62), time.Duration(1<<62)
+	for range 3 {
+		t0 := time.Now()
+		crawlMem(t, 1000)
+		small = min(small, time.Since(t0))
+		t0 = time.Now()
+		crawlMem(t, factor*1000)
+		large = min(large, time.Since(t0))
 	}
-	small, large := best(2000), best(8000)
-	// Four times the pages: linear is about 4x, the old quadratic copy 16x.
-	if large > 6*small {
-		t.Errorf("8,000 pages took %v, 2,000 took %v: more than 6x", large, small)
+	if large > bound*small {
+		t.Errorf("%d pages took %v, 1,000 took %v: more than %dx", factor*1000, large, small, bound)
 	}
 }
 
