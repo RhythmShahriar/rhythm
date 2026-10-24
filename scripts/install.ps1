@@ -4,7 +4,7 @@
 # Environment:
 #   RHYTHM_INSTALL_DIR  where to install (default %LOCALAPPDATA%\Programs\rhythm)
 #   RHYTHM_VERSION      a specific version, e.g. 0.2.0 (default: latest)
-#   RHYTHM_TOOLS        tools to install as well (default "tuner soundcheck"; set empty for none)
+#   RHYTHM_TOOLS        tools to install as well (default "tuner soundcheck echo"; set empty for none)
 #   RHYTHM_GITHUB_API   GitHub API base, for mirrors (default https://api.github.com)
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue' # Invoke-WebRequest is far slower with the progress bar
@@ -13,7 +13,7 @@ $ProgressPreference = 'SilentlyContinue' # Invoke-WebRequest is far slower with 
 $Repo = 'RhythmShahriar/rhythm'
 $Api = if ($env:RHYTHM_GITHUB_API) { $env:RHYTHM_GITHUB_API } else { 'https://api.github.com' }
 $Dir = if ($env:RHYTHM_INSTALL_DIR) { $env:RHYTHM_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'Programs\rhythm' }
-$Tools = if ($null -ne $env:RHYTHM_TOOLS) { $env:RHYTHM_TOOLS } else { 'tuner soundcheck' }
+$Tools = if ($null -ne $env:RHYTHM_TOOLS) { $env:RHYTHM_TOOLS } else { 'tuner soundcheck echo' }
 # Windows PowerShell 5.1 has no $IsWindows; it only runs on Windows.
 $OnWindows = $PSVersionTable.PSEdition -eq 'Desktop' -or $IsWindows
 
@@ -69,4 +69,4 @@ if (-not (($UserPath -split ';') -contains $Dir)) {
     [Environment]::SetEnvironmentVariable('Path', (($UserPath, $Dir) -join ';').TrimStart(';'), 'User')
     Write-Host "Added $Dir to your PATH. Open a new terminal to use rhythm."
 }
-Write-Host 'Get started: rhythm tuner scan example.com · rhythm soundcheck snapshot example.com'
+Write-Host 'Get started: rhythm tuner scan example.com · rhythm soundcheck snapshot example.com · rhythm echo up'

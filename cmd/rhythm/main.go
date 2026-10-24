@@ -26,10 +26,11 @@ var version = "dev"
 var tools = map[string]string{
 	"tuner":      "RhythmShahriar/tuner",
 	"soundcheck": "RhythmShahriar/soundcheck",
+	"echo":       "RhythmShahriar/echo",
 }
 
 // aliases are short names for tools.
-var aliases = map[string]string{"t": "tuner", "sc": "soundcheck"}
+var aliases = map[string]string{"t": "tuner", "sc": "soundcheck", "e": "echo"}
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
@@ -83,6 +84,7 @@ func usage(w io.Writer) {
 Tools:
   tuner (t)        WordPress & PHP security scanner
   soundcheck (sc)  did my change break anything? whole-site before/after checks
+  echo (e)         is my site still saying what it should? every email, SMS and webhook
 
 Commands:
   rhythm install <tool> [--dir <dir>]   download a tool
