@@ -65,3 +65,13 @@ func IsTerminal(w io.Writer) bool {
 	f, ok := w.(*os.File)
 	return ok && term.IsTerminal(f.Fd())
 }
+
+// Exit codes shared by rhythm and every tool, so scripts and CI can tell
+// "the tool found something" apart from "the tool could not run".
+const (
+	ExitOK          = 0   // finished, nothing to report
+	ExitFindings    = 1   // finished and found something the user asked to fail on
+	ExitUsage       = 2   // bad flags, arguments or an unknown name
+	ExitUnavailable = 3   // a tool, site or service needed for the run isn't there
+	ExitInterrupted = 130 // stopped by Ctrl-C or a signal (128 + SIGINT)
+)
