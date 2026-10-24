@@ -148,17 +148,23 @@ func extSearch(args []string, stdout, stderr io.Writer) int {
 	}
 	tw := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "NAME\tREPO\tSTARS\tDESCRIPTION")
+	suggest := ""
 	for _, r := range found {
 		name := r.Name
 		if extNameTaken(r.Name) != "" {
 			name += " (name taken)"
+		} else if suggest == "" {
+			suggest = r.FullName
 		}
 		// Descriptions are anyone's text: no control bytes reach the terminal.
 		desc := strings.ReplaceAll(term.SafeText(r.Description), "\t", " ") // a tab would break the columns
 		fmt.Fprintf(tw, "%s\t%s\t%d\t%s\n", name, term.SafeText(r.FullName), r.Stars, desc)
 	}
 	_ = tw.Flush()
-	fmt.Fprintf(stdout, "Install one with: rhythm ext install %s\n", found[0].FullName)
+	// Only a result that can be installed is suggested.
+	if suggest != "" {
+		fmt.Fprintf(stdout, "Install one with: rhythm ext install %s\n", term.SafeText(suggest))
+	}
 	return 0
 }
 
