@@ -1,7 +1,8 @@
 // Copyright (c) 2026 Rhythm Shahriar <me@rhy.io>
 // SPDX-License-Identifier: AGPL-3.0-only
 
-// Package update installs and updates Rhythm binaries from GitHub Releases.
+// Package update installs and updates Rhythm binaries from GitHub Releases,
+// or from any other Source such as an offline bundle.
 //
 // # Release contract
 //
@@ -54,9 +55,19 @@
 //  5. The archive is streamed to a temp file next to the destination (at
 //     most 200 MB) and hashed on the way; its sha256 must match
 //     checksums.txt and, when InstallOptions.ExpectSHA256 is set, that
-//     hash too; otherwise Install returns ErrChecksum.
+//     hash too; otherwise Install returns ErrChecksum. With
+//     Updater.CacheDir set, an archive already cached under that sha256
+//     is hashed again and used instead of a download; a newly downloaded
+//     one is cached only after it has passed.
 //  6. The binary is unpacked from that file into a second temp file next
 //     to the destination and swapped into place.
+//
+// # Sources
+//
+// Releases come from GitHub unless Updater.Source names another Source:
+// Latest, ByTag and Open, plus Releases when it is also a Lister. The
+// checks above apply to every Source. Offline mode and RHYTHM_OFFLINE
+// stop only the GitHub source, so a local bundle still installs.
 //
 // # Pinning
 //

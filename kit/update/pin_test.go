@@ -115,6 +115,19 @@ func newReleaseAPI(t *testing.T, rels ...fakeRel) *releaseAPI {
 	return api
 }
 
+// archiveHits counts the archive downloads of every release.
+func (a *releaseAPI) archiveHits() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	n := 0
+	for p, c := range a.hits {
+		if strings.HasSuffix(p, "/archive") {
+			n += c
+		}
+	}
+	return n
+}
+
 func (a *releaseAPI) updater() *Updater {
 	return &Updater{Repo: "RhythmShahriar/tuner", Binary: "rhythm-tuner", API: a.URL}
 }

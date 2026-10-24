@@ -42,7 +42,7 @@ func (v *ghRelease) release() *Release {
 	return rel
 }
 
-// getJSON fetches /repos/{Repo}{path} from the release API into v. A 404
+// getJSON fetches /repos/{Repo}{path} from the GitHub API into v. A 404
 // becomes ErrNoRelease for want ("" for the latest release).
 func (u *Updater) getJSON(ctx context.Context, path, want string, v any) error {
 	if u.offline() {
@@ -84,32 +84,17 @@ func (u *Updater) getJSON(ctx context.Context, path, want string, v any) error {
 // leading v or not. Prereleases are returned too, since asking for one by
 // name is deliberate; drafts are not.
 func (u *Updater) ByTag(ctx context.Context, version string) (*Release, error) {
-	tag := "v" + strings.TrimPrefix(strings.TrimSpace(version), "v")
-	var v ghRelease
-	if err := u.getJSON(ctx, "/releases/tags/"+tag, tag, &v); err != nil {
-		return nil, err
-	}
-	if v.Draft {
-		return nil, &ErrNoRelease{Repo: u.Repo, API: u.apiBase(), Version: tag}
-	}
-	return v.release(), nil
+	return u.source().ByTag(ctx, strings.TrimPrefix(strings.TrimSpace(version), "v"))
 }
 
-// releases lists the newest 100 published releases, drafts left out.
-// Pinning to an older line than the last 100 releases needs an exact
-// version, which ByTag finds at any age.
+// releases lists the source's releases for Resolve and MinAge. A Source
+// that can't list them only serves "latest" and exact versions.
 func (u *Updater) releases(ctx context.Context) ([]*Release, error) {
-	var vs []ghRelease
-	if err := u.getJSON(ctx, "/releases?per_page=100", "", &vs); err != nil {
-		return nil, err
+	l, ok := u.source().(Lister)
+	if !ok {
+		return nil, errors.New("this release source can't list releases; ask for latest or an exact version, with no minimum age")
 	}
-	out := make([]*Release, 0, len(vs))
-	for i := range vs {
-		if !vs[i].Draft {
-			out = append(out, vs[i].release())
-		}
-	}
-	return out, nil
+	return l.Releases(ctx)
 }
 
 // Resolve finds the release a version spec names:
@@ -227,14 +212,10 @@ func (u *Updater) Checksums(ctx context.Context, rel *Release) (map[string]strin
 // set, checks its signature before anyone reads it. signer is the
 // identity the Verifier reported.
 func (u *Updater) checksumsFile(ctx context.Context, rel *Release) (sums []byte, signer string, err error) {
-	if u.offline() {
-		return nil, "", ErrOffline
-	}
-	sumsURL, ok := rel.Assets["checksums.txt"]
-	if !ok {
+	if _, ok := rel.Assets["checksums.txt"]; !ok {
 		return nil, "", fmt.Errorf("release %s has no checksums.txt; refusing to install unverified binaries", rel.Version)
 	}
-	sums, err = u.download(ctx, sumsURL, 1<<20)
+	sums, err = u.download(ctx, rel, "checksums.txt", 1<<20)
 	if err != nil {
 		return nil, "", fmt.Errorf("downloading checksums: %w", err)
 	}

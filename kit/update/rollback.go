@@ -192,20 +192,20 @@ func snapshot(path string) (string, error) {
 	if err := os.Link(path, name); err == nil {
 		return name, nil
 	}
-	if err := copyFile(path, name); err != nil {
+	if err := copyFile(path, name, 0o755); err != nil { // an executable
 		_ = os.Remove(name)
 		return "", err
 	}
 	return name, nil
 }
 
-func copyFile(from, to string) error {
+func copyFile(from, to string, perm os.FileMode) error {
 	src, err := os.Open(from) //nolint:gosec // a binary we manage
 	if err != nil {
 		return err
 	}
 	defer func() { _ = src.Close() }()
-	dst, err := os.OpenFile(to, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o755) //nolint:gosec // an executable must be executable
+	dst, err := os.OpenFile(to, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm) //nolint:gosec // callers pick the mode
 	if err != nil {
 		return err
 	}

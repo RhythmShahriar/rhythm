@@ -21,8 +21,8 @@ import (
 
 var errTooLarge = errors.New("file is larger than expected")
 
-// open starts a download of raw and returns its body and announced size
-// (-1 when unknown) once the status is 200.
+// open starts an HTTP download of raw and returns its body and announced
+// size (-1 when unknown) once the status is 200.
 func (u *Updater) open(ctx context.Context, raw string) (io.ReadCloser, int64, error) {
 	if err := checkURL(raw); err != nil {
 		return nil, 0, err
@@ -42,9 +42,10 @@ func (u *Updater) open(ctx context.Context, raw string) (io.ReadCloser, int64, e
 	return resp.Body, resp.ContentLength, nil
 }
 
-// download reads a small file, such as checksums.txt, into memory.
-func (u *Updater) download(ctx context.Context, raw string, limit int64) ([]byte, error) {
-	body, _, err := u.open(ctx, raw)
+// download reads a small asset of rel, such as checksums.txt, into
+// memory.
+func (u *Updater) download(ctx context.Context, rel *Release, asset string, limit int64) ([]byte, error) {
+	body, _, err := u.source().Open(ctx, rel, asset)
 	if err != nil {
 		return nil, err
 	}
@@ -59,11 +60,11 @@ func (u *Updater) download(ctx context.Context, raw string, limit int64) ([]byte
 	return data, nil
 }
 
-// downloadFile streams raw into a new temp file in dir, hashing it on the
-// way; it returns the file's path and hex sha256. The file is removed on
-// every error, including a canceled ctx.
-func (u *Updater) downloadFile(ctx context.Context, raw, dir, pattern string, limit int64) (file, sum string, err error) {
-	body, total, err := u.open(ctx, raw)
+// downloadFile streams an asset of rel into a new temp file in dir,
+// hashing it on the way; it returns the file's path and hex sha256. The
+// file is removed on every error, including a canceled ctx.
+func (u *Updater) downloadFile(ctx context.Context, rel *Release, asset, dir, pattern string, limit int64) (file, sum string, err error) {
+	body, total, err := u.source().Open(ctx, rel, asset)
 	if err != nil {
 		return "", "", err
 	}

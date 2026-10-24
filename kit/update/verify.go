@@ -48,11 +48,10 @@ func (u *Updater) verifySignature(ctx context.Context, rel *Release, sums []byte
 	fail := func(err error) (string, error) {
 		return "", &ErrSignature{Repo: u.Repo, Version: rel.Version, Cause: err}
 	}
-	raw, ok := rel.Assets[bundleAsset]
-	if !ok {
+	if _, ok := rel.Assets[bundleAsset]; !ok {
 		return fail(errors.New("the release has no " + bundleAsset))
 	}
-	bundle, err := u.download(ctx, raw, 1<<20)
+	bundle, err := u.download(ctx, rel, bundleAsset, 1<<20)
 	if err != nil {
 		return fail(fmt.Errorf("downloading %s: %w", bundleAsset, err))
 	}

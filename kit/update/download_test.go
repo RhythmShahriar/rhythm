@@ -150,7 +150,7 @@ func TestProgressWithoutContentLength(t *testing.T) {
 	defer srv.Close()
 	var last [2]int64
 	u := &Updater{Binary: "rhythm-tuner", Progress: func(done, total int64) { last = [2]int64{done, total} }}
-	file, _, err := u.downloadFile(context.Background(), srv.URL, t.TempDir(), "dl-*", 1<<20)
+	file, _, err := u.downloadFile(context.Background(), urlRelease(srv.URL), "f", t.TempDir(), "dl-*", 1<<20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +219,7 @@ func TestDownloadSizeCap(t *testing.T) {
 	u := &Updater{Binary: "rhythm-tuner"}
 	for _, p := range []string{"/announced", "/chunked"} {
 		dir := t.TempDir()
-		_, _, err := u.downloadFile(context.Background(), srv.URL+p, dir, "dl-*", 1024)
+		_, _, err := u.downloadFile(context.Background(), urlRelease(srv.URL+p), "f", dir, "dl-*", 1024)
 		if !errors.Is(err, errTooLarge) {
 			t.Errorf("%s: err = %v, want errTooLarge", p, err)
 		}
@@ -271,4 +271,9 @@ func TestCapReader(t *testing.T) {
 	if _, err := io.ReadAll(&capReader{r: strings.NewReader("123456"), left: 5}); err == nil {
 		t.Error("over the cap: no error")
 	}
+}
+
+// urlRelease is a release whose one asset, "f", is at raw.
+func urlRelease(raw string) *Release {
+	return &Release{Version: "0.2.0", Assets: map[string]string{"f": raw}}
 }

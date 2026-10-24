@@ -235,7 +235,7 @@ func TestRedirectToAnotherHostDropsTheToken(t *testing.T) {
 	defer front.Close()
 	// httptest TLS servers share one certificate, so either client trusts both.
 	u := &Updater{Binary: "rhythm-tuner", API: front.URL, HTTP: front.Client()}
-	if _, err := u.download(context.Background(), front.URL+"/same", 1<<20); err != nil {
+	if _, err := u.download(context.Background(), urlRelease(front.URL+"/same"), "f", 1<<20); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := first.get("/dl"); got != "Bearer mirror-secret" {
@@ -245,7 +245,7 @@ func TestRedirectToAnotherHostDropsTheToken(t *testing.T) {
 		t.Errorf("other host: asked=%v Authorization=%q, want no token", ok, got)
 	}
 
-	_, err := u.download(context.Background(), front.URL+"/plain", 1<<20)
+	_, err := u.download(context.Background(), urlRelease(front.URL+"/plain"), "f", 1<<20)
 	if err == nil || !strings.Contains(err.Error(), "refusing to download over http: http://example.invalid/dl") {
 		t.Errorf("redirect to http: err = %v", err)
 	}

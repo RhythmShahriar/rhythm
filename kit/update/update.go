@@ -86,6 +86,20 @@ type Updater struct {
 	// it off machines. ParseAge reads the "3d" form; the tools take it
 	// from RHYTHM_MIN_RELEASE_AGE, which this package doesn't read.
 	MinAge time.Duration
+
+	// CacheDir, when set, keeps every archive Install has verified as
+	// <CacheDir>/<sha256>.tar.gz (or .zip), so a CI runner or a second
+	// machine sharing the dir installs the same release without
+	// downloading it again. A cached archive is hashed again before use
+	// and replaced when it doesn't match; checksums.txt and its signature
+	// are still fetched and checked every time.
+	CacheDir string
+
+	// Source, when set, replaces GitHub as the place releases come from,
+	// such as an offline bundle. Offline and RHYTHM_OFFLINE only stop
+	// the GitHub source; a custom Source decides for itself. Every check
+	// Install makes applies to it all the same.
+	Source Source
 }
 
 // ErrOffline is returned by calls that need the network while offline
@@ -104,7 +118,8 @@ func envOffline() bool {
 
 // Release is one published release and its downloadable assets, as
 // Latest, ByTag and Resolve return it. Install needs the platform archive
-// and checksums.txt among the Assets.
+// and checksums.txt among the Assets. A custom Source may store any
+// locator it understands as an asset's value.
 type Release struct {
 	Version    string            // without the leading v
 	Tag        string            // the git tag, e.g. v0.3.1
@@ -124,17 +139,14 @@ type Skipped struct {
 }
 
 // Latest fetches the newest published release, never a draft or a
-// prerelease. GitHub picks it, unless MinAge is set: then it is the
-// newest of the last 100 releases that is at least MinAge old.
+// prerelease. The Source picks it, unless MinAge is set: then it is the
+// newest listed release (of the last 100 on GitHub) that is at least
+// MinAge old.
 func (u *Updater) Latest(ctx context.Context) (*Release, error) {
 	if u.MinAge > 0 {
 		return u.newest(ctx, nil, "")
 	}
-	var v ghRelease
-	if err := u.getJSON(ctx, "/releases/latest", "", &v); err != nil {
-		return nil, err
-	}
-	return v.release(), nil
+	return u.source().Latest(ctx)
 }
 
 // Newer reports whether latest is a newer release than current. Dev builds
@@ -316,6 +328,7 @@ type InstallResult struct {
 	Version string // the release installed, without the leading v
 	SHA256  string // hex sha256 of the archive
 	Signer  string // identity the Verifier reported; "" when none ran
+	Cached  bool   // the archive came from Updater.CacheDir, not a download
 }
 
 // InstallWith downloads rel for this platform, checks the signature over
@@ -325,7 +338,7 @@ type InstallResult struct {
 // passes.
 func (u *Updater) InstallWith(ctx context.Context, rel *Release, dest string, opts InstallOptions) (InstallResult, error) {
 	var res InstallResult
-	if u.offline() {
+	if u.Source == nil && u.offline() {
 		return res, ErrOffline
 	}
 	expect := strings.ToLower(strings.TrimSpace(opts.ExpectSHA256))
@@ -333,8 +346,7 @@ func (u *Updater) InstallWith(ctx context.Context, rel *Release, dest string, op
 		return res, fmt.Errorf("expected sha256 %q is not 64 hex digits", opts.ExpectSHA256)
 	}
 	name := u.ArchiveName()
-	archiveURL, ok := rel.Assets[name]
-	if !ok {
+	if _, ok := rel.Assets[name]; !ok {
 		return res, fmt.Errorf("release %s has no build for this platform (%s)", rel.Version, name)
 	}
 
@@ -347,18 +359,25 @@ func (u *Updater) InstallWith(ctx context.Context, rel *Release, dest string, op
 	if !ok {
 		return res, fmt.Errorf("checksums.txt has no entry for %s", name)
 	}
-	// The archive goes to a temp file next to dest and is hashed on the
-	// way, so memory stays flat however big the release is.
-	archive, got, err := u.downloadFile(ctx, archiveURL, filepath.Dir(dest), "."+filepath.Base(dest)+".download-*", maxArchive)
-	if err != nil {
-		return res, fmt.Errorf("downloading %s: %w", name, err)
+	archive, got, cached := u.fromCache(name, want)
+	if !cached {
+		// The archive goes to a temp file next to dest and is hashed on
+		// the way, so memory stays flat however big the release is.
+		archive, got, err = u.downloadFile(ctx, rel, name, filepath.Dir(dest), "."+filepath.Base(dest)+".download-*", maxArchive)
+		if err != nil {
+			return res, fmt.Errorf("downloading %s: %w", name, err)
+		}
+		defer func() { _ = os.Remove(archive) }()
 	}
-	defer func() { _ = os.Remove(archive) }()
 	if got != want {
 		return res, &ErrChecksum{Asset: name, Want: want, Got: got}
 	}
 	if expect != "" && got != expect {
 		return res, &ErrChecksum{Asset: name, Want: expect, Got: got, Locked: true}
+	}
+	if !cached {
+		// Only now: the signature and the checksums have both passed.
+		u.toCache(archive, name, got)
 	}
 
 	goos, _ := u.platform()
@@ -373,7 +392,7 @@ func (u *Updater) InstallWith(ctx context.Context, rel *Release, dest string, op
 	if err := extract(archive, name, bin, func(r io.Reader) error { return replace(dest, r, info) }); err != nil {
 		return res, err
 	}
-	return InstallResult{Version: rel.Version, SHA256: got, Signer: signer}, nil
+	return InstallResult{Version: rel.Version, SHA256: got, Signer: signer, Cached: cached}, nil
 }
 
 // Seams for tests: rename lets them inject failures and useOldSwap
