@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/RhythmShahriar/rhythm/kit/config"
 )
 
 // The router itself, as a target of rhythm update.
@@ -37,6 +39,9 @@ type target struct {
 	path    string // where it was found
 	real    string // path with symlinks resolved; updates write here so links stay links
 	managed *manager
+
+	extension bool   // from extensions.json, not the registry
+	signer    string // the signer an extension's releases must carry; "" for any
 }
 
 // selfPath returns the running rhythm binary with symlinks resolved. It is
@@ -151,6 +156,13 @@ func findTargets(ctx context.Context, want map[string]bool) (targets []target, m
 		}
 		targets = append(targets, target{tool: tool, binary: "rhythm-" + tool, repo: tools[tool], path: bin, real: resolve(bin)})
 	}
+	probeTargets(ctx, targets)
+	return targets, missing
+}
+
+// probeTargets finds out how each target was installed and which
+// version it is.
+func probeTargets(ctx context.Context, targets []target) {
 	for i := range targets {
 		targets[i].managed = managedBy(targets[i].real, targets[i].binary)
 	}
@@ -167,6 +179,94 @@ func findTargets(ctx context.Context, want map[string]bool) (targets []target, m
 		})
 	}
 	wg.Wait()
+}
+
+// extension is a third-party tool listed in extensions.json in the
+// Rhythm config folder: `rhythm <name>` runs rhythm-<name>, released
+// from repo. This reads internal/lock's rhythm-extensions/v1 format
+// until that package is part of this rhythm.
+type extension struct {
+	Name   string `json:"name"`
+	Repo   string `json:"repo"`
+	Signer string `json:"signer,omitempty"`
+}
+
+const (
+	extensionsSchema = "rhythm-extensions/v1"
+	extensionsFile   = "extensions.json"
+)
+
+var (
+	extensionName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
+	extensionRepo = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+$`)
+)
+
+// readExtensions returns the extensions in the Rhythm config folder
+// (RHYTHM_CONFIG_DIR when set), none when there is no file. A name the
+// registry already has is left out: the registry's repo wins.
+func readExtensions() ([]extension, error) {
+	dir := os.Getenv("RHYTHM_CONFIG_DIR")
+	if dir != "" && !filepath.IsAbs(dir) {
+		return nil, fmt.Errorf("RHYTHM_CONFIG_DIR must be an absolute path, not %q", dir)
+	}
+	if dir == "" {
+		var err error
+		if dir, err = config.Dir(); err != nil {
+			return nil, err
+		}
+	}
+	path := filepath.Join(dir, extensionsFile)
+	data, err := os.ReadFile(path) //nolint:gosec // rhythm's own config file
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var doc struct {
+		Schema     string      `json:"schema"`
+		Extensions []extension `json:"extensions"`
+	}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	if doc.Schema != extensionsSchema {
+		return nil, fmt.Errorf("%s: schema %q isn't %q", path, doc.Schema, extensionsSchema)
+	}
+	var list []extension
+	for _, x := range doc.Extensions {
+		switch {
+		case !extensionName.MatchString(x.Name):
+			return nil, fmt.Errorf("%s: extension name %q isn't a tool name", path, x.Name)
+		case !extensionRepo.MatchString(x.Repo):
+			return nil, fmt.Errorf("%s: extension %q: repo %q isn't owner/name", path, x.Name, x.Repo)
+		}
+		if _, registry := tools[x.Name]; !registry && x.Name != selfName {
+			list = append(list, x)
+		}
+	}
+	return list, nil
+}
+
+// extensionTargets returns the extensions found on PATH, or only those
+// in want when it is non-nil, with their versions probed. missing lists
+// the wanted ones that aren't on PATH.
+func extensionTargets(ctx context.Context, exts []extension, want map[string]bool) (targets []target, missing []string) {
+	for _, x := range exts {
+		if want != nil && !want[x.Name] {
+			continue
+		}
+		bin, err := exec.LookPath("rhythm-" + x.Name)
+		if err != nil {
+			if want != nil {
+				missing = append(missing, x.Name)
+			}
+			continue
+		}
+		targets = append(targets, target{tool: x.Name, binary: "rhythm-" + x.Name, repo: x.Repo, path: bin, real: resolve(bin),
+			extension: true, signer: x.Signer})
+	}
+	probeTargets(ctx, targets)
 	return targets, missing
 }
 

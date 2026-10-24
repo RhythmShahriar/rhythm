@@ -6,6 +6,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -24,10 +26,12 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/RhythmShahriar/rhythm/kit/cli"
+	"github.com/RhythmShahriar/rhythm/kit/config"
 	"github.com/RhythmShahriar/rhythm/kit/update"
 )
 
@@ -91,8 +95,16 @@ func parseArgs(fs *flag.FlagSet, args []string, stdout, stderr io.Writer) (pos [
 // names a mirror.
 const defaultAPI = "https://api.github.com"
 
+// updater is the one place rhythm builds an Updater. Every download it
+// makes goes through explainTransport, which also carries this run's
+// trust settings (see runOptions): the signature check, the archive
+// cache and, for install --from, the bundle the releases come from.
 func updater(repo, binary, current string) *update.Updater {
 	api := os.Getenv("RHYTHM_GITHUB_API") // a mirror or GitHub Enterprise; default api.github.com
+	t := &explainTransport{base: http.DefaultTransport, api: apiOrDefault(api), repo: repo, trust: thisRun}
+	if thisRun.bundle != "" {
+		t.source, t.sourceErr = openBundle(thisRun.bundle, repo)
+	}
 	return &update.Updater{
 		Repo:      repo,
 		Binary:    binary,
@@ -101,7 +113,7 @@ func updater(repo, binary, current string) *update.Updater {
 		API:       api,
 		HTTP: &http.Client{
 			Timeout:   5 * time.Minute, // kit/update's own default
-			Transport: &explainTransport{base: http.DefaultTransport, api: apiOrDefault(api), repo: repo},
+			Transport: t,
 		},
 	}
 }
@@ -122,13 +134,39 @@ type explainTransport struct {
 	api  string // the API base asked, without a trailing slash
 	repo string
 
-	// While archiveURL is set, its download body reports to progress.
-	// kit/update has no progress callback of its own yet.
+	// While archiveURL is set, its download body reports to progress
+	// and, when kept is set, is copied there for the archive cache.
+	// kit/update has no progress callback or cache of its own yet.
 	archiveURL string
 	progress   func(done, total int64)
+	kept       *bytes.Buffer
+
+	trust  *runOptions
+	signer string // the signer an extension's releases must carry; "" for any
+
+	// pinned answers these URLs from memory instead of the network: the
+	// checksums.txt whose signature was checked, so kit/update tests the
+	// archive against exactly those bytes, and a cached archive.
+	pinned map[string][]byte
+
+	// source, when set, serves the releases instead of the release API
+	// (install --from). sourceErr is why it couldn't be opened.
+	source     releaseSource
+	sourceErr  error
+	sourceRels map[string]*update.Release // by version, as the source gave them
 }
 
 func (t *explainTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if body, ok := t.pinned[req.URL.String()]; ok {
+		return t.watch(req, synthetic(req, io.NopCloser(bytes.NewReader(body)), int64(len(body)))), nil
+	}
+	if req.URL.Host == bundleHost {
+		resp, err := t.fromSource(req)
+		if err != nil {
+			return nil, err
+		}
+		return t.watch(req, resp), nil
+	}
 	resp, err := t.base.RoundTrip(req)
 	if err != nil {
 		return nil, err
@@ -149,10 +187,43 @@ func (t *explainTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		strings.HasSuffix(req.URL.Path, "/releases/latest"):
 		_ = resp.Body.Close()
 		return nil, &noReleaseError{api: t.api, repo: t.repo}
-	case code == http.StatusOK && t.progress != nil && t.archiveURL != "" && requested(req, t.archiveURL):
-		resp.Body = &countingBody{ReadCloser: resp.Body, total: resp.ContentLength, progress: t.progress}
+	case code == http.StatusOK:
+		return t.watch(req, resp), nil
 	}
 	return resp, nil
+}
+
+// watch reports the archive download's progress and keeps a copy of it
+// for the cache, when either is asked for.
+func (t *explainTransport) watch(req *http.Request, resp *http.Response) *http.Response {
+	if t.archiveURL == "" || !requested(req, t.archiveURL) {
+		return resp
+	}
+	if t.kept != nil {
+		resp.Body = &teeBody{ReadCloser: resp.Body, r: io.TeeReader(resp.Body, t.kept)}
+	}
+	if t.progress != nil {
+		resp.Body = &countingBody{ReadCloser: resp.Body, total: resp.ContentLength, progress: t.progress}
+	}
+	return resp
+}
+
+// teeBody reads through r, which copies what it reads, and closes the
+// original body.
+type teeBody struct {
+	io.ReadCloser
+	r io.Reader
+}
+
+func (b *teeBody) Read(p []byte) (int, error) { return b.r.Read(p) }
+
+// synthetic is a 200 response to req with body, for answers that don't
+// come from the network.
+func synthetic(req *http.Request, body io.ReadCloser, size int64) *http.Response {
+	return &http.Response{
+		Status: "200 OK", StatusCode: http.StatusOK, Proto: "HTTP/1.1", ProtoMajor: 1, ProtoMinor: 1,
+		Header: http.Header{}, Body: body, ContentLength: size, Request: req,
+	}
 }
 
 // requested reports whether req asks for rawURL, directly or as the end
@@ -370,6 +441,13 @@ checking each archive against its locked sha256; it installs nothing
 unless every tool matches. Data versions in the lock are passed to each
 tool as update --json --pin.
 
+Each archive is checked against the release's checksums.txt, and
+checksums.txt against its signature when this rhythm checks signatures.
+--skip-signature leaves the signature out and warns about it. --cache
+(or RHYTHM_DOWNLOAD_CACHE=1) keeps verified archives and reuses them, so
+a CI runner downloads each one once. --from installs from an offline
+bundle instead of GitHub releases.
+
 Exit status: 0 when every tool was installed, 1 when any failed, 2 for a
 usage error and 130 when interrupted.`
 
@@ -408,12 +486,18 @@ func cmdInstall(args []string, stdout, stderr io.Writer) int {
 	force := flags.Bool("force", false, "reinstall tools that are already on the latest release")
 	locked := flags.Bool("locked", false, "install the versions in rhythm.lock")
 	ageFlag := flags.String("min-age", "", "skip releases younger than `age`, such as 3d or 1w (default $"+minAgeEnv+")")
+	from := flags.String("from", "", "install from the offline `bundle` instead of GitHub releases")
+	trust := addTrustFlags(flags)
 	pos, code, ok := parseArgs(flags, args, stdout, stderr)
 	if !ok {
 		return code
 	}
 	age, ok := readMinAge(*ageFlag, stderr)
 	if !ok {
+		return exitUsage
+	}
+	if *from != "" && openBundle == nil {
+		fmt.Fprintln(stderr, "rhythm: --from needs a newer rhythm")
 		return exitUsage
 	}
 	// Every name is checked before anything is downloaded, so a typo in
@@ -466,6 +550,14 @@ func cmdInstall(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "rhythm:", err)
 		return 1
 	}
+	settings := trust.options(stderr)
+	if *from != "" {
+		if settings.bundle, err = filepath.Abs(*from); err != nil {
+			fmt.Fprintln(stderr, "rhythm:", err)
+			return 1
+		}
+	}
+	defer beginRun(settings)()
 	opt := installOptions{dir: abs, quiet: *quiet, force: *force, minAge: age}
 	if !*quiet && isTerminal(stderr) {
 		opt.progress = stderr
@@ -819,16 +911,33 @@ var isTerminal = cli.IsTerminal
 // line on w updated with how much of the archive has arrived. The line
 // is cleared when the download ends, so the Installed line takes its
 // place.
+//
+// Before that it runs this run's trust steps: the signature check of
+// checksums.txt when a verifier is set, and the archive cache lookup.
+// An archive found in the cache isn't downloaded and draws no line.
 func installWithProgress(ctx context.Context, u *update.Updater, rel *update.Release, dest string, w io.Writer) error {
 	t, ok := u.HTTP.Transport.(*explainTransport)
-	if w == nil || !ok {
+	if !ok {
 		return u.Install(ctx, rel, dest)
 	}
-	line := &progressLine{w: w, label: fmt.Sprintf("Downloading %s %s", u.Binary, rel.Version)}
-	t.archiveURL, t.progress = rel.Assets[u.ArchiveName()], line.update
-	defer func() { t.archiveURL, t.progress = "", nil }()
-	defer line.clear()
-	return u.Install(ctx, rel, dest)
+	t.archiveURL = rel.Assets[u.ArchiveName()]
+	defer func() { t.archiveURL, t.progress, t.kept, t.pinned = "", nil, nil, nil }()
+	want, cached, err := t.prepare(ctx, u, rel)
+	if err != nil {
+		return err
+	}
+	if w != nil && !cached {
+		line := &progressLine{w: w, label: fmt.Sprintf("Downloading %s %s", u.Binary, rel.Version)}
+		t.progress = line.update
+		defer line.clear()
+	}
+	if err := u.Install(ctx, rel, dest); err != nil {
+		return err
+	}
+	if t.kept != nil {
+		t.trust.cacheStore(want, u.ArchiveName(), t.kept.Bytes())
+	}
+	return nil
 }
 
 // progressLine draws "Downloading rhythm-tuner 0.3.2  12.4/27.1 MB" over
@@ -978,6 +1087,9 @@ func resolveSpec(ctx context.Context, u *update.Updater, spec string, minAge tim
 		return nil, err
 	}
 	latest := spec == "" || strings.EqualFold(spec, "latest")
+	if t, ok := u.HTTP.Transport.(*explainTransport); ok && (t.source != nil || t.sourceErr != nil) {
+		return t.fromSourceSpec(ctx, spec, latest)
+	}
 	switch {
 	case latest && minAge <= 0:
 		rel, err := u.Latest(ctx)
@@ -1108,28 +1220,23 @@ func apiGet(ctx context.Context, u *update.Updater, path, want string, v any) er
 
 // releaseChecksums returns the archive name to lowercase sha256 of every
 // archive rel's checksums.txt lists.
+// The signature check runs first when a verifier is set, as it does
+// for an install.
 func releaseChecksums(ctx context.Context, u *update.Updater, rel *update.Release) (map[string]string, error) {
-	sumsURL, ok := rel.Assets["checksums.txt"]
-	if !ok {
-		return nil, fmt.Errorf("release %s has no checksums.txt; refusing to install unverified binaries", rel.Version)
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sumsURL, nil)
+	data, err := verifiedChecksums(ctx, u, rel)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", u.UserAgent)
-	resp, err := u.HTTP.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("downloading checksums: %w", err)
+	sums := parseChecksums(data)
+	if len(sums) == 0 {
+		return nil, fmt.Errorf("release %s: checksums.txt lists no archives", rel.Version)
 	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("downloading checksums: HTTP %d", resp.StatusCode)
-	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return nil, fmt.Errorf("downloading checksums: %w", err)
-	}
+	return sums, nil
+}
+
+// parseChecksums reads checksums.txt into archive name to lowercase
+// sha256. CRLF line ends and "*name" are fine; other lines are skipped.
+func parseChecksums(data []byte) map[string]string {
 	sums := map[string]string{}
 	for _, line := range strings.Split(string(data), "\n") {
 		f := strings.Fields(line)
@@ -1137,10 +1244,33 @@ func releaseChecksums(ctx context.Context, u *update.Updater, rel *update.Releas
 			sums[strings.TrimPrefix(f[1], "*")] = strings.ToLower(f[0])
 		}
 	}
-	if len(sums) == 0 {
-		return nil, fmt.Errorf("release %s: checksums.txt lists no archives", rel.Version)
+	return sums
+}
+
+// releaseFile downloads the release asset name, at most limit bytes of
+// it. what words the asset for errors, such as "checksums".
+func releaseFile(ctx context.Context, u *update.Updater, rawURL, what string, limit int64) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, err
 	}
-	return sums, nil
+	req.Header.Set("User-Agent", u.UserAgent)
+	resp, err := u.HTTP.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("downloading %s: %w", what, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("downloading %s: HTTP %d", what, resp.StatusCode)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	if err != nil {
+		return nil, fmt.Errorf("downloading %s: %w", what, err)
+	}
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("downloading %s: file is larger than expected", what)
+	}
+	return data, nil
 }
 
 var sha256Hex = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -1280,4 +1410,301 @@ func readMinAge(flagValue string, stderr io.Writer) (minAge, bool) {
 // happens instead: "staying on 0.3.2" or "installing 0.3.2".
 func (m minAge) skipNote(binary string, s *skippedRelease, then string) string {
 	return fmt.Sprintf("%s %s is %s old; %s (min age %s)", binary, s.version, formatAge(s.age), then, m.text)
+}
+
+// Trust seams. Signature checks, offline bundles and the archive cache
+// plug in here, so the work that brings them doesn't touch install or
+// update. The two interfaces have the method sets of kit/update's
+// Verifier and Source, which this rhythm's kit/update doesn't have yet;
+// kit/sigverify's Verifier and a bundle reader satisfy them unchanged.
+
+// signatureVerifier checks a release's checksums.txt against its
+// Sigstore bundle and returns who signed it.
+type signatureVerifier interface {
+	VerifyChecksums(ctx context.Context, repo, version string, checksums, bundle []byte) (signer string, err error)
+}
+
+// releaseSource serves releases from somewhere other than the release
+// API, such as an offline bundle. Release.Assets values are whatever
+// locator the source understands; Open gets them back through rel.
+type releaseSource interface {
+	Latest(ctx context.Context) (*update.Release, error)
+	ByTag(ctx context.Context, version string) (*update.Release, error)
+	Open(ctx context.Context, rel *update.Release, asset string) (io.ReadCloser, int64, error)
+}
+
+// newVerifier builds the signature check every install, update and lock
+// runs on checksums.txt. nil means checksums only.
+var newVerifier func() (signatureVerifier, error)
+
+// openBundle opens the releases of repo in the bundle at path, for
+// rhythm install --from. nil means this rhythm can't read bundles.
+var openBundle func(path, repo string) (releaseSource, error)
+
+// signatureAsset is the Sigstore bundle a release signs checksums.txt
+// with.
+const signatureAsset = "checksums.txt.sigstore.json"
+
+// downloadCacheEnv turns the archive cache on, like --cache.
+const downloadCacheEnv = "RHYTHM_DOWNLOAD_CACHE"
+
+// runOptions are the trust settings of one command, read by updater for
+// every release it looks at.
+type runOptions struct {
+	skipSignature bool
+	cacheDir      string // where verified archives are kept; "" for no cache
+	bundle        string // install --from; "" for the release API
+
+	mu          sync.Mutex
+	built       bool
+	verifier    signatureVerifier
+	verifierErr error
+}
+
+// thisRun is the running command's settings. Commands that take trust
+// flags replace it with beginRun.
+var thisRun = &runOptions{}
+
+// beginRun makes r the settings of the command now running and returns
+// the function that restores the previous ones.
+func beginRun(r *runOptions) (end func()) {
+	prev := thisRun
+	thisRun = r
+	return func() { thisRun = prev }
+}
+
+// trustFlags are the flags install and update share for the trust steps.
+type trustFlags struct {
+	skipSignature *bool
+	cache         *bool
+}
+
+func addTrustFlags(fs *flag.FlagSet) trustFlags {
+	return trustFlags{
+		skipSignature: fs.Bool("skip-signature", false, "install without checking release signatures"),
+		cache:         fs.Bool("cache", false, "keep downloaded archives and reuse them (default $"+downloadCacheEnv+")"),
+	}
+}
+
+// options turns the flags into this run's settings. The warning for
+// --skip-signature goes to stderr, so it reaches a person even when
+// stdout is parsed.
+func (f trustFlags) options(stderr io.Writer) *runOptions {
+	r := &runOptions{skipSignature: *f.skipSignature}
+	if r.skipSignature {
+		fmt.Fprintln(stderr, "warning: signature check skipped")
+	}
+	if *f.cache || cacheFromEnv() {
+		if dir, err := config.CacheDir(selfName); err == nil {
+			r.cacheDir = filepath.Join(dir, "downloads")
+		}
+	}
+	return r
+}
+
+// cacheFromEnv reports whether RHYTHM_DOWNLOAD_CACHE asks for the cache:
+// any value but "", "0" and "false".
+func cacheFromEnv() bool {
+	v := strings.TrimSpace(os.Getenv(downloadCacheEnv))
+	return v != "" && v != "0" && !strings.EqualFold(v, "false")
+}
+
+// activeVerifier returns the signature check of this run, built once,
+// or nil when there is none or --skip-signature turned it off.
+func (r *runOptions) activeVerifier() (signatureVerifier, error) {
+	if r.skipSignature || newVerifier == nil {
+		return nil, nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.built {
+		r.verifier, r.verifierErr = newVerifier()
+		r.built = true
+	}
+	return r.verifier, r.verifierErr
+}
+
+// verifiedChecksums downloads rel's checksums.txt and, when this run has
+// a signature check, refuses it unless its Sigstore bundle verifies (and
+// names the signer an extension requires). It fails closed: a missing
+// bundle or a verifier that can't be built refuses the release.
+func verifiedChecksums(ctx context.Context, u *update.Updater, rel *update.Release) ([]byte, error) {
+	sumsURL, ok := rel.Assets["checksums.txt"]
+	if !ok {
+		return nil, fmt.Errorf("release %s has no checksums.txt; refusing to install unverified binaries", rel.Version)
+	}
+	sums, err := releaseFile(ctx, u, sumsURL, "checksums", 1<<20)
+	if err != nil {
+		return nil, err
+	}
+	t, _ := u.HTTP.Transport.(*explainTransport)
+	trust := thisRun
+	if t != nil && t.trust != nil {
+		trust = t.trust
+	}
+	v, err := trust.activeVerifier()
+	refuse := func(format string, a ...any) error {
+		return fmt.Errorf("refusing to install %s %s: %s", u.Repo, rel.Version, fmt.Sprintf(format, a...))
+	}
+	switch {
+	case err != nil:
+		return nil, refuse("signature check unavailable: %v", err)
+	case v == nil:
+		return sums, nil
+	}
+	bundleURL, ok := rel.Assets[signatureAsset]
+	if !ok {
+		return nil, refuse("signature check failed: the release has no %s", signatureAsset)
+	}
+	bundle, err := releaseFile(ctx, u, bundleURL, signatureAsset, 1<<20)
+	if err != nil {
+		return nil, err
+	}
+	signer, err := v.VerifyChecksums(ctx, u.Repo, rel.Version, sums, bundle)
+	if err != nil {
+		return nil, refuse("signature check failed: %v", err)
+	}
+	if t != nil && t.signer != "" && signer != t.signer {
+		return nil, refuse("signed by %s, not %s", signer, t.signer)
+	}
+	return sums, nil
+}
+
+// prepare runs the trust steps before kit/update downloads rel: the
+// signature check, then the cache lookup. want is the archive's sha256
+// when the cache is on, and cached reports a cache hit.
+func (t *explainTransport) prepare(ctx context.Context, u *update.Updater, rel *update.Release) (want string, cached bool, err error) {
+	if t.trust == nil {
+		return "", false, nil
+	}
+	v, verr := t.trust.activeVerifier()
+	if v == nil && verr == nil && t.trust.cacheDir == "" {
+		return "", false, nil // checksums only: kit/update does it all
+	}
+	sums, err := verifiedChecksums(ctx, u, rel)
+	if err != nil {
+		return "", false, err
+	}
+	// kit/update downloads checksums.txt again; it gets these bytes, so
+	// what it checks the archive against is what was verified.
+	t.pinned = map[string][]byte{rel.Assets["checksums.txt"]: sums}
+	if t.trust.cacheDir == "" {
+		return "", false, nil
+	}
+	want = parseChecksums(sums)[u.ArchiveName()]
+	if want == "" {
+		return "", false, nil // kit/update says what is missing
+	}
+	if data := t.trust.cacheLookup(want, u.ArchiveName()); data != nil {
+		t.pinned[t.archiveURL] = data
+		return want, true, nil
+	}
+	t.kept = &bytes.Buffer{}
+	return want, false, nil
+}
+
+// cachePath is where the archive with sha256 sum is kept: the hash names
+// it, so a release replaced under the same version can't be mistaken for
+// the cached one.
+func (r *runOptions) cachePath(sum, archive string) string {
+	ext := ".tar.gz"
+	if strings.HasSuffix(archive, ".zip") {
+		ext = ".zip"
+	}
+	return filepath.Join(r.cacheDir, sum+ext)
+}
+
+// cacheLookup returns the cached archive with sha256 sum, hashed again
+// before use. A file that no longer matches is removed. Any problem
+// means a miss: the cache only ever saves a download.
+func (r *runOptions) cacheLookup(sum, archive string) []byte {
+	p := r.cachePath(sum, archive)
+	data, err := os.ReadFile(p) //nolint:gosec // named by a sha256 in rhythm's cache folder
+	if err != nil {
+		return nil
+	}
+	if got := sha256.Sum256(data); hex.EncodeToString(got[:]) != sum {
+		_ = os.Remove(p)
+		return nil
+	}
+	return data
+}
+
+// cacheStore keeps an archive kit/update has just installed, if it is
+// the one checksums.txt names. Errors are ignored, like a miss.
+func (r *runOptions) cacheStore(sum, archive string, data []byte) {
+	if sum == "" || len(data) == 0 {
+		return
+	}
+	if got := sha256.Sum256(data); hex.EncodeToString(got[:]) != sum {
+		return
+	}
+	if err := os.MkdirAll(r.cacheDir, 0o700); err != nil {
+		return
+	}
+	p := r.cachePath(sum, archive)
+	tmp, err := os.CreateTemp(r.cacheDir, ".download-*")
+	if err != nil {
+		return
+	}
+	defer func() { _ = os.Remove(tmp.Name()) }()
+	_, werr := tmp.Write(data)
+	if cerr := tmp.Close(); werr != nil || cerr != nil {
+		return
+	}
+	_ = os.Rename(tmp.Name(), p)
+}
+
+// bundleHost stands for the release source in the asset URLs rhythm
+// hands kit/update, so its downloads come back through RoundTrip. The
+// .invalid top-level domain never resolves.
+const bundleHost = "bundle.rhythm.invalid"
+
+// errNoListing is the answer of a source to a version range or a minimum
+// age: it can't list releases.
+var errNoListing = errors.New("this release source can't list releases; ask for latest or an exact version, with no minimum age")
+
+// fromSourceSpec looks up spec in the release source. A source serves
+// the latest release and exact versions only; the cooldown doesn't
+// apply, since its releases were picked when it was made.
+func (t *explainTransport) fromSourceSpec(ctx context.Context, spec string, latest bool) (*pickedRelease, error) {
+	if t.sourceErr != nil {
+		return nil, t.sourceErr
+	}
+	var rel *update.Release
+	var err error
+	switch {
+	case latest:
+		rel, err = t.source.Latest(ctx)
+	case exactSpec.MatchString(spec):
+		rel, err = t.source.ByTag(ctx, strings.TrimPrefix(spec, "v"))
+	default:
+		return nil, errNoListing
+	}
+	if err != nil {
+		return nil, err
+	}
+	if t.sourceRels == nil {
+		t.sourceRels = map[string]*update.Release{}
+	}
+	t.sourceRels[rel.Version] = rel
+	routed := &update.Release{Version: rel.Version, Assets: map[string]string{}}
+	for name := range rel.Assets {
+		routed.Assets[name] = (&url.URL{Scheme: "http", Host: bundleHost, Path: "/" + rel.Version + "/" + name}).String()
+	}
+	return &pickedRelease{Release: routed}, nil
+}
+
+// fromSource answers a request for a release source's asset.
+func (t *explainTransport) fromSource(req *http.Request) (*http.Response, error) {
+	v, name, ok := strings.Cut(strings.TrimPrefix(req.URL.Path, "/"), "/")
+	rel := t.sourceRels[v]
+	if !ok || rel == nil || t.source == nil {
+		return nil, fmt.Errorf("the release source has no %s", req.URL.Path)
+	}
+	body, size, err := t.source.Open(req.Context(), rel, name)
+	if err != nil {
+		return nil, err
+	}
+	return synthetic(req, body, size), nil
 }

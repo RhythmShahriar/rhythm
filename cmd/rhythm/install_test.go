@@ -4,12 +4,22 @@
 package main
 
 import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 	"testing"
+
+	"github.com/RhythmShahriar/rhythm/kit/update"
 )
 
 func TestInstallHelp(t *testing.T) {
@@ -376,5 +386,279 @@ func TestProgressFollowsRedirects(t *testing.T) {
 	cdn.Response = &http.Response{Request: first}
 	if !requested(cdn, first.URL.String()) || requested(cdn, "https://github.com/other") {
 		t.Error("redirect chain not followed")
+	}
+}
+
+// fakeVerifier stands in for the signature check. It records what it
+// was asked and answers with signer, or with err.
+type fakeVerifier struct {
+	mu                sync.Mutex
+	calls             int
+	repo, version     string
+	checksums, bundle []byte
+	signer            string
+	err               error
+}
+
+func (v *fakeVerifier) VerifyChecksums(_ context.Context, repo, version string, checksums, bundle []byte) (string, error) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.calls++
+	v.repo, v.version, v.checksums, v.bundle = repo, version, checksums, bundle
+	return v.signer, v.err
+}
+
+// useVerifier makes v the signature check for the test.
+func useVerifier(t *testing.T, v *fakeVerifier) {
+	t.Helper()
+	old := newVerifier
+	newVerifier = func() (signatureVerifier, error) { return v, nil }
+	t.Cleanup(func() { newVerifier = old })
+}
+
+func TestInstallChecksTheSignature(t *testing.T) {
+	_, latest := allTools()
+	s := newSandbox(t, nil, latest)
+	v := &fakeVerifier{signer: "release-go.yml"}
+	useVerifier(t, v)
+
+	code, out, errs := runCmd("install", "tuner", "--dir", s.bin)
+	if code != 0 {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	// kit/update's own read of checksums.txt gets the verified bytes,
+	// not a second download that could differ.
+	sumsReads := 0
+	for _, p := range s.api.requests() {
+		if strings.HasPrefix(p, "/sums/") {
+			sumsReads++
+		}
+	}
+	if sumsReads != 1 {
+		t.Errorf("checksums.txt downloaded %d times", sumsReads)
+	}
+	resp, err := http.Get(s.api.URL + "/sums/" + tools["tuner"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	sums, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if v.calls != 1 || v.repo != tools["tuner"] || v.version != "0.2.0" || !bytes.Equal(v.checksums, sums) || string(v.bundle) != sigFor(tools["tuner"]) {
+		t.Errorf("verifier got %d calls: %s %s %q %q", v.calls, v.repo, v.version, v.checksums, v.bundle)
+	}
+}
+
+func TestInstallRefusesABadSignature(t *testing.T) {
+	_, latest := allTools()
+	s := newSandbox(t, nil, latest)
+	useVerifier(t, &fakeVerifier{err: errors.New("no matching signature")})
+
+	code, out, errs := runCmd("install", "tuner", "--dir", s.bin)
+	want := "refusing to install RhythmShahriar/tuner 0.2.0: signature check failed: no matching signature"
+	if code != 1 || !strings.Contains(errs, want) || strings.Contains(out, "Installed") {
+		t.Errorf("exit %d\n%s%s", code, out, errs)
+	}
+	if _, err := os.Stat(filepath.Join(s.bin, "rhythm-tuner")); err == nil {
+		t.Error("the binary was installed")
+	}
+	if n := s.archiveRequests(); n != 0 {
+		t.Errorf("%d archive downloads before the signature was checked", n)
+	}
+}
+
+func TestInstallRefusesAMissingBundle(t *testing.T) {
+	_, latest := allTools()
+	s := newSandbox(t, nil, latest)
+	s.api.noSig.Store(true)
+	useVerifier(t, &fakeVerifier{})
+	code, _, errs := runCmd("install", "tuner", "--dir", s.bin)
+	if code != 1 || !strings.Contains(errs, "signature check failed: the release has no checksums.txt.sigstore.json") {
+		t.Errorf("exit %d: %s", code, errs)
+	}
+}
+
+func TestInstallRefusesWhenTheVerifierCantStart(t *testing.T) {
+	_, latest := allTools()
+	s := newSandbox(t, nil, latest)
+	old := newVerifier
+	newVerifier = func() (signatureVerifier, error) { return nil, errors.New("no trusted root") }
+	t.Cleanup(func() { newVerifier = old })
+	code, _, errs := runCmd("install", "tuner", "--dir", s.bin)
+	if code != 1 || !strings.Contains(errs, "refusing to install RhythmShahriar/tuner 0.2.0: signature check unavailable: no trusted root") {
+		t.Errorf("exit %d: %s", code, errs)
+	}
+}
+
+func TestSkipSignature(t *testing.T) {
+	_, latest := allTools()
+	s := newSandbox(t, nil, latest)
+	v := &fakeVerifier{err: errors.New("no matching signature")}
+	useVerifier(t, v)
+
+	code, out, errs := runCmd("install", "tuner", "--dir", s.bin, "--skip-signature")
+	if code != 0 || !strings.Contains(out, "Installed rhythm-tuner 0.2.0") || errs != "warning: signature check skipped\n" {
+		t.Errorf("exit %d\n%s%s", code, out, errs)
+	}
+	if v.calls != 0 {
+		t.Error("the signature was checked")
+	}
+
+	// update takes it too; without it the update is refused.
+	s.stub(t, "rhythm-tuner", "0.1.0", "")
+	code, _, errs = runCmd("update", "tuner", "--no-data")
+	if code != 1 || !strings.Contains(errs, "signature check failed") || !strings.Contains(s.content("rhythm-tuner"), "0.1.0") {
+		t.Errorf("exit %d: %s", code, errs)
+	}
+	code, out, errs = runCmd("update", "tuner", "--no-data", "--skip-signature")
+	if code != 0 || !strings.HasPrefix(errs, "warning: signature check skipped\n") || !strings.Contains(out, "0.1.0 → 0.2.0") {
+		t.Errorf("exit %d\n%s%s", code, out, errs)
+	}
+}
+
+func TestInstallFromNeedsABundleReader(t *testing.T) {
+	_, latest := allTools()
+	s := newSandbox(t, nil, latest)
+	code, out, errs := runCmd("install", "tuner", "--dir", s.bin, "--from", "tools.bundle")
+	if code != 2 || errs != "rhythm: --from needs a newer rhythm\n" || out != "" {
+		t.Errorf("exit %d\n%s%s", code, out, errs)
+	}
+	if r := s.api.requests(); len(r) != 0 {
+		t.Errorf("requests: %v", r)
+	}
+}
+
+// memSource is a release source held in memory, like a bundle.
+type memSource struct {
+	rel   *update.Release
+	files map[string][]byte // by locator
+}
+
+func (m *memSource) Latest(context.Context) (*update.Release, error) { return m.rel, nil }
+
+func (m *memSource) ByTag(_ context.Context, v string) (*update.Release, error) {
+	if v != m.rel.Version {
+		return nil, fmt.Errorf("the bundle has no %s", v)
+	}
+	return m.rel, nil
+}
+
+func (m *memSource) Open(_ context.Context, rel *update.Release, asset string) (io.ReadCloser, int64, error) {
+	data, ok := m.files[rel.Assets[asset]]
+	if !ok {
+		return nil, 0, fmt.Errorf("the bundle has no %s", asset)
+	}
+	return io.NopCloser(bytes.NewReader(data)), int64(len(data)), nil
+}
+
+// newMemSource releases version of binary, a stub that logs to log.
+func newMemSource(t *testing.T, binary, version, log string) *memSource {
+	archive := tarGz(t, binary, stubScript(binary, version, log, ""))
+	sum := sha256.Sum256(archive)
+	name := fmt.Sprintf("%s_%s_%s.tar.gz", binary, runtime.GOOS, runtime.GOARCH)
+	return &memSource{
+		rel: &update.Release{Version: version, Assets: map[string]string{name: "mem:archive", "checksums.txt": "mem:sums"}},
+		files: map[string][]byte{
+			"mem:archive": archive,
+			"mem:sums":    fmt.Appendf(nil, "%s  %s\n", hex.EncodeToString(sum[:]), name),
+		},
+	}
+}
+
+func TestInstallFromABundle(t *testing.T) {
+	_, latest := allTools()
+	s := newSandbox(t, nil, latest)
+	src := newMemSource(t, "rhythm-tuner", "0.5.0", s.log("rhythm-tuner"))
+	var opened []string
+	old := openBundle
+	openBundle = func(path, repo string) (releaseSource, error) {
+		opened = append(opened, path+" "+repo)
+		if repo != tools["tuner"] {
+			return nil, fmt.Errorf("%s has no %s", path, repo)
+		}
+		return src, nil
+	}
+	t.Cleanup(func() { openBundle = old })
+	bundle := filepath.Join(s.dir, "tools.bundle")
+
+	code, out, errs := runCmd("install", "tuner", "echo", "--dir", s.bin, "--from", bundle)
+	if code != 1 || !strings.Contains(out, "Installed rhythm-tuner 0.5.0") || !strings.Contains(errs, bundle+" has no RhythmShahriar/echo") {
+		t.Errorf("exit %d\n%s%s", code, out, errs)
+	}
+	if !strings.Contains(s.content("rhythm-tuner"), "rhythm-tuner 0.5.0") {
+		t.Error("the bundle's binary wasn't installed")
+	}
+	if r := s.api.requests(); len(r) != 0 {
+		t.Errorf("the release API was asked: %v", r)
+	}
+	if len(opened) != 2 || opened[0] != bundle+" "+tools["tuner"] {
+		t.Errorf("opened %v", opened)
+	}
+
+	// A source can't list releases, so a version range can't be had.
+	code, _, errs = runCmd("install", "tuner@0.5", "--dir", s.bin, "--from", bundle)
+	if code != 1 || !strings.Contains(errs, "this release source can't list releases") {
+		t.Errorf("exit %d: %s", code, errs)
+	}
+	// A tampered archive fails the checksum, bundle or not.
+	src.files["mem:archive"] = tarGz(t, "rhythm-tuner", []byte("evil"))
+	code, _, errs = runCmd("install", "tuner@0.5.0", "--dir", s.bin, "--from", bundle, "--force")
+	if code != 1 || !strings.Contains(errs, "checksum mismatch") {
+		t.Errorf("exit %d: %s", code, errs)
+	}
+}
+
+func TestInstallCache(t *testing.T) {
+	_, latest := allTools()
+	s := newSandbox(t, nil, latest)
+	freshConfig(t)
+	cache := filepath.Join(os.Getenv("XDG_CACHE_HOME"), "rhythm", "rhythm", "downloads")
+	if runtime.GOOS == "darwin" {
+		cache = filepath.Join(os.Getenv("HOME"), "Library", "Caches", "rhythm", "rhythm", "downloads")
+	}
+
+	if code, out, errs := runCmd("install", "tuner", "--dir", s.bin, "--cache"); code != 0 {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	ents, _ := os.ReadDir(cache)
+	if len(ents) != 1 || !strings.HasSuffix(ents[0].Name(), ".tar.gz") {
+		t.Fatalf("cache holds %v", ents)
+	}
+	if fi, _ := os.Stat(cache); fi.Mode().Perm() != 0o700 {
+		t.Errorf("cache folder mode %v", fi.Mode().Perm())
+	}
+	if n := s.archiveRequests(); n != 1 {
+		t.Fatalf("%d archive downloads", n)
+	}
+
+	// The second install takes the archive from the cache, also when
+	// RHYTHM_DOWNLOAD_CACHE asks for it instead of the flag.
+	os.Remove(filepath.Join(s.bin, "rhythm-tuner"))
+	t.Setenv("RHYTHM_DOWNLOAD_CACHE", "1")
+	fakeTerminal(t)
+	code, out, errs := runCmd("install", "tuner", "--dir", s.bin)
+	if code != 0 || !strings.Contains(s.content("rhythm-tuner"), "rhythm-tuner 0.2.0") || strings.Contains(errs, "Downloading") {
+		t.Fatalf("exit %d\n%s%q", code, out, errs)
+	}
+	if n := s.archiveRequests(); n != 1 {
+		t.Errorf("%d archive downloads; the cached one wasn't used", n)
+	}
+
+	// A cached file that no longer matches its hash is downloaded again.
+	cached := filepath.Join(cache, ents[0].Name())
+	os.WriteFile(cached, []byte("corrupt"), 0o600)
+	if code, out, errs := runCmd("install", "tuner", "--dir", s.bin, "--force"); code != 0 {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	if n := s.archiveRequests(); n != 2 {
+		t.Errorf("%d archive downloads after the cache was corrupted", n)
+	}
+	if data, _ := os.ReadFile(cached); string(data) == "corrupt" {
+		t.Error("the corrupt file is still cached")
+	}
+
+	// "0" turns the variable off.
+	t.Setenv("RHYTHM_DOWNLOAD_CACHE", "0")
+	if code, _, _ := runCmd("install", "tuner", "--dir", s.bin, "--force"); code != 0 || s.archiveRequests() != 3 {
+		t.Errorf("exit %d, %d archive downloads", code, s.archiveRequests())
 	}
 }

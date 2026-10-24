@@ -347,6 +347,7 @@ func cmdLock(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
+	defer beginRun(&runOptions{})() // a signature check of its own, built once
 	ctx, stop := signalContext()
 	defer stop()
 	targets, _ := findTargets(ctx, nil)

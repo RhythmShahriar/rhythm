@@ -61,7 +61,11 @@ type fakeAPI struct {
 	*httptest.Server
 	mu    sync.Mutex
 	paths []string
+	noSig atomic.Bool // leave checksums.txt.sigstore.json out of the releases
 }
+
+// sigFor is the stand-in Sigstore bundle the fake API serves for repo.
+func sigFor(repo string) string { return "bundle for " + repo }
 
 // requests returns the paths requested so far.
 func (f *fakeAPI) requests() []string {
@@ -108,12 +112,18 @@ func newFakeAPI(t *testing.T, latest map[string]string, body func(binary, versio
 			}
 			bin := binaryFor(repo)
 			name := fmt.Sprintf("%s_%s_%s.tar.gz", bin, runtime.GOOS, runtime.GOARCH)
-			fmt.Fprintf(w, `{"tag_name":"v%s","assets":[{"name":%q,"browser_download_url":"%s/dl/%s"},{"name":"checksums.txt","browser_download_url":"%s/sums/%s"}]}`,
-				v, name, f.URL, repo, f.URL, repo)
+			sig := ""
+			if !f.noSig.Load() {
+				sig = fmt.Sprintf(`,{"name":"checksums.txt.sigstore.json","browser_download_url":"%s/sig/%s"}`, f.URL, repo)
+			}
+			fmt.Fprintf(w, `{"tag_name":"v%s","assets":[{"name":%q,"browser_download_url":"%s/dl/%s"},{"name":"checksums.txt","browser_download_url":"%s/sums/%s"}%s]}`,
+				v, name, f.URL, repo, f.URL, repo, sig)
 		case strings.HasPrefix(p, "/dl/"):
 			w.Write(assets[strings.TrimPrefix(p, "/dl/")].archive)
 		case strings.HasPrefix(p, "/sums/"):
 			w.Write(assets[strings.TrimPrefix(p, "/sums/")].sums)
+		case strings.HasPrefix(p, "/sig/"):
+			io.WriteString(w, sigFor(strings.TrimPrefix(p, "/sig/")))
 		default:
 			http.NotFound(w, r)
 		}
@@ -1111,5 +1121,103 @@ func TestUpdateModeUsage(t *testing.T) {
 		if code != exitUsage || !strings.Contains(errs, c.want) {
 			t.Errorf("%s: exit %d, want 2 and %q\n%s", c.args, code, c.want, errs)
 		}
+	}
+}
+
+// writeExtensions lists exts in extensions.json in a config folder of
+// the test's own.
+func writeExtensions(t *testing.T, doc string) {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("RHYTHM_CONFIG_DIR", dir)
+	if err := os.WriteFile(filepath.Join(dir, "extensions.json"), []byte(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUpdateExtensions(t *testing.T) {
+	installed, latest := allTools()
+	installed["rhythm-zap"] = "1.0.0"
+	latest["someone/zap"] = "1.1.0"
+	s := newSandbox(t, installed, latest)
+	writeExtensions(t, `{"schema":"rhythm-extensions/v1","extensions":[{"name":"zap","repo":"someone/zap"},{"name":"gone","repo":"someone/gone"}]}`)
+
+	code, out, errs := runCmd("update", "zap")
+	if code != 0 || !strings.Contains(out, "rhythm-zap         1.0.0 → 1.1.0 ✔") {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	if !strings.Contains(s.content("rhythm-zap"), "rhythm-zap 1.1.0") {
+		t.Error("the extension wasn't updated")
+	}
+	if s.ranUpdate("rhythm-zap") {
+		t.Error("a third-party tool without kit/cli got a plain update")
+	}
+	if s.ranUpdate("rhythm-tuner") {
+		t.Error("tuner was touched by update zap")
+	}
+
+	// Everything includes the extensions on PATH, after the tools.
+	s.stub(t, "rhythm-zap", "1.0.0", "")
+	code, out, errs = runCmd("update", "--no-data")
+	if code != 0 || !strings.Contains(out, "rhythm-zap         1.0.0 → 1.1.0 ✔") || strings.Index(out, "rhythm-zap") < strings.Index(out, "rhythm-tuner") {
+		t.Errorf("exit %d\n%s%s", code, out, errs)
+	}
+
+	// Named but not on PATH.
+	code, _, errs = runCmd("update", "gone")
+	if code != 1 || !strings.Contains(errs, "rhythm-gone        isn't on PATH, though extensions.json lists it") {
+		t.Errorf("exit %d: %s", code, errs)
+	}
+	// Not listed at all is still a usage error.
+	if code, _, errs := runCmd("update", "nope"); code != 2 || !strings.Contains(errs, `unknown tool "nope"`) {
+		t.Errorf("exit %d: %s", code, errs)
+	}
+}
+
+func TestUpdateExtensionNeedsItsSigner(t *testing.T) {
+	installed := map[string]string{"rhythm-zap": "1.0.0"}
+	s := newSandbox(t, installed, map[string]string{"someone/zap": "1.1.0"})
+	writeExtensions(t, `{"schema":"rhythm-extensions/v1","extensions":[{"name":"zap","repo":"someone/zap","signer":"https://github.com/someone/zap/.github/workflows/release.yml@refs/heads/main"}]}`)
+	useVerifier(t, &fakeVerifier{signer: "https://github.com/mallory/zap/.github/workflows/release.yml@refs/heads/main"})
+
+	code, _, errs := runCmd("update", "zap")
+	if code != 1 || !strings.Contains(errs, "refusing to install someone/zap 1.1.0: signed by https://github.com/mallory/") ||
+		!strings.Contains(s.content("rhythm-zap"), "1.0.0") {
+		t.Errorf("exit %d: %s", code, errs)
+	}
+	useVerifier(t, &fakeVerifier{signer: "https://github.com/someone/zap/.github/workflows/release.yml@refs/heads/main"})
+	if code, out, errs := runCmd("update", "zap"); code != 0 || !strings.Contains(s.content("rhythm-zap"), "1.1.0") {
+		t.Errorf("exit %d\n%s%s", code, out, errs)
+	}
+}
+
+func TestUpdateBadExtensionsFile(t *testing.T) {
+	installed, latest := allTools()
+	s := newSandbox(t, installed, latest)
+	for doc, want := range map[string]string{
+		`{"schema":"rhythm-extensions/v9","extensions":[]}`:                           `schema "rhythm-extensions/v9" isn't "rhythm-extensions/v1"`,
+		`{"schema":"rhythm-extensions/v1","extensions":[{"name":"Z!","repo":"a/b"}]}`: `extension name "Z!" isn't a tool name`,
+		`{"schema":"rhythm-extensions/v1","extensions":[{"name":"zap","repo":"ab"}]}`: `extension "zap": repo "ab" isn't owner/name`,
+		`not json`: "invalid character",
+	} {
+		writeExtensions(t, doc)
+		s.stub(t, "rhythm-tuner", "0.1.0", "")
+		code, _, errs := runCmd("update", "--no-data")
+		if code != 1 || !strings.Contains(errs, want) || !strings.Contains(errs, "; extensions not updated") || !strings.Contains(errs, "failed 1: extensions") {
+			t.Errorf("%s: exit %d: %s", doc, code, errs)
+		}
+		if !strings.Contains(s.content("rhythm-tuner"), "0.2.0") {
+			t.Errorf("%s: the tools weren't updated", doc)
+		}
+	}
+	// A registry name in the file doesn't take the tool from its repo.
+	writeExtensions(t, `{"schema":"rhythm-extensions/v1","extensions":[{"name":"tuner","repo":"mallory/tuner"}]}`)
+	exts, err := readExtensions()
+	if err != nil || len(exts) != 0 {
+		t.Errorf("got %v, %v", exts, err)
+	}
+	t.Setenv("RHYTHM_CONFIG_DIR", "relative")
+	if _, err := readExtensions(); err == nil || !strings.Contains(err.Error(), "must be an absolute path") {
+		t.Errorf("relative RHYTHM_CONFIG_DIR: %v", err)
 	}
 }

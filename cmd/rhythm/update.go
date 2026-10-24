@@ -38,6 +38,10 @@ Each update keeps the binary it replaces as <binary>.prev. --rollback
 puts it back: rhythm update --rollback tuner. --to installs one version
 of one tool, older ones too: rhythm update tuner --to 0.3.1.
 
+Extensions listed in extensions.json in rhythm's config folder are
+updated alongside the tools. --skip-signature and --cache work as for
+rhythm install.
+
 Exit status: 0 when everything worked, 1 when anything failed, 2 for a
 usage error and 130 when interrupted. With --check: 0 when everything is
 current, 10 when an update is available (or rhythm.lock is behind, with
@@ -62,6 +66,7 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 	ageFlag := flags.String("min-age", "", "skip releases younger than `age`, such as 3d or 1w (default $"+minAgeEnv+")")
 	back := flags.Bool("rollback", false, "put the named tools back to the version their last update replaced")
 	to := flags.String("to", "", "install `version` of the one tool named, even an older one")
+	trust := addTrustFlags(flags)
 	names, code, ok := parseArgs(flags, args, stdout, stderr)
 	if !ok {
 		return code
@@ -81,17 +86,22 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "rhythm: --json doesn't work with --lock; the lock is JSON already")
 		return exitUsage
 	}
+	exts, extErr := readExtensions()
+	if extErr != nil && !*selfOnly {
+		fmt.Fprintf(stderr, "rhythm: %v; extensions not updated\n", extErr)
+	}
 	// Names are checked before anything touches the network, so a typo
 	// costs nothing.
-	want, code := updateScope(names, *selfOnly, stderr)
+	want, code := updateScope(names, *selfOnly, exts, stderr)
 	if code != 0 {
 		return code
 	}
+	defer beginRun(trust.options(stderr))()
 	if *toLock {
 		return updateLock(want, *checkOnly, age, stdout, stderr)
 	}
 	if *back {
-		return rollbackTargets(want, stdout, stderr)
+		return rollbackTargets(want, exts, stdout, stderr)
 	}
 	// With --json, stdout carries the JSON alone; the lines people read
 	// move to stderr.
@@ -103,7 +113,10 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 	ctx, stop := signalContext()
 	defer stop()
 	var rep updateReport
-	targets, missing := findTargets(ctx, want)
+	if extErr != nil && !*selfOnly {
+		rep.failed = append(rep.failed, "extensions")
+	}
+	targets, missing := updateTargets(ctx, want, exts)
 	results := make([]updateTarget, len(targets))
 	for i, t := range targets {
 		results[i] = updateTarget{Name: t.binary, Current: t.current, Path: t.path, Signed: signedJSON(t.real)}
@@ -113,6 +126,9 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 	}
 	for _, tool := range missing {
 		msg := "isn't installed; install it with: rhythm install " + tool
+		if _, registry := tools[tool]; !registry {
+			msg = "isn't on PATH, though " + extensionsFile + " lists it"
+		}
 		fmt.Fprintf(stderr, "%-18s %s\n", "rhythm-"+tool, msg)
 		rep.failed = append(rep.failed, "rhythm-"+tool)
 		results = append(results, updateTarget{Name: "rhythm-" + tool, Error: msg})
@@ -151,6 +167,9 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 			continue
 		}
 		u := updater(t.repo, t.binary, t.current)
+		if et, ok := u.HTTP.Transport.(*explainTransport); ok {
+			et.signer = t.signer
+		}
 		rel, err := resolveSpec(ctx, u, *to, age.d)
 		var tooNew *tooNewError
 		switch {
@@ -214,6 +233,9 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 		for _, t := range targets {
 			if t.tool == selfName || t.hung || ctx.Err() != nil {
 				continue // rhythm has no data of its own; a hung tool would hang here too
+			}
+			if t.extension && !t.kitCLI {
+				continue // a plain `update` may mean anything to a third-party tool
 			}
 			if _, err := refreshData(ctx, t, nil, stdout, stderr); err != nil {
 				rep.failed = append(rep.failed, t.binary+" data")
@@ -471,9 +493,10 @@ func (r *updateReport) summary(checkOnly bool) string {
 }
 
 // updateScope turns the names given to rhythm update into the set of
-// targets to update; nil means everything. A non-zero code means the
-// names were wrong and the update must not start.
-func updateScope(names []string, selfOnly bool, stderr io.Writer) (map[string]bool, int) {
+// targets to update; nil means everything. Extensions are named as
+// listed. A non-zero code means the names were wrong and the update must
+// not start.
+func updateScope(names []string, selfOnly bool, exts []extension, stderr io.Writer) (map[string]bool, int) {
 	list := splitNames(names)
 	if selfOnly {
 		if len(list) > 0 {
@@ -489,6 +512,9 @@ func updateScope(names []string, selfOnly bool, stderr io.Writer) (map[string]bo
 	bad := false
 	for _, n := range list {
 		tool, ok := resolveName(n)
+		if !ok {
+			ok = slices.ContainsFunc(exts, func(x extension) bool { return x.Name == tool })
+		}
 		if !ok {
 			fmt.Fprintf(stderr, "rhythm: unknown tool %q%s\n", n, suggest(n))
 			bad = true
@@ -755,6 +781,14 @@ func rollback(dest string) (from, to string, err error) {
 	return from, s.Version, nil
 }
 
+// updateTargets is findTargets plus the extensions, after the registry
+// tools.
+func updateTargets(ctx context.Context, want map[string]bool, exts []extension) ([]target, []string) {
+	targets, missing := findTargets(ctx, want)
+	more, gone := extensionTargets(ctx, exts, want)
+	return append(targets, more...), append(missing, gone...)
+}
+
 // fileSHA256 returns the lowercase hex sha256 of the file at p.
 func fileSHA256(p string) (string, error) {
 	f, err := os.Open(p) //nolint:gosec // a binary rhythm installed
@@ -789,10 +823,10 @@ func copyFile(src, dst string) error {
 
 // rollbackTargets is rhythm update --rollback: it puts each named binary
 // back to the version its last update replaced.
-func rollbackTargets(want map[string]bool, stdout, stderr io.Writer) int {
+func rollbackTargets(want map[string]bool, exts []extension, stdout, stderr io.Writer) int {
 	ctx, stop := signalContext()
 	defer stop()
-	targets, missing := findTargets(ctx, want)
+	targets, missing := updateTargets(ctx, want, exts)
 	failed := len(missing) > 0
 	for _, tool := range missing {
 		fmt.Fprintf(stderr, "%-18s isn't installed; there is nothing to roll back\n", "rhythm-"+tool)
