@@ -29,11 +29,51 @@ func stub(t *testing.T, dir, name, body string) string {
 	return p
 }
 
-func TestUnknownTool(t *testing.T) {
-	var out, errb bytes.Buffer
-	t.Setenv("PATH", t.TempDir())
-	if code := run([]string{"tuner"}, &out, &errb); code != 1 || !strings.Contains(errb.String(), "rhythm install tuner") {
-		t.Errorf("exit %d: %s", code, errb.String())
+func TestExitCodes(t *testing.T) {
+	cases := []struct {
+		name     string
+		setup    func(t *testing.T, dir string) // fills the fake PATH
+		args     []string
+		code     int
+		inStderr string
+	}{
+		{"known tool missing", func(*testing.T, string) {}, []string{"tuner"}, 3, "install it with: rhythm install tuner"},
+		{"alias of a missing tool", func(*testing.T, string) {}, []string{"t"}, 3, "install it with: rhythm install tuner"},
+		{"unknown tool", func(*testing.T, string) {}, []string{"nope"}, 2, `unknown tool "nope"`},
+		{"tool file not executable", func(t *testing.T, dir string) {
+			os.WriteFile(filepath.Join(dir, "rhythm-tuner"), []byte("#!/bin/sh\nexit 0\n"), 0o644)
+		}, []string{"tuner"}, 3, "install it with: rhythm install tuner"},
+		{"tool file can't start", func(t *testing.T, dir string) {
+			os.WriteFile(filepath.Join(dir, "rhythm-tuner"), []byte{0x7f, 'E', 'L', 'F', 0, 0, 0, 0}, 0o755)
+		}, []string{"tuner"}, 3, "can't start tuner"},
+		{"findings pass through", func(t *testing.T, dir string) { stub(t, dir, "tuner", "exit 1") }, []string{"tuner"}, 1, ""},
+		{"any code passes through", func(t *testing.T, dir string) { stub(t, dir, "tuner", "exit 42") }, []string{"tuner"}, 42, ""},
+		{"success", func(t *testing.T, dir string) { stub(t, dir, "tuner", "exit 0") }, []string{"tuner"}, 0, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if runtime.GOOS == "windows" {
+				t.Skip("unix file modes and shell stubs")
+			}
+			dir := t.TempDir()
+			t.Setenv("PATH", dir)
+			c.setup(t, dir)
+			var out, errb bytes.Buffer
+			code := run(c.args, &out, &errb)
+			if code != c.code || !strings.Contains(errb.String(), c.inStderr) {
+				t.Errorf("exit %d (want %d): %s", code, c.code, errb.String())
+			}
+		})
+	}
+}
+
+func TestUsageListsExitCodes(t *testing.T) {
+	var out bytes.Buffer
+	usage(&out)
+	for _, line := range []string{"Exit codes:", "  2     usage error or unknown tool", "  3     tool not installed or can't start", "  130   interrupted"} {
+		if !strings.Contains(out.String(), line) {
+			t.Errorf("usage lacks %q", line)
+		}
 	}
 }
 

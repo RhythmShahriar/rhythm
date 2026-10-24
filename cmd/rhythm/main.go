@@ -78,17 +78,18 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "rhythm: invalid tool name %q\n", tool)
 		return cli.ExitUsage
 	}
-	if t, ok := lookupTool(tool); ok {
-		tool = t.Name
+	info, known := lookupTool(tool)
+	if known {
+		tool = info.Name
 	}
 	bin, err := exec.LookPath("rhythm-" + tool)
 	if err != nil {
-		if _, known := lookupTool(tool); known {
+		if known {
 			fmt.Fprintf(stderr, "rhythm: %s isn't installed\n  install it with: rhythm install %s\n", tool, tool)
-		} else {
-			fmt.Fprintf(stderr, "rhythm: unknown tool %q\n  run 'rhythm help' to see the tools\n", tool)
+			return cli.ExitUnavailable
 		}
-		return 1
+		fmt.Fprintf(stderr, "rhythm: unknown tool %q\n  run 'rhythm help' to see the tools\n", tool)
+		return cli.ExitUsage
 	}
 
 	cmd := exec.Command(bin, args[1:]...) //nolint:gosec // running rhythm-<tool> from PATH is the extension model
@@ -96,12 +97,22 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if err := cmd.Run(); err != nil {
 		var ee *exec.ExitError
 		if errors.As(err, &ee) {
-			return ee.ExitCode()
+			return ee.ExitCode() // the tool's own code, passed through
 		}
-		fmt.Fprintln(stderr, "rhythm:", err)
-		return 1
+		return startFailed(stderr, tool, known, err)
 	}
 	return 0
+}
+
+// startFailed reports a tool binary that was found but could not be
+// started (a broken download, the wrong architecture) and returns
+// ExitUnavailable, so CI never mistakes it for the tool's findings.
+func startFailed(stderr io.Writer, tool string, known bool, err error) int {
+	fmt.Fprintf(stderr, "rhythm: can't start %s: %v\n", tool, err)
+	if known {
+		fmt.Fprintf(stderr, "  reinstall it with: rhythm install %s\n", tool)
+	}
+	return cli.ExitUnavailable
 }
 
 // visibleCommands returns the commands help lists, sorted by name.
@@ -147,4 +158,13 @@ func usage(w io.Writer) {
 		}
 		fmt.Fprintf(w, "  %-*s   %s\n", width, synopses[i], c.summary)
 	}
+
+	fmt.Fprint(w, `
+Exit codes:
+  0     success
+  1     findings (any other exit code from a tool also passes through)
+  2     usage error or unknown tool
+  3     tool not installed or can't start
+  130   interrupted
+`)
 }
