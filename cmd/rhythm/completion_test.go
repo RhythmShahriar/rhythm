@@ -244,13 +244,14 @@ func TestCompletionCommand(t *testing.T) {
 }
 
 // TestCompletionScripts checks each script asks rhythm __complete and
-// passes the shell's syntax check where that shell is installed.
+// passes the shell's syntax check where that shell is installed: pwsh and,
+// on Windows, Windows PowerShell 5.1 too.
 func TestCompletionScripts(t *testing.T) {
-	syntax := map[string][]string{
-		"bash":       {"bash", "-n"},
-		"zsh":        {"zsh", "-n"},
-		"fish":       {"fish", "--no-execute"},
-		"powershell": {"pwsh", "-NoProfile", "-Command", "$e=$null; [void][System.Management.Automation.Language.Parser]::ParseFile($args[0], [ref]$null, [ref]$e); if ($e) { $e; exit 1 }"},
+	syntax := map[string][][]string{
+		"bash":       {{"bash", "-n"}},
+		"zsh":        {{"zsh", "-n"}},
+		"fish":       {{"fish", "--no-execute"}},
+		"powershell": {{"pwsh"}, {"powershell"}},
 	}
 	for _, shell := range shellNames {
 		t.Run(shell, func(t *testing.T) {
@@ -261,19 +262,39 @@ func TestCompletionScripts(t *testing.T) {
 			if !strings.HasSuffix(script, "\n") || strings.Contains(script, "\r") {
 				t.Error("script should end in a newline and use LF")
 			}
-			argv := syntax[shell]
-			if _, err := exec.LookPath(argv[0]); err != nil {
-				t.Skipf("%s isn't installed", argv[0])
-			}
 			file := filepath.Join(t.TempDir(), "rhythm."+shell)
 			if err := os.WriteFile(file, []byte(script), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if out, err := exec.Command(argv[0], append(argv[1:], file)...).CombinedOutput(); err != nil { //nolint:gosec // the test's own shells
-				t.Errorf("%s rejects the script: %v\n%s", shell, err, out)
+			checked := false
+			for _, argv := range syntax[shell] {
+				if _, err := exec.LookPath(argv[0]); err != nil {
+					continue
+				}
+				checked = true
+				if shell == "powershell" {
+					argv = append(argv, "-NoProfile", "-NonInteractive", "-Command", psParse(file))
+				} else {
+					argv = append(argv, file)
+				}
+				if out, err := exec.Command(argv[0], argv[1:]...).CombinedOutput(); err != nil { //nolint:gosec // the test's own shells
+					t.Errorf("%s rejects the script: %v\n%s", argv[0], err, out)
+				}
+			}
+			if !checked {
+				t.Skipf("%s isn't installed", syntax[shell][0][0])
 			}
 		})
 	}
+}
+
+// psParse is a PowerShell command that parses file and prints each syntax
+// error. The path is in the command itself: -Command joins any arguments
+// after it into the command text rather than passing them as $args.
+func psParse(file string) string {
+	quoted := "'" + strings.ReplaceAll(file, "'", "''") + "'"
+	return "$e = $null; $null = [System.Management.Automation.Language.Parser]::ParseFile(" + quoted +
+		", [ref]$null, [ref]$e); if ($e) { $e | ForEach-Object { $_.ToString() }; exit 1 }"
 }
 
 // TestBashScriptCompletes runs the bash script against a stand-in
