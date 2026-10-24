@@ -5,7 +5,7 @@
 // host (Limiter, Hosts) that slows down when a server asks it to (Slow),
 // and the retry waits every tool shares (Backoff, RetryAfter, Sleep).
 //
-// ParseTarget is still here so tools keep compiling, but it moved to
+// ParseTarget is still here so tools keep compiling but it moved to
 // kit/httpx.
 package ratelimit
 

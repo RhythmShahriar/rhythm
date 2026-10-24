@@ -30,7 +30,7 @@ var ErrPrivate = errors.New("private address")
 // The check runs on the resolved address just before connecting, so a
 // hostname that resolves to a private address is caught too. A proxy
 // from the environment (HTTPS_PROXY and friends) is dialed as is: the
-// user configured it, and what it connects to is its own decision.
+// user configured it and what it connects to is its own decision.
 //
 // A nil *Guard allows public addresses only. A Guard is safe for
 // concurrent use.
@@ -130,8 +130,8 @@ func AddrClass(ip netip.Addr) string {
 }
 
 // AllowAddr reports whether a connection to ip is allowed for a target
-// that resolves to targetIPs: always for a public ip, and for a
-// non-public one only when a target address is of the same class.
+// that resolves to targetIPs. A public ip is always allowed. A non-public
+// one is allowed only when a target address is of the same class.
 func AllowAddr(targetIPs []netip.Addr, ip netip.Addr) bool {
 	class := AddrClass(ip)
 	if class == "" {

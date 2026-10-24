@@ -10,7 +10,7 @@
 //     down when it answers 429 or 503, retrying after its Retry-After
 //   - follows redirects only on the target's site (see SameSite)
 //   - adds the user's -H headers only to requests for the target's host
-//     and port, and strips them (and Authorization) from any other host,
+//     and port and strips them (and Authorization) from any other host,
 //     even when the caller set them on the request itself
 //   - limits every response body to Options.MaxBody
 //   - refuses to connect to loopback, link-local and private addresses
@@ -18,7 +18,7 @@
 //   - logs each request and response to Options.Debug with every header
 //     value masked by secrets.RedactHeader
 //
-// Tools used to assemble these from parts, and each copy got one of them
+// Tools used to assemble these from parts and each copy got one of them
 // wrong (credentials sent to another port, off-site redirects followed).
 // This package is the single place they are right.
 package httpx
@@ -247,7 +247,7 @@ func SameSite(start, u *url.URL) bool {
 // SameHost reports whether a and b have the same scheme, host and port
 // (ignoring case, with the scheme's default port filled in). It is the
 // rule for sending credentials: unlike SameSite it treats www.example.com
-// and example.com, and http and https, as different, because a
+// and example.com (and http and https) as different, because a
 // credential meant for one should not reach the other.
 func SameHost(a, b *url.URL) bool {
 	return strings.EqualFold(a.Scheme, b.Scheme) && strings.EqualFold(a.Hostname(), b.Hostname()) &&

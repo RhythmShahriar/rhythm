@@ -312,7 +312,7 @@ func TestThrottleSlowsHost(t *testing.T) {
 			w.WriteHeader(http.StatusTooManyRequests)
 		}
 	}))
-	// Unlimited and no retries: the 429 is returned, but the host's
+	// Unlimited and no retries: the 429 is returned but the host's
 	// limiter now spaces requests (250 ms after a first slow-down).
 	c := New(Options{Target: mustURL(t, srv.URL)})
 	for range 3 {
