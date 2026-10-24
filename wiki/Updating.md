@@ -182,7 +182,7 @@ On a shared CI runner, set `GITHUB_TOKEN` to lift GitHub's limit of 60 release l
 | `RHYTHM_GITHUB_API` | GitHub API base for release lookups, for a mirror or GitHub Enterprise. Default `https://api.github.com`. It must be `https` (plain `http` only for `127.0.0.1`, `::1` and `localhost`) and a plain base URL. |
 | `GITHUB_TOKEN` | Sent to GitHub only, to avoid its anonymous rate limit of 60 requests an hour (useful in CI). Never sent to a mirror. |
 | `RHYTHM_GITHUB_TOKEN` | Sent to the `RHYTHM_GITHUB_API` host. When set, `GITHUB_TOKEN` isn't sent anywhere. |
-| `RHYTHM_OFFLINE` | Any value but empty or `0`: no network requests; updates fail with `RHYTHM_OFFLINE is set, so nothing was downloaded for <binaries>; unset it to reach the release API`. |
+| `RHYTHM_OFFLINE` | Any value but empty or `0`: no network requests; updates fail with `RHYTHM_OFFLINE is set, so nothing was downloaded for <binaries>; unset it to reach the release API`. The tools' data refresh is skipped too: `RHYTHM_OFFLINE is set, so no tool's data was refreshed either; unset it to refresh it`. |
 | `RHYTHM_MIN_RELEASE_AGE` | The default for `--min-age`. |
 | `RHYTHM_DOWNLOAD_CACHE` | The default for `--cache`. |
 

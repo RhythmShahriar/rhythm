@@ -381,7 +381,7 @@ Any other exit code from a tool passes through unchanged.
 | `RHYTHM_GITHUB_API` | a GitHub API mirror or GitHub Enterprise (default `https://api.github.com`); see [Release API and tokens](#release-api-and-tokens) |
 | `GITHUB_TOKEN` | sent to GitHub only, to lift its limit of 60 release lookups an hour |
 | `RHYTHM_GITHUB_TOKEN` | sent to the `RHYTHM_GITHUB_API` host; when set, `GITHUB_TOKEN` isn't sent anywhere |
-| `RHYTHM_OFFLINE` | any value but empty or `0`: no network requests. Release checks are skipped; downloads fail with `RHYTHM_OFFLINE is set, so nothing was downloaded for <binaries>; unset it to reach the release API`. `install --from` still works. |
+| `RHYTHM_OFFLINE` | any value but empty or `0`: no network requests. Release checks are skipped; downloads fail with `RHYTHM_OFFLINE is set, so nothing was downloaded for <binaries>; unset it to reach the release API`. `rhythm update` skips the tools' data refresh too. `install --from` still works. |
 | `RHYTHM_MIN_RELEASE_AGE` | the default for `--min-age`, such as `3d` |
 | `RHYTHM_DOWNLOAD_CACHE` | any value but empty, `0` or `false`: the default for `--cache` |
 | `RHYTHM_CONFIG_DIR` | the whole rhythm config folder; must be an absolute path |

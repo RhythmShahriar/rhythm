@@ -29,7 +29,8 @@ const updateSynopsis = `Usage: rhythm update [tool...] [flags]
 
 Updates rhythm and the installed tools to their latest releases, then
 refreshes each tool's data (such as Tuner's vulnerability database).
-Name tools, or rhythm itself, to update only those.
+Name tools, or rhythm itself, to update only those. RHYTHM_OFFLINE=1
+skips the data refresh too.
 
 --lock updates rhythm.lock instead of the installed binaries: it looks up
 the latest release of everything the lock pins, prints what changed and
@@ -246,6 +247,9 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 		rep.updated++
 	}
 
+	// Offline, a tool's own data refresh would only fail against the
+	// network too, so it is left out and said once.
+	offline, dataSkipped := offlineOn(os.Getenv(offlineEnv)), false
 	if !*checkOnly && !*noData {
 		for _, t := range targets {
 			if t.tool == selfName || t.hung || ctx.Err() != nil {
@@ -253,6 +257,10 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 			}
 			if t.extension && !t.kitCLI {
 				continue // a plain `update` may mean anything to a third-party tool
+			}
+			if offline {
+				dataSkipped = true
+				continue
 			}
 			if _, err := refreshData(ctx, t, nil, stdout, stderr); err != nil {
 				rep.failed = append(rep.failed, t.binary+" data")
@@ -264,6 +272,9 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 		return exitInterrupted
 	}
 	rep.nets.print(stderr)
+	if dataSkipped {
+		fmt.Fprintf(stderr, "%s is set, so no tool's data was refreshed either; unset it to refresh it\n", offlineEnv)
+	}
 	if *asJSON {
 		for i := range results {
 			if msg := rep.nets.explain(results[i].Name); msg != "" {
