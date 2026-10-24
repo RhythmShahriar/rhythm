@@ -139,6 +139,12 @@ func New(opts Options) (*Verifier, error) {
 // against checksums (checksums.txt) for release version of repo, given as
 // "owner/name" exactly as on GitHub. version may carry a leading "v". It
 // returns the signer, the workflow identity from the certificate.
+//
+// The first call loads the trusted root with its ctx and the Verifier keeps
+// that root for its lifetime. A ctx that is already done fails the call
+// without loading anything, so a later call can still reach TUF. A ctx that
+// expires during the TUF refresh falls back to the embedded root (and
+// OnFallback hears the ctx error), so give the first call enough time.
 func (v *Verifier) VerifyChecksums(ctx context.Context, repo, version string, checksums, bundle []byte) (string, error) {
 	if !validRepo(repo) {
 		return "", fmt.Errorf("sigverify: repository %q is not owner/name", repo)
@@ -155,6 +161,11 @@ func (v *Verifier) VerifyChecksums(ctx context.Context, repo, version string, ch
 }
 
 func (v *Verifier) verifyEntity(ctx context.Context, entity verify.SignedEntity, repo, version string, checksums []byte) (string, error) {
+	// Checked before the root loads once for good: a canceled ctx would
+	// otherwise pin this Verifier to the embedded root.
+	if err := ctx.Err(); err != nil {
+		return "", fmt.Errorf("sigverify: %w", err)
+	}
 	sv, err := v.verifier(ctx)
 	if err != nil {
 		return "", fmt.Errorf("sigverify: loading the Sigstore trusted root: %w", err)

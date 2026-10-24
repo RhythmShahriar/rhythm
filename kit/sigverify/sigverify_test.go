@@ -310,6 +310,36 @@ func TestTUFFallback(t *testing.T) {
 	}
 }
 
+// A ctx that is already done fails the call without loading the root, so
+// the next call still tries TUF instead of staying on the embedded root.
+func TestCanceledContextDoesNotPinRoot(t *testing.T) {
+	sums, b := fixtures(t)
+	var fallbacks []error
+	v, err := New(Options{
+		// Nothing listens here, so the second call falls back quickly.
+		Mirror:     "http://127.0.0.1:20041",
+		CacheDir:   filepath.Join(t.TempDir(), "tuf"),
+		OnFallback: func(err error) { fallbacks = append(fallbacks, err) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := v.VerifyChecksums(ctx, fixRepo, fixVersion, sums, b); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled ctx: err = %v, want context.Canceled", err)
+	}
+	if got := v.RootSource(); got != "" || len(fallbacks) != 0 {
+		t.Fatalf("canceled ctx loaded a root: RootSource %q, fallbacks %v", got, fallbacks)
+	}
+	if _, err := v.VerifyChecksums(context.Background(), fixRepo, fixVersion, sums, b); err != nil {
+		t.Fatal(err)
+	}
+	if len(fallbacks) != 1 || errors.Is(fallbacks[0], context.Canceled) {
+		t.Errorf("OnFallback calls = %v, want one with the network error", fallbacks)
+	}
+}
+
 func TestEmbeddedRootParses(t *testing.T) {
 	tm, from, err := loadRoot(context.Background(), Options{Offline: true})
 	if err != nil || from != RootEmbedded {
