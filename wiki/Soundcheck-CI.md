@@ -1,4 +1,4 @@
-Run Soundcheck on every deploy or pull request and fail the pipeline when something broke. This page covers the GitHub Action with every input and output, comparing staging with production, a snapshot and a compare in one job, `--fail-on`, JUnit, the job summary, artifacts and other CI systems.
+Run Soundcheck on every deploy or pull request and fail the pipeline when something broke. This page covers the GitHub Action with every input and output, comparing staging with production, a snapshot and a compare in one job, `--fail-on`, JUnit, the job summary, artifacts and other CI systems. To keep a snapshot of `main` between workflow runs and comment on pull requests, see [CI baselines and PR comments](Soundcheck-CI-Baselines).
 
 ## The GitHub Action
 
@@ -13,18 +13,20 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: RhythmShahriar/soundcheck@v1
+      - uses: RhythmShahriar/soundcheck@v1.2.0
         with:
           url: https://staging.yoursite.com
           against: https://yoursite.com
           fail-on: broke
 ```
 
-The action downloads the Soundcheck release for the runner (Linux or macOS, `amd64` or `arm64`), checks it against the release's `checksums.txt`, runs it with `--plain`, then writes:
+The action downloads the Soundcheck release for the runner (Linux or macOS, `amd64` or `arm64`), verifies the cosign signature on the release's `checksums.txt` and the archive's checksum, runs it with `--plain`, then writes:
 
 - the Markdown report into the **job summary**;
 - `soundcheck-report.html` and `soundcheck-junit.xml` into an artifact named **`soundcheck-report`**;
 - an error annotation and a failed job when the result meets `fail-on`.
+
+Use the action at a release tag such as `@v1.2.0`: it then installs that same Soundcheck version, so results only change when you move the tag. At a branch it installs the latest release and warns that the version isn't pinned. A later Soundcheck step in the same job reuses the install.
 
 GitHub's `ubuntu-latest` runners have Google Chrome installed, so no browser download is needed there.
 
@@ -34,11 +36,18 @@ GitHub's `ubuntu-latest` runners have Google Chrome installed, so no browser dow
 |---|---|---|
 | `url` | (required) | The site to check, e.g. `https://staging.yoursite.com`. |
 | `against` | `""` | Compare with this site now (e.g. production) instead of a snapshot. |
-| `mode` | `against` when `against` is set, otherwise `run` | `against`: compare `url` with `against`. `snapshot`: record `url` for a later compare step in the same job. `compare`: compare `url` with the latest snapshot. `run`: check once. |
+| `mode` | `against` when `against` is set, otherwise `run` | `against`: compare `url` with `against`. `snapshot`: record `url` for a later compare step in the same job, or with `baseline` for later runs. `compare`: compare `url` with the latest snapshot, or the baseline. `run`: check once. |
 | `name` | `ci` | Snapshot name, for mode `snapshot`. |
+| `baseline` | `""` | Keep a snapshot between workflow runs, e.g. `main`, in the Actions cache. See [CI baselines](Soundcheck-CI-Baselines). |
+| `comment` | `"false"` | `"true"` posts the result as one comment on the pull request and updates it on later runs. Needs `permissions: pull-requests: write`. See [The pull request comment](Soundcheck-CI-Baselines#the-pull-request-comment). |
+| `github-token` | the job's `GITHUB_TOKEN` | Token for the pull request comment. |
 | `fail-on` | `broke` for modes `against` and `compare`, `error` for `run` and `snapshot` | Fail the job on changes at or above `broke`, `new`, `changed` or `slower` (comparisons), or on issues at or above `error`, `warning` or `notice` (`run`, `snapshot`). `none` never fails. |
-| `args` | `""` | Extra flags, e.g. `--limit 100 --skip speed -k`. |
-| `version` | `latest` | Soundcheck version to install, e.g. `1.0.0`. |
+| `args` | `""` | Extra flags, e.g. `--limit 100 --skip speed -k`. Split on spaces with no glob expansion, so a value with spaces or quotes can't go here: use `headers` and `config` for those. |
+| `headers` | `""` | Extra request headers, one `Name: value` per line, each passed whole as its own `-H`. Values of four or more characters are masked in the log. |
+| `config` | `.soundcheck/config.yaml` when it exists | Settings file, passed as `--config`, relative to `working-directory`. |
+| `working-directory` | `.` | Folder every step runs in, e.g. `apps/web` in a monorepo. `.soundcheck/` is looked up there. |
+| `echo` | `""` | `"true"` for Echo at `http://127.0.0.1:8025`, or Echo's URL. Start Echo in an earlier step. See [Echo CI](Echo-CI). |
+| `version` | the action's tag | Soundcheck version to install, e.g. `1.2.0`, or `latest`. |
 | `upload` | `"true"` | Upload the HTML and JUnit reports as the `soundcheck-report` artifact. |
 
 The default mode is `against` when the `against` input is set. Otherwise it's `run`. Leave `fail-on` empty for the default that fits the mode; a value of the wrong kind for the mode (`broke` for `run`, `error` for `compare`) is a usage error and fails the step with exit code 2.
@@ -48,16 +57,27 @@ The default mode is `against` when the `against` input is set. Otherwise it's `r
 | Output | Description |
 |---|---|
 | `exit-code` | Soundcheck's exit code: `0` ok, `1` `fail-on` hit, `2` usage error, `3` couldn't check. |
+| `version` | The Soundcheck version that ran, e.g. `1.2.0`. |
 | `report` | Path of the standalone HTML report. |
 
-When Soundcheck exits `2` or higher, the step fails straight away and no reports are written. On `1`, the reports are written and uploaded first, then the job fails with `Soundcheck found changes or issues at or above --fail-on broke. See the job summary and the soundcheck-report artifact.` (with `its default` in place of the level when `fail-on` isn't set).
+When Soundcheck exits `2` or higher, the step fails straight away and no reports are written. The job summary then shows why, with the last lines Soundcheck printed:
+
+```text
+## Soundcheck
+
+Soundcheck could not check:
+
+~~~text
+<the last five lines Soundcheck printed on stderr>
+~~~
+``` On `1`, the reports are written and uploaded first, then the job fails with `Soundcheck found changes or issues at or above --fail-on broke. See the job summary and the soundcheck-report artifact.` (with `its default` in place of the level when `fail-on` isn't set).
 
 ## Staging against production
 
 The simplest setup: after a deploy to staging, compare it with production. Nothing to store between runs; both sites are checked now.
 
 ```yaml
-      - uses: RhythmShahriar/soundcheck@v1
+      - uses: RhythmShahriar/soundcheck@v1.2.0
         with:
           url: https://staging.yoursite.com
           against: https://yoursite.com
@@ -88,7 +108,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Snapshot before
-        uses: RhythmShahriar/soundcheck@v1
+        uses: RhythmShahriar/soundcheck@v1.2.0
         with:
           url: https://staging.yoursite.com
           mode: snapshot
@@ -100,7 +120,7 @@ jobs:
         run: ./deploy.sh staging
 
       - name: Compare after
-        uses: RhythmShahriar/soundcheck@v1
+        uses: RhythmShahriar/soundcheck@v1.2.0
         with:
           url: https://staging.yoursite.com
           mode: compare
@@ -138,7 +158,7 @@ rhythm soundcheck report --junit -o soundcheck-junit.xml --fail-on new -q
 rhythm soundcheck report --html -o soundcheck-report.html -q
 ```
 
-In JUnit, each class (or level) is a test suite and each change a test case; cases at or above `--fail-on` are failures (BROKE and NEW without it). One extra passing case, `37 pages checked`, records that the check ran even when nothing changed.
+In JUnit, each class (or level) is a test suite and each change a test case; cases at or above `--fail-on` are failures (BROKE and NEW without it). One extra passing case, such as `4 pages checked`, records that the check ran even when nothing changed.
 
 The action only attaches the JUnit file to the `soundcheck-report` artifact; nothing publishes it as test results. To see it in GitHub's test views, add a test reporter action of your choice after the Soundcheck step, pointed at `${{ runner.temp }}/soundcheck-report/soundcheck-junit.xml`.
 
@@ -163,7 +183,7 @@ To keep the whole `.soundcheck/runs/` folder (screenshots and JSON) instead, upl
 Pass the test account from repository secrets, so the leak test and login flows run:
 
 ```yaml
-      - uses: RhythmShahriar/soundcheck@v1
+      - uses: RhythmShahriar/soundcheck@v1.2.0
         env:
           SOUNDCHECK_USER: ${{ secrets.SOUNDCHECK_USER }}
           SOUNDCHECK_PASSWORD: ${{ secrets.SOUNDCHECK_PASSWORD }}
@@ -172,33 +192,24 @@ Pass the test account from repository secrets, so the leak test and login flows 
           against: https://yoursite.com
 ```
 
-`args` is split on spaces, without honoring quotes, so it can't carry a value that contains a space, such as a basic auth header. For staging behind basic auth, install Soundcheck and run it in a `run` step instead (or install it with the [setup-rhythm action](CI-Setup), `tools: soundcheck`):
+For staging behind basic auth, pass the header with the `headers` input. Each line is one `-H`, kept whole. Its value is masked in the log:
 
 ```yaml
-      - name: Install Soundcheck
-        run: |
-          curl -fsSL https://rythm.sh/install | RHYTHM_TOOLS=soundcheck sh
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      - name: Compare
-        env:
-          AUTH: ${{ secrets.STAGING_BASIC_AUTH }}   # base64 of user:password
-        run: |
-          rhythm soundcheck staging.yoursite.com --against yoursite.com \
-            -H "Authorization: Basic $AUTH" --fail-on broke --md -o soundcheck.md
-
-      - name: Summary
-        if: always()
-        run: cat soundcheck.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: RhythmShahriar/soundcheck@v1.2.0
+        with:
+          url: https://staging.yoursite.com
+          mode: compare
+          headers: |
+            Authorization: Basic ${{ secrets.STAGING_BASIC_AUTH }}
 ```
 
-Headers go to both sites in an `--against` comparison. Values your flows read with `${env:NAME}` go in `env:` the same way. Soundcheck never writes them to reports.
+Headers go to the checked site only (and its www. or bare host), never to other hosts a page loads from. In an `--against` comparison they go to both sites. Values your flows read with `${env:NAME}` go in `env:` the same way. Soundcheck never writes them to reports.
 
 ## Other CI systems
 
 Nothing above needs GitHub except the action itself. In GitLab CI, Jenkins, Bitbucket or a cron job:
 
-1. Use an image with Chrome or Chromium, or let Soundcheck download Chromium on first use (it needs the usual Chrome system libraries).
+1. Use an image with Chrome or Chromium, or let Soundcheck download Chrome for Testing on first use (it needs the usual Chrome system libraries).
 2. Install Soundcheck with the installer, or download the release archive and check it against `checksums.txt`.
 3. Run it with `--fail-on` and keep the reports.
 
@@ -209,13 +220,15 @@ soundcheck:
   script:
     - curl -fsSL https://rythm.sh/install | RHYTHM_TOOLS=soundcheck sh
     - export PATH="$HOME/.local/bin:$PATH"
-    - rhythm soundcheck staging.yoursite.com --against yoursite.com --fail-on broke --md -o soundcheck.md
+    - rhythm soundcheck staging.yoursite.com --against yoursite.com --fail-on broke -o soundcheck.md -o soundcheck.xml
   artifacts:
     when: always
     paths: [soundcheck.md, .soundcheck/runs/]
+    reports:
+      junit: soundcheck.xml
 ```
 
-`rhythm-soundcheck` is the tool itself; `rhythm soundcheck …` only forwards to it, so you can run `rhythm-soundcheck …` without `rhythm`. In containers running as root, Soundcheck starts Chrome without its sandbox automatically. To fail fast instead of downloading Chromium, add `--no-download` and point at a browser with `--browser /usr/bin/chromium`. See [FAQ](Soundcheck-FAQ#docker-root-and-the-chrome-sandbox).
+`rhythm-soundcheck` is the tool itself; `rhythm soundcheck …` only forwards to it, so you can run `rhythm-soundcheck …` without `rhythm`. Chrome can't use its sandbox as root. Soundcheck no longer turns it off by itself: in a container running as root, run as a normal user, or pass `--no-sandbox` (or set `SOUNDCHECK_NO_SANDBOX=1`) when the site is one you trust. To fail fast instead of downloading Chrome for Testing, add `--no-download` and point at a browser with `--browser /usr/bin/chromium`. See [FAQ](Soundcheck-FAQ#docker-root-and-the-chrome-sandbox).
 
 In CI, Soundcheck never prints the "new release" notice: it's off whenever the `CI` environment variable is set, as most CI systems do.
 
@@ -223,4 +236,4 @@ In CI, Soundcheck never prints the "new release" notice: it's off whenever the `
 > Point CI at sites you own or are authorized to test, ideally staging. On production, keep the default levels (no `submit`) and list it under `production` in the config.
 
 ---
-<sub>← [Speed](Soundcheck-Speed) · [Home](Home) · [Configuration](Soundcheck-Configuration) →</sub>
+<sub>← [Accessibility and SEO](Soundcheck-Accessibility-And-SEO) · [Home](Home) · [CI baselines and PR comments](Soundcheck-CI-Baselines) →</sub>

@@ -1,6 +1,6 @@
 The visual module screenshots every page at desktop and phone size. In a comparison it shows what looks different. This page covers how screenshots are taken, the threshold, hiding elements, regions that change on their own, inserted and removed blocks and how shared changes are grouped.
 
-Visual differences are always **CHANGED**: Soundcheck can't know whether a new look was intended, so it shows you, ranked by how much changed. Check each one and take a new snapshot once they're all expected.
+Visual differences are always **CHANGED**: Soundcheck can't know whether a new look was intended, so it shows you, ranked by how much changed. Check each one and accept the ones you expected into the snapshot with `rhythm soundcheck accept <id>`, or step through them with `review`. See [Review and accept](Soundcheck-Review-And-Accept).
 
 ## Screenshots
 
@@ -28,13 +28,17 @@ visual:
   threshold: 0.5   # % of a page's pixels that must change to report it, 0 to 100
 ```
 
-Raise it if small, harmless differences (a date, a counter) keep showing up; lower it to catch a one-word change in a long page. A `Page looks different` change gives the share that changed, how many areas, the largest and a height change nothing else explains:
+Raise it if small, harmless differences (a date, a counter) keep showing up; lower it to catch a one-word change in a long page. A `Page looks different` change gives the share that changed, how many areas, the size and place of the largest and a height change nothing else explains. This one is from `rhythm soundcheck demo`:
 
 ```text
-[CHANGED] Page looks different (desktop) - /
-  12.55% of the page changed, in 1 area; the largest at 233,157 (600×300 px). The page is 120 px taller.
-  fix: Open the report to compare the screenshots. If the change is expected, take a new snapshot.
+[CHANGED] Page looks different (desktop) - /blog/
+  5.66% of the page changed, in 1 area; the largest 1366×87 px, 441 px from the top.
+  fix: Open the report to compare the screenshots. If the change is expected, accept it into the snapshot with accept <id> or review.
 ```
+
+In a comparison of two sites (`--against`) there's no snapshot to accept into, so the fix reads `Open the report to compare the screenshots. If this difference is expected, hide the area with visual.ignore in .soundcheck/config.yaml.`
+
+When the snapshot's screenshots are missing or unreadable, those pages aren't compared visually and the comparison warns: `visual: 1 screenshot from the snapshot is missing or unreadable; visual changes on this page weren't checked`.
 
 Pages that failed in either run (an error, a 4xx or 5xx) aren't compared visually; their status is the news.
 
@@ -103,7 +107,8 @@ Desktop and mobile are compared and grouped separately, so one change usually sh
 | The same widget changes every time | `visual.ignore` with its selector |
 | Tiny differences on many pages (fonts, dates) | raise `visual.threshold`, e.g. to `2` |
 | Ads or embeds load at different times | `visual.ignore` the slots |
-| Everything moved after a deliberate redesign | take a new snapshot |
+| Everything moved after a deliberate redesign | take a new snapshot, or `accept --check 'visual/*'` |
+| A known change for a few weeks | an `ignore:` rule with `until` ([Review and accept](Soundcheck-Review-And-Accept#ignore)) |
 | You only care about errors and speed | `--skip visual` (both runs) |
 
 More in the [FAQ](Soundcheck-FAQ#noisy-visual-diffs).

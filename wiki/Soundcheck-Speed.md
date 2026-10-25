@@ -33,7 +33,7 @@ A page outside the good band gets an issue. The bands follow Google's Core Web V
 ```text
 [WARNING] Total Blocking Time over 200 ms (lab) - /pricing/
   TBT 399 ms (lab: one unthrottled desktop load in headless Chrome; real visitors on slower devices see higher numbers)
-  fix: Long JavaScript tasks block clicks and typing: defer scripts the page doesn't need at first, and remove plugins that add heavy JS to every page.
+  fix: Long JavaScript tasks block clicks and typing: defer scripts the page doesn't need at first and remove plugins that add heavy JS to every page.
 ```
 
 The title names the band, not the value; the measured value is in the detail.
@@ -113,7 +113,7 @@ For full Lighthouse audits, `--lighthouse` hands the site to [Unlighthouse](http
 rhythm soundcheck run staging.yoursite.com --lighthouse
 ```
 
-It needs Node.js: Soundcheck runs `npx --yes unlighthouse-ci@0.19.1 --site <url> --reporter jsonExpanded` and writes the results to `lighthouse/ci-result.json` in the run's folder. For a snapshot it runs once the snapshot is saved, into `.soundcheck/snapshots/<name>/lighthouse/`. Unlighthouse does its own crawl and takes a while, so it's off by default. Without `npx`, Soundcheck says `--lighthouse needs npx; install Node.js from https://nodejs.org` and carries on. The Lighthouse results are separate files; they don't change Soundcheck's own report.
+It needs Node.js with npm. On first use Soundcheck installs a locked copy of unlighthouse-ci 0.19.1 (every package pinned by its hash, with install scripts off) into its cache folder, then runs it with `--site <url> --reporter jsonExpanded` and the Chrome Soundcheck found. It writes the results to `lighthouse/ci-result.json` in the run's folder. For a snapshot it runs once the snapshot is saved, into `.soundcheck/snapshots/<name>/lighthouse/`. Unlighthouse does its own crawl and takes a while, so it's off by default. Without Node.js, Soundcheck says `--lighthouse needs Node.js and npm; install Node.js from https://nodejs.org` and carries on. It never runs on a site listed as production (`--lighthouse: <url> is listed as production; Unlighthouse crawls every page with its own settings, so it won't run there`). Unlighthouse uses its own settings, so with `--proxy`, `-k`, `-H` or `--cookie` it says `Lighthouse: Unlighthouse uses its own settings and ignores --proxy, -k, -H and --cookie for this run.` The Lighthouse results are separate files; they don't change Soundcheck's own report.
 
 ## Getting stable numbers
 
@@ -123,4 +123,4 @@ It needs Node.js: Soundcheck runs `npx --yes unlighthouse-ci@0.19.1 --site <url>
 - Skip the module with `--skip speed` when you don't care about speed for a run.
 
 ---
-<sub>← [Cache](Soundcheck-Cache) · [Home](Home) · [CI](Soundcheck-CI) →</sub>
+<sub>← [Cache](Soundcheck-Cache) · [Home](Home) · [Accessibility and SEO](Soundcheck-Accessibility-And-SEO) →</sub>

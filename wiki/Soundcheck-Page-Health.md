@@ -9,6 +9,8 @@ Every issue has a check ID, such as `health/php-error`, shown in the HTML report
 | `health/unreachable` | error | `Page didn't load: <reason>` | the browser couldn't load the page at all, e.g. `net::ERR_CONNECTION_REFUSED` or `timed out` |
 | `health/status` | error | `Server error 500` | the page answered 5xx |
 | `health/status` | error | `Page not found (404)` | the page answered 404 or 410 |
+| `health/blocked` | error | `Blocked by a bot challenge (<vendor>)` | a firewall or bot check answered instead of the site: Cloudflare, Sucuri, Akamai, Imperva, DataDome, AWS WAF, or a 403 or 429 that asks for a CAPTCHA |
+| `health/auth-required` | error | `Password required (401)` | a 401 with a `WWW-Authenticate` header; the detail reads `The server asks for a login: WWW-Authenticate: Basic realm="Staging"` |
 | `health/status` | error | `Page blocked (403)` | any other 4xx |
 | `health/redirect-chain` | notice | `Redirects 3 times before loading` | more than two redirects; the detail lists each hop |
 
@@ -20,6 +22,8 @@ A page that answered 200 in the snapshot and 404 now is the classic BROKE:
 ```
 
 Pages that time out get `Page didn't load: timed out`. The limit is `--timeout` per page (default 30 s).
+
+A firewall challenge or a password prompt gets that one issue and nothing else from the firewall's page. In a comparison, a site that starts challenging the runner shows one BROKE line. The changes that only come from the challenge page (a changed title, lost text, visual changes) are dropped. The fix says how to get past it: allowlist the runner's IP address, or pass a header the firewall lets through with `-H "Name: value"`; for a password, `-H "Authorization: Basic <base64 of user:password>"`.
 
 ## PHP errors
 
@@ -34,7 +38,7 @@ When PHP prints an error into the page (`display_errors` on, as on many staging 
 ```text
 [NEW] PHP Warning: Undefined array key "layout" - /, /about/, /blog/ +33 more
   source: themes/acme/footer.php:42
-  fix: Fix the code at the source line, and turn display_errors off in production so visitors never see these.
+  fix: Fix the code at the source line and turn display_errors off in production so visitors never see these.
 ```
 
 The source is shortened to the part you recognize: `/var/www/html/wp-content/themes/acme/footer.php` becomes `themes/acme/footer.php`. Paths under `wp-includes/`, `wp-admin/`, `vendor/`, `app/`, `src/` or `public/` keep that folder. Long messages are cut at 140 characters so the same error groups across pages and runs. Up to 20 PHP errors are read per page.
@@ -80,13 +84,13 @@ Every request the page makes is watched.
 | `health/failed-request` | error or warning | `POST /wp-admin/admin-ajax.php returned 500` | an XHR or fetch call, or any request to `admin-ajax.php` or `/wp-json/`, answered 4xx or 5xx; 5xx and 403 are errors, the rest warnings |
 | `health/failed-request` | warning | `Request failed (ERR_NAME_NOT_RESOLVED): <url>` | a request got no answer at all |
 | `health/broken-asset` | warning | `Broken image: /wp-content/uploads/team.jpg (404)` | an image, script, stylesheet or font answered 4xx or 5xx |
-| `health/favicon` | notice | `No favicon` | `/favicon.ico` is missing |
+| `health/favicon` | notice | `No favicon` | `/favicon.ico` is missing; one site-level issue listing the pages that asked for it, keyed by the path, so a changing `?v=2` doesn't count |
 
 Same-site URLs are shown as paths; other hosts in full.
 
 ## Broken links
 
-At the end of a run, Soundcheck tests links on the visited pages that point at same-site pages it didn't visit (grouped pages, pages past the limit or outside `--include`), with a `HEAD` request, falling back to `GET` when the server doesn't support `HEAD`. Each link is requested exactly as written, trailing slash and all. It tests up to 300 such links, four at a time and at the run's pace. Pages it did visit use the status it saw.
+At the end of a run, Soundcheck tests links on the visited pages that point at same-site pages it didn't visit (grouped pages, pages past the limit or outside `--include`), with a `HEAD` request, falling back to `GET` when the server doesn't support `HEAD`. Each link is requested exactly as written, trailing slash and all. It tests up to 300 such links, four at a time and at the run's pace, with a progress line (`Checking 3 links: 1/3` in plain mode). Pages it did visit use the status it saw.
 
 | Check | Level | Title |
 |---|---|---|
