@@ -16,10 +16,15 @@
 //
 // The manifest records the rhythm.lock the bundle was built from and the
 // sha256 and size of every file. Open refuses a bundle whose entries
-// aren't exactly the files the manifest lists, with matching hashes, and
-// any entry that isn't a plain file under a clean relative name, so a
-// crafted tar can't name a path outside the bundle or hide a file.
+// aren't exactly the files the manifest lists with matching hashes. It
+// also refuses any entry that isn't a plain file under a clean relative
+// name, so a crafted tar can't name a path outside the bundle or hide a
+// file.
 // Nothing is ever extracted to disk: assets are streamed from the tar.
+//
+// The manifest itself is not signed. Its hashes catch a damaged or
+// edited bundle; trust still comes from the release signatures and the
+// lock, as it does online.
 //
 // Source serves one repository's releases from a bundle and has the
 // method set of kit/update's Source and Lister. The checks a bundle's
@@ -63,13 +68,13 @@ const (
 
 // Manifest describes a bundle's contents.
 type Manifest struct {
-	Schema    string          `json:"schema"`
-	Created   time.Time       `json:"created"`
+	Schema    string          `json:"schema"`    // always Schema; Close sets it
+	Created   time.Time       `json:"created"`   // when the bundle was written, UTC
 	Rhythm    string          `json:"rhythm"`    // version of the rhythm that wrote it
 	Platforms []string        `json:"platforms"` // os_arch, such as linux_amd64
 	Lock      json.RawMessage `json:"lock"`      // the rhythm.lock it was built from
-	Releases  []Release       `json:"releases"`
-	Data      []DataPack      `json:"data"`
+	Releases  []Release       `json:"releases"`  // rhythm and every locked tool
+	Data      []DataPack      `json:"data"`      // tool data packs; empty when there are none
 }
 
 // Release is one release in a bundle.
@@ -82,17 +87,17 @@ type Release struct {
 
 // DataPack is one data pack of a tool in a bundle.
 type DataPack struct {
-	Tool    string `json:"tool"`
-	Name    string `json:"name"`
-	Version string `json:"version"`
-	File    File   `json:"file"`
+	Tool    string `json:"tool"`    // the tool that uses it, "tuner"
+	Name    string `json:"name"`    // the pack's name, as in update --json
+	Version string `json:"version"` // the pack's own version or date
+	File    File   `json:"file"`    // the pack's entry, under data/<tool>/<pack>/
 }
 
 // File is one entry of the tar.
 type File struct {
-	Path   string `json:"path"`
-	SHA256 string `json:"sha256"`
-	Size   int64  `json:"size"`
+	Path   string `json:"path"`   // the entry name, a clean relative path (see checkName)
+	SHA256 string `json:"sha256"` // hex digest of the entry's bytes
+	Size   int64  `json:"size"`   // in bytes
 }
 
 // ReleaseDir is where a release's assets go in a bundle.
@@ -408,6 +413,8 @@ func (s *Source) Open(ctx context.Context, rel *update.Release, asset string) (i
 		_ = f.Close()
 		return nil, 0, err
 	}
+	// Only offsets into the gzip stream would allow a seek, so the tar
+	// is read from the start each time. Bundles hold a few dozen entries.
 	tr := tar.NewReader(zr)
 	for {
 		h, err := tr.Next()
