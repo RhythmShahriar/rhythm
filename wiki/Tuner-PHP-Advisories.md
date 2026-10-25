@@ -139,7 +139,7 @@ Few sites rely on upload progress; it's used for upload progress bars that poll 
 
 No finding means the code never switches the handler. This check needs Tuner 0.3.1 or later.
 
-**From outside (`php-session-upload-progress`).** A remote scan can see the two configuration settings only when a `phpinfo()` page is exposed. The check reads the effective (local) values on common phpinfo paths and fires when the handler is `php_binary` or `php_serialize` and upload progress is on. It's medium with low confidence, reported alongside `php-phpinfo`, because whether the code switches the handler can only be checked on the server. It shipped in the [check pack](Tuner-Check-Packs), so Tuner 0.3.0 and later pick it up without an update.
+**From outside (`php-session-upload-progress`).** A remote scan can see the two configuration settings only when a `phpinfo()` page is exposed. The check reads the effective (local) values on common phpinfo paths and fires when the handler is `php_binary` or `php_serialize` and upload progress is on. It's medium with low confidence, reported alongside `php-phpinfo`, because whether the code switches the handler can only be checked on the server. It's built into Tuner 0.4.0; earlier releases got it from a [check pack](Tuner-Check-Packs).
 
 **Once PHP ships a fix,** the advisory data will list the fixed releases. `vuln-php` will then match it like any other PHP advisory through the daily data refresh. No Tuner release is needed. This page will be updated too.
 

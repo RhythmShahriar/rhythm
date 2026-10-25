@@ -6,14 +6,13 @@ By default a scan runs every polite check plus known-vulnerability matching. Thi
 |---|---|
 | `--profile quick` | the highest-value checks, about 30 requests; skips plugin and theme version lookups |
 | `--profile default` | every polite check (the default) |
-| `--profile deep` | adds aggressive enumeration |
 | `--tags leak,wordpress` | only checks with any of these tags |
 | `--exclude-tags headers` | skip checks with any of these tags |
 | `--id 'leak-*'` | only these checks (globs allowed); ignores the profile |
 | `--exclude-id wp-readme` | skip these checks |
 | `--severity medium` | skip checks below this severity |
 | `--checks ./my-checks` | load checks from a directory instead of the built-in ones |
-| `--no-check-updates` | use the checks built into your binary, not the latest check pack |
+| `--no-check-updates` | use the checks built into your binary, never a check pack |
 | `--no-vulns` | skip known-vulnerability matching |
 
 List flags take comma-separated values and can be repeated: `--tags leak --tags wordpress` is the same as `--tags leak,wordpress`.
@@ -24,17 +23,22 @@ A profile trades coverage for requests. Each check declares the cheapest profile
 
 | Profile | Runs | Use it for |
 |---|---|---|
-| `quick` | checks marked `quick`: the top leaks (`.env`, `.git`, debug logs), security headers and cookies, TLS, user enumeration, XML-RPC, `display_errors`, Laravel logs and Ignition. 21 checks in v0.3.1. | a fast first look, or frequent scans of many sites |
-| `default` | everything polite and non-intrusive, adding backup and dump searches, `wp-config.php` copies, phpinfo, Adminer, directory listing and more. 37 checks in v0.3.1. | normal scans |
-| `deep` | `default` plus checks marked `deep`: more aggressive enumeration | thorough audits of your own sites |
+| `quick` | checks marked `quick`: the top leaks (`.env`, `.git`, debug logs), security headers and cookies, TLS, user enumeration, XML-RPC, `display_errors`, Laravel logs and Ignition. 21 checks in 0.4.0, about 30 requests. | a fast first look, or frequent scans of many sites |
+| `default` | everything polite and non-intrusive, adding backup and dump searches, `wp-config.php` copies, staging copies, backup plugin folders, phpinfo, database tools, framework debug pages, server status pages, directory listing and more. 77 checks in 0.4.0. | normal scans |
 
 ```sh
 rhythm tuner scan yoursite.com --profile quick
-rhythm tuner scan yoursite.com --profile deep
+```
+
+On a test WordPress site the two compare like this:
+
+```text
+Score 0/100 - 4 critical, 1 high, 1 medium, 6 low, 1 info - 21 checks, 17 requests, 300ms
+Score 0/100 - 4 critical, 2 high, 1 medium, 7 low, 1 info - 77 checks, 180 requests, 3.6s
 ```
 
 > [!NOTE]
-> No built-in check is marked `deep` yet, so `deep` runs the same checks as `default`. New checks can arrive in a [check pack](Tuner-Check-Packs) at any time; `rhythm tuner checks --profile deep` shows the current set.
+> Earlier releases offered a `deep` profile. No check uses it, so it's gone from the help and the picker. `--profile deep` still works and says so: `rhythm tuner scan: --profile deep: no check uses it yet, so it runs the same checks as default`. For more plugin discovery, see `--plugins deep` in [Requests and politeness](Tuner-Requests#plugin-discovery).
 
 ### What quick skips
 
@@ -57,8 +61,10 @@ Common tags:
 
 | Tag | Covers |
 |---|---|
-| `leak` | exposed files: `.env`, `.git`, `.svn`, dumps, backups, logs, `.DS_Store` |
-| `secrets` | checks that look for credentials in what they find |
+| `leak` | exposed files: `.env`, `.git`, `.svn`, `.hg`, dumps, backups, logs, editor and deploy settings, `.DS_Store` |
+| `secrets` | checks that look for credentials in what they find. `rhythm tuner checks --tags secrets` also lists the secret rules they apply |
+| `backup`, `source` | backup archives and plugin backup folders; source code and version control |
+| `server` | server pages such as `/server-status`, `/nginx_status` and `web.config` |
 | `wordpress` | WordPress-specific checks and findings |
 | `php`, `laravel` | PHP and Laravel checks |
 | `headers`, `cookies` | security headers and cookie flags |
@@ -67,6 +73,7 @@ Common tags:
 | `vuln` | known-vulnerability findings |
 | `outdated`, `abandoned` | out-of-date or unmaintained components and software |
 | `local` | findings from [local scans](Tuner-Local-Scans) |
+| `integrity`, `malware` | [integrity and malware](Tuner-Integrity-And-Malware) findings in local scans |
 
 `rhythm tuner checks` shows each check's tags.
 
@@ -82,12 +89,14 @@ rhythm tuner scan yoursite.com --id 'leak-*'
 rhythm tuner scan yoursite.com --exclude-id 'hdr-*' --exclude-id wp-readme
 ```
 
-`--id` **ignores the profile**: a check you name runs even if it's marked `deep`.
+`--id` **ignores the profile**: a check you name runs whatever its profile.
 
-An ID or pattern that matches nothing is an error, so typos fail loudly:
+An ID that names no check is an error, with a suggestion, so typos fail loudly:
 
 ```text
-rhythm tuner: no check matches "leak-dotnev"; list them with: rhythm tuner checks
+$ rhythm tuner scan 127.0.0.1:20400 --id leak-dotnev
+rhythm tuner scan: --id leak-dotnev: no check has this ID; did you mean leak-dotenv?
+  list them with: rhythm tuner checks
 ```
 
 ### Vulnerability and local finding IDs
@@ -101,7 +110,7 @@ rhythm tuner: no check matches "leak-dotnev"; list them with: rhythm tuner check
 | `wp-plugin-closed`, `wp-theme-closed` | components removed from wordpress.org |
 | `php-eol`, `nginx-eol`, `apache-eol` | end-of-life software |
 | `php-version-hidden` | hidden PHP version with recent critical PHP flaws |
-| `local-*` | local-scan findings, e.g. `local-wp-salts` |
+| `local-*` | local-scan findings, e.g. `local-wp-salts`; `local-integrity-*` and `local-malware-*` for [integrity and malware](Tuner-Integrity-And-Malware) |
 
 ```sh
 rhythm tuner scan yoursite.com --id 'vuln-*'          # only vulnerability matching
@@ -109,7 +118,7 @@ rhythm tuner scan yoursite.com --exclude-id php-version-hidden
 rhythm tuner scan /var/www/yoursite --id 'local-*'    # only local findings
 ```
 
-`--id 'vuln-*'` on its own runs no YAML checks at all, just the fingerprint and the version match. Every finding ID is listed in the [Finding reference](Tuner-Finding-Reference).
+`--id 'vuln-*'` on its own runs no YAML checks at all, just the fingerprint and the version match. Every finding ID is listed in the [Finding reference](Tuner-Finding-Reference); `rhythm tuner explain <id>` describes any of them offline.
 
 ## Minimum severity
 
@@ -133,7 +142,7 @@ The other selection flags apply on top. Writing a check takes no Go code; see [W
 
 ### Check packs
 
-New checks are published as a check pack. Scans pick up the newest one within a day without a new binary. `--no-check-updates` pins a run to the checks built into your binary; `--checks` always uses your directory. See [Check packs](Tuner-Check-Packs).
+Tuner can take new checks from a signed check pack without a new binary. Tuner 0.4.0 trusts no pack signing key yet, so it always runs the checks built into it; `--no-check-updates` makes that explicit and `--checks` always uses your directory. See [Check packs](Tuner-Check-Packs).
 
 ## Preview a selection
 
@@ -145,14 +154,16 @@ rhythm tuner checks --exclude-tags headers,tls --severity medium
 
 ```text
 ID                           SEVERITY  PROFILE  TAGS                                NAME
+laravel-debugbar             high      default  laravel,debug                       Laravel Debugbar request history public
+laravel-horizon              medium    default  laravel,admin                       Laravel Horizon dashboard public
 laravel-ignition             high      quick    laravel,debug                       Laravel Ignition debug endpoints exposed
 laravel-log                  high      quick    laravel,leak,secrets                Laravel log file exposed
-leak-archive-backup          critical  default  leak,backup                         Site backup archive exposed
 …
+wp-wpforms-uploads           medium    default  wordpress,leak,privacy              WPForms uploads listed
 
-Using built-in checks (rhythm-tuner 0.3.1).
-18 checks, plus vulnerability matching for core, plugins, themes, PHP and
-nginx/Apache (vuln-*, wp-components-*, *-eol); skip it with --no-vulns.
+Using built-in checks (rhythm-tuner 0.4.0).
+51 checks, plus vulnerability matching for core, plugins, themes, PHP and
+nginx/Apache (vuln-*, wp-components-*, *-eol), which scans skip with --no-vulns.
 ```
 
 The last lines say which checks are in use: built-in, a check pack (with its version), or your `--checks` directory.
@@ -165,9 +176,16 @@ The last lines say which checks are in use: built-in, a check pack (with its ver
 | `--no-check-updates` | list the built-in checks |
 
 > [!TIP]
-> `rhythm tuner checks` defaults to `--profile deep`, so it lists everything. Pass `--profile default` or `--profile quick` to see exactly what those scans run.
+> `rhythm tuner checks` lists every check unless `--profile` picks one. Pass `--profile quick` to see exactly what a quick scan runs.
 
-The listing shows YAML checks only. Vulnerability and local finding IDs aren't in it, so `rhythm tuner checks --id 'vuln-*'` reports that no checks match.
+The listing shows YAML checks only. Vulnerability and local finding IDs aren't in it:
+
+```text
+$ rhythm tuner checks --id 'vuln-*'
+rhythm tuner: no checks match the selection; list them with: rhythm tuner checks
+```
+
+`checks` also has subcommands for check authors (`new`, `test`, `lint`) and `checks export --nuclei <dir>`, which writes the checks as Nuclei templates; see [Writing checks](Tuner-Writing-Checks).
 
 ## Skip vulnerability matching
 
@@ -175,7 +193,7 @@ The listing shows YAML checks only. Vulnerability and local finding IDs aren't i
 rhythm tuner scan yoursite.com --no-vulns
 ```
 
-`--no-vulns` turns off known-vulnerability matching: no `vuln-*`, `*-eol`, `wp-core-*` or `wp-components-*` findings and no calls to the vulnerability data services. In a local scan it also skips Composer matching with OSV.dev. Use it for a fast config-only pass, or where the data services aren't reachable and you have no cache. To use the cache without contacting the services, use `--offline` instead; see [Known vulnerabilities](Tuner-Known-Vulnerabilities).
+`--no-vulns` turns off known-vulnerability matching: no `vuln-*`, `*-eol`, `wp-core-*` or `wp-components-*` findings and no calls to the vulnerability data services. It also skips Composer matching with OSV.dev, for an exposed `composer.lock` and in local scans. Use it for a fast config-only pass, or where the data services aren't reachable and you have no cache. To use the cache without contacting the services, use `--offline` instead; see [Known vulnerabilities](Tuner-Known-Vulnerabilities).
 
 ---
 <sub>← [Reading results](Tuner-Reading-Results) · [Home](Home) · [Requests and politeness](Tuner-Requests) →</sub>

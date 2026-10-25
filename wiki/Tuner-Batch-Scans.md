@@ -25,9 +25,9 @@ yoursite.com                   # duplicate: scanned once
 /var/www/yoursite              # a local folder works too
 ```
 
-Targets are the same as on the command line: a hostname, a full URL (a path scopes the scan to that folder), or a local directory for a [local scan](Tuner-Local-Scans). Duplicates are matched exactly as written, so `yoursite.com` and `https://yoursite.com` count as two targets.
+Targets are the same as on the command line: a hostname, a full URL (a path scopes the scan to that folder) or a local directory for a [local scan](Tuner-Local-Scans). A byte order mark and Windows line endings are fine. Duplicates are found after normalizing: scheme and host in lower case, default ports and a trailing `/` ignored; a bare host counts as the same site as one with a scheme. So `yoursite.com`, `https://yoursite.com/` and `HTTPS://YOURSITE.COM:443` are one scan.
 
-If any target isn't a valid URL, hostname or existing directory, Tuner stops before scanning anything and names it, so a typo doesn't silently skip a site.
+If any target isn't a valid URL, hostname or existing directory, Tuner stops before scanning anything and names it, so a typo doesn't silently skip a site. A line that is far too long stops it too, naming the line: `sites.txt line 2: 70000 characters is too long for a target`.
 
 ## Parallel scans and rate limits
 
@@ -37,12 +37,12 @@ If any target isn't a valid URL, hostname or existing directory, Tuner stops bef
 rhythm tuner scan -l sites.txt --parallel 8
 ```
 
-Each site gets its own rate limit (`--rate`, default 5 requests a second) and its own concurrency limit (`-c`, default 10), so one slow or throttling site never slows the others. The total load from your machine is up to `--rate` × `--parallel` requests a second, spread across different sites. Each site still sees no more than `--rate`.
+Each host gets its own rate limit (`--rate`, default 5 requests a second, 50 for local and private addresses) and each target its own concurrency limit (`-c`, default 10), so one slow or throttling site never slows the others. Targets on the same host share that host's pace: two paths of one site together see no more than `--rate`. The total load from your machine is up to `--rate` × `--parallel` requests a second, spread across different hosts.
 
 > [!TIP]
 > Many client sites on one shared host or behind one firewall see the combined traffic. For those, lower `--parallel` or `--rate` so the host doesn't throttle or block you.
 
-Request flags such as `-H`, `--cookie` and `-k` apply to **every** site in the run. To scan sites that need different credentials, run them separately.
+Request flags such as `-H`, `--cookie` and `-k` apply to **every** target in the run. Each target's headers go only to that target's own host. To scan sites that need different credentials, run them separately.
 
 ## Output for many sites
 
@@ -52,7 +52,7 @@ Request flags such as `-H`, `--cookie` and `-k` apply to **every** site in the r
 
 | Format | Several sites |
 |---|---|
-| `--json` | an array of report objects, one per site that was scanned |
+| `--json` | an array of report objects, then one `{"target": …, "error": …}` entry per site that couldn't be scanned |
 | `--jsonl` | findings from all sites, streamed as found; each line has its `target` |
 | `--sarif` | one SARIF log with a run per site |
 | `--md` | one Markdown document, sites separated by horizontal rules |
@@ -62,17 +62,17 @@ rhythm tuner scan -l sites.txt --parallel 8 --json > results.json
 rhythm tuner scan -l sites.txt -o all.md
 ```
 
-Sites that couldn't be scanned aren't in the report; their errors go to stderr. With `--json`, a batch always gives an array, even when only one site could be scanned (since v0.3.2):
+In Markdown, sites that couldn't be scanned are listed in a `# Not scanned` table; in SARIF each gets an empty run with an error. The error also goes to stderr. With `--json`, a batch always gives an array, even when only one site could be scanned; `--json-array` gives one for a single site too. Pick the reports out with `select(.schema)`:
 
 ```sh
-jq '.[] | {target, score}' results.json
+jq '.[] | select(.schema) | {target, score}' results.json
 ```
 
 A quick summary of every site's score, worst first:
 
 ```sh
 rhythm tuner scan -l sites.txt --json -q \
-  | jq -r '.[] | "\(.score)\t\(.target)"' \
+  | jq -r '.[] | select(.schema) | "\(.score)\t\(.target)"' \
   | sort -n
 ```
 
@@ -83,7 +83,7 @@ With `--json` and no `-o`, the JSON replaces the live view on stdout. `-q` also 
 A site that can't be reached doesn't stop the others. Tuner reports the error and carries on:
 
 ```text
-rhythm tuner: https://old.yoursite.com: can't reach old.yoursite.com: Get "https://old.yoursite.com": dial tcp: lookup old.yoursite.com: no such host
+rhythm tuner scan: 127.0.0.1:20499: can't reach 127.0.0.1:20499: Get "http://127.0.0.1:20499": dial tcp 127.0.0.1:20499: connect: connection refused
   check the address and that the site is up
 ```
 
@@ -91,10 +91,10 @@ Reports for the sites that worked are still written. The exit code tells you wha
 
 | Code | Meaning |
 |---|---|
-| `0` | every site was scanned and nothing reached `--fail-on` |
-| `1` | at least one site has a finding at or above `--fail-on` |
+| `0` | every site was scanned and nothing reached `--fail-on` or `--fail-on-new` |
+| `1` | at least one site has a finding at or above `--fail-on`, or a new one at or above `--fail-on-new` |
 | `2` | usage error, e.g. a bad flag or an invalid target; nothing was scanned |
-| `3` | at least one site couldn't be scanned, or was cut short by `--max-time` |
+| `3` | at least one site couldn't be scanned or was cut short, or a gate couldn't pass a partial scan or one without vulnerability data |
 | `130` | interrupted (Ctrl-C); partial results are written |
 
 When more than one applies, the first in this order wins: `130`, then `1`, then `3`. So with `--fail-on high`, a run where one site fails and another has a high finding exits `1`; check stderr for the failure.
@@ -144,8 +144,10 @@ Putting the date logic in the script avoids cron's special handling of `%`. The 
 
 Two steps further:
 
-- **Only new findings.** Save a JSON report once (`rhythm tuner scan -l sites.txt -o accepted.json`), then add `--baseline accepted.json` to the weekly command. Findings in it drop out of the report and the score. See [CI and code scanning](Tuner-CI).
-- **Alerts.** Add `--fail-on high` and send mail when the exit code is `1`.
+- **What changed.** Also write `-o "reports/tuner-$day.json"` and pass last week's file as `--since`: each run then lists what's new and what was fixed, while `--fail-on-new high` exits `1` only for new problems. See [Changes and notifications](Tuner-Changes-And-Notifications).
+- **Alerts.** Add `--notify slack://…` or `--notify smtp://…` to send the new findings, or `--html` for a client report.
+- **Let Tuner keep the history.** `rhythm tuner watch -l sites.txt --at 06:00 --fail-on-new high --html` does all of the above in one long-running command, or once per cron run with `--once`. See [Watch and serve](Tuner-Watch-And-Serve).
+- **Accepted findings.** A [`.tuner.yml`](Tuner-Config) with ignore entries, or `--baseline accepted.json`, keeps reviewed findings out of the report and the score.
 
 ---
 <sub>← [Output and reports](Tuner-Output) · [Home](Home) · [Local scans](Tuner-Local-Scans) →</sub>
