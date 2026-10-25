@@ -60,9 +60,9 @@ const (
 
 // File is the content of a rhythm.lock.
 type File struct {
-	Schema string  `json:"schema"`
+	Schema string  `json:"schema"`           // always Schema; Parse refuses any other
 	Rhythm *Entry  `json:"rhythm,omitempty"` // the router itself; nil leaves it unpinned
-	Tools  []Entry `json:"tools"`
+	Tools  []Entry `json:"tools"`            // one per tool, sorted by name on Write
 }
 
 // Entry pins one program: rhythm or a tool.
@@ -312,7 +312,10 @@ func repoRoot(dir string) string {
 }
 
 // writeAtomic writes data to a temporary file next to path, flushes it
-// to disk and renames it over path.
+// to disk and renames it over path. The flush is there because a lock is
+// committed: a crash right after the rename must not leave an empty
+// rhythm.lock behind. CreateTemp makes the file 0600, so mode is set
+// before the rename, never on the file at path.
 func writeAtomic(path string, data []byte, mode os.FileMode) error {
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")

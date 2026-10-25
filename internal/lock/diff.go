@@ -27,7 +27,7 @@ const (
 
 // Change is one difference between two lock files.
 type Change struct {
-	Kind Kind
+	Kind Kind   // what changed; one program can have several Changes
 	Name string // the program: "rhythm" or a tool name
 	Pack string // the data pack, for DataChanged
 	// From and To are the old and new versions: of the program, or of
