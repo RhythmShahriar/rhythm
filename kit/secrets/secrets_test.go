@@ -435,3 +435,42 @@ func BenchmarkRedact(b *testing.B) {
 		Redact(page)
 	}
 }
+
+func TestRedactMergesOverlaps(t *testing.T) {
+	// A name = value rule takes "authorization:secret..." up to the space;
+	// the Authorization rule starts inside it and runs to the end of the
+	// line. Dropping the later match whole would print its tail.
+	in := j("password=", "authorization:", "s3cretvalue more of the header")
+	got := Redact(in)
+	for _, gone := range []string{"s3cretvalue", "more of the header", "header"} {
+		if strings.Contains(got, gone) {
+			t.Errorf("Redact(%q) = %q; %q is readable", in, got, gone)
+		}
+	}
+	if !strings.HasPrefix(got, "password=") {
+		t.Errorf("Redact(%q) = %q; the name went", in, got)
+	}
+	if s := FindSecrets([]byte(in)); len(s) != 1 || s[0].Name != "password" {
+		t.Errorf("FindSecrets = %v; want one, named password", s)
+	}
+}
+
+func TestMergeSpans(t *testing.T) {
+	s := "0123456789abcdefghij"
+	sp := func(start, end int) span {
+		return span{start: start, end: end, keep: 1, secret: Secret{Kind: "k", Masked: Mask(s[start:end], 1)}}
+	}
+	got := mergeSpans(s, []span{sp(0, 4), sp(2, 3), sp(3, 8), sp(8, 10), sp(12, 14), sp(13, 20)})
+	want := [][2]int{{0, 8}, {8, 10}, {12, 20}}
+	if len(got) != len(want) {
+		t.Fatalf("got %d spans, want %d: %v", len(got), len(want), got)
+	}
+	for i, w := range want {
+		if got[i].start != w[0] || got[i].end != w[1] {
+			t.Errorf("span %d is [%d,%d), want [%d,%d)", i, got[i].start, got[i].end, w[0], w[1])
+		}
+		if m := Mask(s[w[0]:w[1]], 1); got[i].secret.Masked != m {
+			t.Errorf("span %d masked %q, want %q", i, got[i].secret.Masked, m)
+		}
+	}
+}
