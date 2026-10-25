@@ -6,7 +6,7 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/charmbracelet/x/ansi v0.8.0
 	github.com/charmbracelet/x/term v0.2.2
-	github.com/sigstore/protobuf-specs v0.5.1
+	github.com/sigstore/protobuf-specs v0.5.2
 	github.com/sigstore/sigstore-go v1.3.0
 	github.com/theupdateframework/go-tuf/v2 v2.4.2
 	golang.org/x/net v0.61.0
