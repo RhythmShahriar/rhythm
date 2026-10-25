@@ -152,7 +152,7 @@ var ErrFindings error = &ExitError{Code: ExitFindings}
 // noticeWait is how long Main waits at the end of a command for the
 // release check to finish. It is short so a slow network never holds up
 // the exit; the check caches its answer for a day, so a missed notice
-// shows on a later run.
+// or prompt shows on a later run.
 var noticeWait = 200 * time.Millisecond
 
 // Main runs the tool with os.Args and returns the exit code for os.Exit.
@@ -164,7 +164,9 @@ var noticeWait = 200 * time.Millisecond
 // is set, exit 3 when a pinned version can't be had). Commands run under a
 // context canceled by Ctrl-C or SIGTERM, which exits 130. Unless the tool
 // is offline, Main checks for a newer release in the background while a
-// command runs and prints the notice at the end. The hidden
+// command runs and at the end either asks to update (update.PromptAtExit:
+// on a terminal, outside CI, without --json, -q or --quiet) or prints
+// the notice. The hidden
 // __complete command (CompleteCommand) answers shell completion.
 func Main(t Tool) int {
 	return t.main(os.Args[1:], os.Stdout, os.Stderr)
@@ -219,9 +221,9 @@ func (t Tool) main(args []string, stdout, stderr io.Writer) int {
 			t.FirstRun(stderr)
 		}
 	}
-	var notice <-chan string
+	var check *update.Pending
 	if !t.offline() {
-		notice = update.Notice(ctx, t.updater())
+		check = update.StartCheck(ctx, t.updater())
 	}
 
 	err := c.Run(ctx, args, stdout, stderr)
@@ -233,16 +235,20 @@ func (t Tool) main(args []string, stdout, stderr io.Writer) int {
 		return ExitInterrupted
 	}
 	code := exitFor(stderr, prog, c.Name, err)
-	if notice != nil {
-		select {
-		case msg, ok := <-notice:
-			if ok {
-				fmt.Fprintln(stderr, msg)
-			}
-		case <-time.After(noticeWait):
-		}
-	}
+	update.PromptAtExit(ctx, update.PromptOptions{
+		Check:  check,
+		Quiet:  QuietRun(args),
+		Wait:   noticeWait,
+		Stdout: stdout,
+		Out:    stderr,
+	})
 	return code
+}
+
+// QuietRun reports whether args ask for little or machine-read output
+// (--json, -q or --quiet), when a run never asks to update.
+func QuietRun(args []string) bool {
+	return HasFlag(args, "json") || HasFlag(args, "q") || HasFlag(args, "quiet")
 }
 
 // exitFor prints err the way it should be shown and returns its exit code.

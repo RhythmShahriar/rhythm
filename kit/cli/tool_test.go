@@ -485,3 +485,19 @@ func TestExitError(t *testing.T) {
 		t.Errorf("ExitError doesn't wrap: %v", ee)
 	}
 }
+
+func TestQuietRun(t *testing.T) {
+	for args, want := range map[string]bool{
+		"scan x":             false,
+		"scan x --json":      true,
+		"scan -q x":          true,
+		"scan --quiet x":     true,
+		"scan --json=false":  false,
+		"scan -- --json":     false,
+		"scan --format json": false,
+	} {
+		if got := QuietRun(strings.Fields(args)); got != want {
+			t.Errorf("QuietRun(%q) = %v, want %v", args, got, want)
+		}
+	}
+}

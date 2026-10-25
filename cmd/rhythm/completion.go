@@ -18,6 +18,7 @@ import (
 
 	"github.com/RhythmShahriar/rhythm/internal/lock"
 	"github.com/RhythmShahriar/rhythm/kit/cli"
+	"github.com/RhythmShahriar/rhythm/kit/update"
 )
 
 func init() {
@@ -122,6 +123,7 @@ var positionals = map[string]func() []string{
 	"verify":     updateNames,
 	"ext":        func() []string { return []string{"install", "list", "remove", "search"} },
 	"completion": func() []string { return shellNames },
+	"config":     func() []string { return []string{update.PromptSetting} },
 }
 
 // severalNames are the commands that take any number of names.

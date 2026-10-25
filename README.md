@@ -109,6 +109,7 @@ More are on the way. Each lives in its own repository and releases on its own sc
 | `rhythm ext search\|install\|list\|remove` | find, install and remove third-party extensions (`owner/rhythm-<name>` repositories with the topic `rhythm-extension`), signature checked |
 | `rhythm verify [tool...] [--json]` | check that each installed binary is byte for byte the one its signed release published |
 | `rhythm completion bash\|zsh\|fish\|powershell` | print a shell completion script |
+| `rhythm config update-prompt ask\|notify\|off` | ask "Update now? [y/N]" at the end of a run, print a notice or say nothing |
 | `rhythm version` | print rhythm's version (also `-v`, `-V`, `--version`) |
 
 Sample output from rhythm 0.7.1 with Tuner, Soundcheck and Echo installed. Soundcheck came from a rhythm older than 0.7.0, which didn't check signatures, so it shows `-` until `rhythm verify` or the next update checks it:
@@ -247,7 +248,8 @@ Completion covers rhythm's commands, the tools and their flags plus each tool's 
 | `RHYTHM_CONFIG_DIR` | the whole rhythm config folder (default `~/.config/rhythm`, or `~/Library/Application Support/rhythm` on macOS); must be absolute |
 | `RHYTHM_CACHE_DIR` | where tools keep their caches, as `<dir>/<tool>` (default `~/.cache/rhythm/<tool>` or the OS equivalent); must be absolute |
 | `RHYTHM_MIN_RELEASE_AGE` | the default for `--min-age`: skip releases younger than this, e.g. `3d`, `1w` or `36h` |
-| `RHYTHM_NO_UPDATE_CHECK` | don't mention new releases (also off when `CI` is set) |
+| `RHYTHM_NO_UPDATE_CHECK` | don't check for, ask about or mention new releases (also off when `CI` is set) |
+| `RHYTHM_UPDATE_PROMPT` | `ask`, `notify` or `off`: overrides `rhythm config update-prompt` for one shell or run |
 | `RHYTHM_DEBUG` | any value: say when the Sigstore root built into rhythm is used because the online refresh failed |
 | `RHYTHM_INVOKED_AS` | set by rhythm for the tool it runs, e.g. `rhythm sc`, so the tool's help shows the command you typed |
 | `RHYTHM_TOOLS` | for the installers only: see [Installer options](#install) |

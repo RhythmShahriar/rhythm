@@ -20,6 +20,7 @@ Tools:
 Commands:
   rhythm bundle --locked -o <file> [--platform os/arch,...]   pack what rhythm.lock pins into one file for offline installs
   rhythm completion bash|zsh|fish|powershell                  print a shell completion script
+  rhythm config [update-prompt [ask|notify|off]]              show or change rhythm's settings
   rhythm doctor [--offline] [--json]                          check the install: PATH, versions, data, Chrome and the release API
   rhythm ext search|install|list|remove ...                   find, install and remove verified third-party extensions
   rhythm help [tool|command]                                  show help for rhythm, a tool or a command
@@ -56,6 +57,7 @@ Exit codes:
 | `rhythm bundle` | pack locked releases for a network without GitHub | [Offline installs](Offline-Installs) |
 | `rhythm ext` | find and install third-party extensions | [Extensions](Extensions) |
 | `rhythm completion` | print a shell completion script | [completion](#completion) |
+| `rhythm config` | show or change settings, such as the update prompt | [config](#config) |
 | `rhythm version` | print rhythm's version (also `-v`, `-V`, `--version`) | [version](#help-and-version) |
 
 Flags go before or after names (`rhythm update tuner --no-data`). Everything after `--` is passed on as is. Names can be separated by spaces or commas (`rhythm install tuner,echo soundcheck`), in any case, as a tool name (`tuner`), its short name (`t`) or its binary (`rhythm-tuner`).
@@ -306,6 +308,41 @@ fail  RHYTHM_GITHUB_API must be https (plain http only for 127.0.0.1, ::1 or loc
 
 `--offline` (or `RHYTHM_OFFLINE`) skips the data refresh and the `api` check. `--json` prints [`rhythm-doctor/v1`](#json-output).
 
+## config
+
+```text
+Usage: rhythm config [update-prompt [ask|notify|off]]
+```
+
+Shows rhythm's settings, one of them, or changes one. They are kept in `settings.json` in rhythm's config folder and apply to rhythm and every tool. Today there is one:
+
+| Setting | Values | Effect |
+|---|---|---|
+| `update-prompt` | `ask` (default), `notify`, `off` | at the end of a run with a newer release out: ask "Update now? [y/N]", print the notice, or say nothing. See [The update prompt](Updating#the-update-prompt). |
+
+```console
+$ rhythm config
+update-prompt  ask  (default)
+$ rhythm config update-prompt off
+update-prompt set to off
+$ rhythm config update-prompt
+off
+```
+
+`RHYTHM_UPDATE_PROMPT` overrides the saved value: `rhythm config update-prompt` then says `ask  (from RHYTHM_UPDATE_PROMPT)` and saving a value adds `Note: RHYTHM_UPDATE_PROMPT=ask is set and wins over this setting.` on stderr.
+
+| Message | Exit |
+|---|---|
+| `rhythm: "loud" isn't an update-prompt mode; use ask, notify or off` | 2 |
+| `rhythm: unknown setting "update-promt"`<br>`  did you mean: rhythm config update-prompt`<br>`  known: update-prompt` | 2 |
+| `usage: rhythm config [update-prompt [ask\|notify\|off]]` | 2 |
+| `rhythm: RHYTHM_UPDATE_PROMPT: "sometimes" isn't an update-prompt mode; use ask, notify or off` | 1 |
+| `rhythm: reading <config>/settings.json: …` (a file that isn't a JSON object) | 1 |
+
+### The update prompt after rhythm's commands
+
+After its own commands rhythm may ask about its own release, on a terminal only and never in CI: `A new release of rhythm is out: 0.8.1 (you have 0.8.0). Update now? [y/N] `. `y` runs `rhythm update --self-only`. It doesn't ask after `update`, `uninstall`, `version`, `completion` or `config`, with `--json`, `--quiet` or `--offline`, or when stdout is piped. The full rules are on [Updating](Updating#the-update-prompt).
+
 ## completion
 
 ```sh
@@ -388,7 +425,8 @@ Any other exit code from a tool passes through unchanged.
 | `RHYTHM_DOWNLOAD_CACHE` | any value but empty, `0` or `false`: the default for `--cache` |
 | `RHYTHM_CONFIG_DIR` | the whole rhythm config folder; must be an absolute path |
 | `RHYTHM_CACHE_DIR` | the cache root, as `<dir>/<tool>`; must be an absolute path |
-| `RHYTHM_NO_UPDATE_CHECK` | no once-a-day release check or notice in the tools (also off when `CI` is set) |
+| `RHYTHM_NO_UPDATE_CHECK` | no once-a-day release check, update prompt or notice in rhythm and the tools (also off when `CI` is set) |
+| `RHYTHM_UPDATE_PROMPT` | `ask`, `notify` or `off`: overrides [`rhythm config update-prompt`](#config) |
 | `RHYTHM_DEBUG` | any value: say `rhythm: using the built-in Sigstore root: <reason>` when the online refresh of the signature root failed |
 | `RHYTHM_INVOKED_AS` | set by rhythm for the tool it runs, such as `rhythm sc` |
 | `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY` | the usual proxy settings |
@@ -434,7 +472,8 @@ The `; set …` part is left out when a token was sent. A mirror URL is always s
 |---|---|
 | config `extensions.json` | the extensions `rhythm ext install` added, with the workflow that must sign them |
 | config `verified.json` | the sha256 of every binary that passed a signature check, for the SIGNED column |
-| config `update-check/` | the tools' once-a-day release checks |
+| config `settings.json` | the settings [`rhythm config`](#config) changes |
+| config `update-check/` | the once-a-day release checks of rhythm and the tools, with the version you last said no to at the [update prompt](Updating#the-update-prompt) |
 | config `seen/` | one-time notices: the tools' responsible-use notes and `New tool available` lines |
 | cache `rhythm/downloads/` | verified archives kept by `--cache` |
 | cache `rhythm/tuf/` | the Sigstore trusted root, refreshed online at most once a day |
