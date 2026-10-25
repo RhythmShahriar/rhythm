@@ -117,9 +117,10 @@ type part struct {
 	start, end int
 }
 
-// span is a secret found at s[start:end], before overlaps are dropped.
+// span is a secret found at s[start:end], before overlaps are merged.
 type span struct {
 	start, end int
+	keep       int // the rule's keep, for masking a merged span again
 	secret     Secret
 }
 
@@ -144,7 +145,7 @@ func findSpans(s string) []span {
 		if v == "" || len(v) < 3 && !r.secretName && !r.anyLength || placeholder(v) {
 			return
 		}
-		spans = append(spans, span{vs, ve, Secret{Kind: r.id, Name: name, Masked: Mask(v, r.keep)}})
+		spans = append(spans, span{vs, ve, r.keep, Secret{Kind: r.id, Name: name, Masked: Mask(v, r.keep)}})
 	}
 	apply := func(r *secretRule, text string, off int) {
 		for _, m := range r.re.FindAllStringSubmatchIndex(text, -1) {
@@ -191,16 +192,26 @@ func findSpans(s string) []span {
 		}
 	}
 	sort.SliceStable(spans, func(i, j int) bool { return spans[i].start < spans[j].start })
-	// Drop overlaps: the span that starts first wins. At the same start
-	// the stable sort keeps rule order, so the earlier and more specific
-	// rule wins.
+	return mergeSpans(s, spans)
+}
+
+// mergeSpans joins overlapping spans, sorted by start, so the union of
+// every match is masked. The span that starts first names the secret.
+// At the same start the stable sort keeps rule order, so the earlier and
+// more specific rule names it. A span that runs past the end of the one
+// it overlaps stretches that one, masked again, so no tail of a secret
+// is left readable.
+func mergeSpans(s string, spans []span) []span {
 	out := spans[:0]
-	end := -1
 	for _, sp := range spans {
-		if sp.start >= end {
-			out = append(out, sp)
-			end = sp.end
+		if n := len(out); n > 0 && sp.start < out[n-1].end {
+			if last := &out[n-1]; sp.end > last.end {
+				last.end = sp.end
+				last.secret.Masked = Mask(s[last.start:last.end], last.keep)
+			}
+			continue
 		}
+		out = append(out, sp)
 	}
 	return out
 }
