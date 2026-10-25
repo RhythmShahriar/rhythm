@@ -2,21 +2,20 @@ Many of a site's messages are triggered by a webhook coming **in**: Stripe says 
 
 ```sh
 export ECHO_STRIPE_WEBHOOK_SECRET=whsec_…   # the staging endpoint's test signing secret
-rhythm echo replay payment_intent.succeeded --to /webhooks/stripe --set data.object.receipt_email=jamie@shop.test
+rhythm echo replay payment_intent.succeeded --to "/?rest_route=/testbed-stripe/v1/webhook" --set data.object.receipt_email=jamie@shop.test
 ```
 
 ```text
-rhythm echo 1.0.0 - https://staging.shop.test/webhooks/stripe
+rhythm echo 1.1.1 - http://staging.shop.test/?rest_route=/testbed-stripe/v1/webhook
 
 Event: stripe/payment_intent.succeeded (stripe)
-Response: 200 in 15ms
-08:23:49 email to jamie@shop.test: Your order is confirmed [faked]
-08:23:49 email to office@shop.test: New order paid [faked]
+Response: 200 in 18ms
+14:38:18 email to jamie@shop.test: Payment received for order #10234 [faked]
 
-  The site answered 200 and sent 2 emails in response.
+  The site answered 200 and sent 1 email in response.
 ```
 
-The header shows the full URL the replay went to, with any secret in it masked. The output is from a local test shop whose Stripe endpoint is `/webhooks/stripe`; for WooCommerce's Stripe gateway it's `/?wc-api=wc_stripe`. Replay needs Echo running and **sealed**, so whatever the site sends back is caught; `--to` is absolute, or relative to `site:` in `.echo/config.yaml`.
+The header shows the full URL the replay went to, with any secret in it masked. The output is from the WordPress test shop of [Your first run](Echo-First-Run), whose Stripe endpoint is a REST route; for WooCommerce's Stripe gateway it's `/?wc-api=wc_stripe`. Replay needs Echo running and **sealed**, so whatever the site sends back is caught; `--to` is absolute, or relative to `site:` in `.echo/config.yaml`.
 
 ## The event library
 
@@ -78,7 +77,7 @@ rhythm echo replay payment_intent.succeeded --to /?wc-api=wc_stripe \
 | `hmac` | anything else | `X-Signature: <hex HMAC-SHA256 of the body>` | `ECHO_WEBHOOK_SECRET` | any |
 | `paypal` | | refused; see [PayPal](#paypal) | | |
 
-Every replay also sends `Content-Type: application/json`, a user agent like the provider's and `X-Echo-Run`, which ties what the site sends to this replay. Library events are signed with their directory's scheme; `--scheme` is for your own files.
+Every replay also sends `Content-Type: application/json`, a user agent like the provider's and `X-Echo-Run`, which ties what the site sends to this replay, signed when Echo has a token so the site's connector trusts it. Library events are signed with their directory's scheme; `--scheme` is for your own files.
 
 The `hmac` scheme always sends `X-Signature` with a hex HMAC-SHA256 of the body; its header name, algorithm and encoding can't be changed from the command line or the config. For a receiver that verifies another way, write a small test of your own, or use the provider's own test tooling.
 
@@ -101,12 +100,13 @@ Replay sends real requests, so it checks before it sends. It refuses with exit c
 | Rule | Refusal |
 |---|---|
 | Echo must be running and sealed, so the site's reactions can't reach anyone | `Echo is in observe mode; replays only run sealed, so the site's reactions can't reach anyone (rhythm echo up --seal)` |
+| The target must not be under `production:`, even when it's also under `staging:` or resolves to a private address | `replay refused: http://staging.shop.test/?rest_route=/testbed-stripe/v1/webhook matches "shop.test" under production; replays never go to a live site` |
 | The target must be listed under `staging:` in the config, or resolve **only** to loopback or private addresses (RFC 1918, `fc00::/7`; not link-local, where cloud metadata lives). The address is checked again when connecting, so DNS can't change the answer in between. | `replay refused: 203.0.113.10 resolves to 203.0.113.10, which is neither loopback nor private; add the staging URL under staging: in the Echo config to allow it` |
 | No live Stripe secret or restricted key (`sk_live_…`, `rk_live_…`) anywhere in reach: the environment, `.env`, `wp-config.php`, `../wp-config.php` and `.echo/config.yaml` | ``replay refused: a live Stripe key is in reach (STRIPE_SECRET_KEY=sk_live_•••••); run replays where only test keys are configured`` |
 | The payload must not say `"livemode": true` | `replay refused: the payload has "livemode": true; replays are for test-mode events only` |
 | The secret must not be a live key or an API key | `replay refused: ECHO_STRIPE_WEBHOOK_SECRET holds a Stripe API key, not a webhook signing secret (whsec_…)` |
 
-Redirects are never followed (a redirect could point anywhere, including production). No proxy is used. A `staging:` entry matches on scheme, host and port, with the path at a segment boundary:
+Redirects are never followed (a redirect could point anywhere, including production). No proxy is used. A `production:` entry is a host or URL and covers its subdomains (see [Production](Echo-Actions-And-Compare#production)); replay actions, `schedule` and the MCP server read it the same way. A `staging:` entry matches on scheme, host and port, with the path at a segment boundary:
 
 ```yaml
 staging: ["https://staging.shop.test"]
@@ -132,12 +132,15 @@ After the response, replay waits for what the site sends, until nothing new arri
 | `3` | Echo isn't running, or the request failed |
 
 ```text
-Response: 400 in 1ms
+rhythm echo 1.1.1 - http://staging.shop.test/?rest_route=/testbed-stripe/v1/webhook
+
+Event: stripe/payment_intent.succeeded (stripe)
+Response: 400 in 26ms
 
   The site answered 400 and sent no messages in response.
 ```
 
-A `400` usually means the site rejected the signature: check the secret matches the one the site's endpoint uses. `--json` prints the replay (event, scheme, URL, run, status, the site's answer, masked headers and secret) and the messages together.
+A `400` usually means the site rejected the signature, as here, where the secret didn't match the one the site's endpoint uses. `--json` prints the JSON envelope with kind `replay` and, in `data`, the replay (event, scheme, URL, run, status, the site's answer, masked headers and secret) and the messages together; it exits `1` on a rejected replay too.
 
 ## As an action
 

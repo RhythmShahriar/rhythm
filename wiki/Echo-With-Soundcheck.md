@@ -81,7 +81,7 @@ The run's summary line counts what was sent:
 Snapshot "before-update" saved; all clear - 0 errors, 0 warnings, 0 notices - 2 pages · Echo: 2 emails, 1 chat message from 1 form or flow · 7s
 ```
 
-The HTML report gets a **Messages sent** table, one row per message (form or flow, page, channel, recipient, subject), plus a row for each submit that sent nothing. Message bodies stay in Echo; its live view shows them in full.
+The HTML report gets a **Messages sent** table, one row per message (form or flow, page, channel, recipient, subject), plus a row for each submit that sent nothing. Message bodies stay in Echo; [Echo Inbox](Echo-Inbox) shows them in full.
 
 ## Comparing
 
