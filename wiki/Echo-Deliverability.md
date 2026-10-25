@@ -33,7 +33,7 @@ rhythm echo check shop.test --provider sendgrid --resolver 127.0.0.1:18753
 ```
 
 ```text
-rhythm echo 1.0.0 - shop.test
+rhythm echo 1.1.1 - shop.test
 
 Sender: SendGrid
 Records: found DMARC, MX; no usable SPF, DKIM
@@ -55,9 +55,14 @@ Records: found DMARC, MX; no usable SPF, DKIM
 Delivery has errors - 1 error, 2 warnings, 2 notices
 ```
 
-The `Records:` line lists the records Echo could read and the ones it found missing or unusable (here two SPF records, so neither counts). Each issue ends with the domain it's about. After the fixes, the same zone with one SPF record including SendGrid, the `s1` key and `p=quarantine` with reports:
+It exits `1`: without `--fail-on`, `check` fails on an error. The `Records:` line lists the records Echo could read and the ones it found missing or unusable (here two SPF records, so neither counts). Each issue ends with the domain it's about. After the fixes, the same zone with one SPF record including SendGrid, the `s1` key and `p=quarantine` with reports:
 
 ```text
+rhythm echo 1.1.1 - shop.test
+
+Sender: SendGrid
+Records: found SPF, DKIM, DMARC, MX
+
 [NOTICE] No MTA-STS policy - shop.test
   Without MTA-STS, servers sending to shop.test fall back to plain text if TLS is stripped in transit.
 [NOTICE] No BIMI record - shop.test
@@ -74,11 +79,28 @@ rhythm echo check shop.test --from-mail received.eml
 
 ```text
 [WARNING] Bounce domain has no SPF record - shop.test
-  Mail is sent with Return-Path domain em123.shop.test, which SPF checks, but it publishes no v=spf1 record.
+  Mail is sent with Return-Path domain em123.shop.test. SPF checks that domain, which publishes no v=spf1 record.
   fix: Publish the TXT record your sending service gives for em123.shop.test (typically "v=spf1 include:sendgrid.net ~all").
 ```
 
-`check` exits `0` whatever it finds unless you set `--fail-on error|warning|notice`.
+`check` exits `1` on an error by default, like `run`; `--fail-on warning` or `notice` is stricter and `--fail-on none` never fails on what it finds.
+
+### When the resolver doesn't answer
+
+Each lookup has 3 seconds and the whole check 15. When no lookup gets any answer (the resolver refuses or never replies), `check` reports that once instead of a warning per record. It exits `3` whatever `--fail-on` says, since nothing was checked:
+
+```sh
+rhythm echo check shop.test --resolver 127.0.0.1:20463
+```
+
+```text
+rhythm echo 1.1.1 - shop.test
+
+rhythm echo: Could not reach the resolver 127.0.0.1:20463 (connection refused)
+  Check that a DNS server is running at 127.0.0.1:20463 and answers queries from this machine, or leave out --resolver to use the system's.
+```
+
+Without `--resolver` it's `Could not reach the system resolver`, with the fix `Check this machine's DNS settings and network connection, or pass --resolver host:port to ask another DNS server.` With `--json`, the report has one `dns/resolver` error, `"unreachable": true`, the `"resolver"` asked, `"complete": false` and `"verdict": "error"`. A resolver that answers some lookups isn't unreachable: the failed records get their own warnings. `--resolver` without a port asks port 53.
 
 ### SPF
 
@@ -162,12 +184,12 @@ rhythm echo headers phpmail.eml --hops
 ```
 
 ```text
-rhythm echo 1.0.0 - phpmail.eml
+rhythm echo 1.1.1 - phpmail.eml
 
 From: wordpress@shop.example
 Sent by: PHP mail() on the web server
 Results: SPF softfail · DKIM none · DMARC fail
-Hop 1:  → web01.shop.example
+Hop 1:  → web01.shop.example 
 Hop 2: web01.shop.example → mx.google.com ESMTPS
 Hop 3:  → 2002:a05:6214:1c8e:b0:6b5:2e1d:3f10 SMTP
 
@@ -175,7 +197,7 @@ Hop 3:  → 2002:a05:6214:1c8e:b0:6b5:2e1d:3f10 SMTP
   mx.google.com reports dmarc=fail for shop.example: neither SPF nor DKIM passed for a domain aligned with From. Mail like this goes to spam or is rejected under p=quarantine/reject.
   fix: Run `rhythm echo check shop.example` with this message's sender, then publish the DKIM records of the sending service under shop.example.
 [ERROR] Message is not DKIM-signed - phpmail.eml
-  There's no DKIM-Signature header. Without one DMARC can pass only on SPF, which breaks when mail is forwarded, and Gmail and Yahoo require DKIM from bulk senders.
+  There's no DKIM-Signature header. Without one DMARC can pass only on SPF, which breaks when mail is forwarded. Gmail and Yahoo require DKIM from bulk senders.
   fix: Send through a service that signs mail (or enable DKIM signing on the server) and publish its key under shop.example.
 [WARNING] SPF softfail - phpmail.eml
   mx.google.com reports spf=softfail: the SPF record at web01.shop.example doesn't list the relay 203.0.113.7 and ends in ~all.
@@ -192,10 +214,10 @@ Hop 3:  → 2002:a05:6214:1c8e:b0:6b5:2e1d:3f10 SMTP
 Delivery has errors - 2 errors, 3 warnings, 1 notice
 ```
 
-Each issue ends with the file it's about. A message from a properly set-up service is clean:
+It exits `1` on the errors. Each issue ends with the file it's about. A message from a properly set-up service is clean:
 
 ```text
-rhythm echo 1.0.0 - postmark.eml
+rhythm echo 1.1.1 - postmark.eml
 
 From: receipts@shop.example
 Sent by: Postmark
@@ -238,4 +260,4 @@ Echo recognizes SendGrid, Mailgun, Postmark, Amazon SES, Resend, Brevo, Mailchim
 - The only HTTPS request is the optional `--mta-sts-fetch`, to `https://mta-sts.<domain>/.well-known/mta-sts.txt` on the domain you named, without following redirects.
 
 ---
-<sub>← [Replay](Echo-Replay) · [Home](Home) · [CI](Echo-CI) →</sub>
+<sub>← [Replay](Echo-Replay) · [Home](Home) · [Docker and DDEV](Echo-Docker-And-DDEV) →</sub>

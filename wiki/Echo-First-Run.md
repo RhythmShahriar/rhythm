@@ -1,6 +1,6 @@
 This tutorial seals a staging site and checks what a change does to the messages it sends: start Echo, connect the site, check the connection, watch messages arrive, then snapshot what each action sends, make a change and compare. It takes about ten minutes.
 
-You need a staging or local copy of a site you own or may test. The examples use a WordPress site at `https://staging.shop.test` on the same machine as Echo; replace it with your own. The output on this page comes from runs against a WordPress staging container and a small test shop, where the "change" is a plugin update that went wrong.
+You need a staging or local copy of a site you own or may test. The examples use a WordPress shop at `http://staging.shop.test` on the same machine as Echo; replace it with your own. The output on this page comes from runs against that shop, a WordPress 6.8 staging copy with a contact form and a checkout that emails a receipt, texts the customer, alerts Slack and posts to GA4, Meta and a CRM. The "change" is a plugin update that went wrong.
 
 ## 1. Check the install
 
@@ -9,7 +9,7 @@ rhythm echo --version
 ```
 
 ```text
-rhythm-echo 1.0.0
+rhythm-echo 1.1.1
 ```
 
 If it says `rhythm: echo isn't installed`, run `rhythm install echo`. If `rhythm` isn't found at all, follow [Install](Install).
@@ -33,7 +33,7 @@ hold personal data: they stay on this machine, with credentials masked. This not
 Then:
 
 ```text
-  ♪ rhythm echo 1.0.0                                             this machine
+  ♪ rhythm echo 1.1.1                                             this machine
   ────────────────────────────────────────────────────────────────────────────
 
   ▸ Mode          seal: nothing leaves; Echo answers for every service
@@ -43,10 +43,10 @@ Then:
   Waiting for messages. Ctrl+C to stop.
 ```
 
-Leave it running in its own terminal. Echo is now **sealed**: whatever the site sends is recorded and answered by Echo. Nothing reaches a real inbox, phone or API. Open http://127.0.0.1:8025 in a browser for a live view that refreshes every five seconds.
+Leave it running in its own terminal. Echo is now **sealed**: whatever the site sends is recorded and answered by Echo. Nothing reaches a real inbox, phone or API. Open http://127.0.0.1:8025 in a browser for [Echo Inbox](Echo-Inbox), which shows each message as it arrives.
 
 > [!NOTE]
-> Echo listens on `127.0.0.1` only. If the site runs in Docker, a VM or another machine, it can't reach that address; see [FAQ](Echo-FAQ#the-site-runs-in-docker).
+> Echo listens on `127.0.0.1` only. If the site runs in Docker, a VM or another machine, it can't reach that address; see [Docker and DDEV](Echo-Docker-And-DDEV) and [FAQ](Echo-FAQ#the-site-runs-in-docker). If Mailpit already has port 8025, Echo says so and offers the next free pair; see [Mailpit on the same machine](Echo-Docker-And-DDEV#mailpit-on-the-same-machine).
 
 ## 3. Connect the site
 
@@ -60,7 +60,7 @@ rhythm echo install wordpress /var/www/staging
 Installed the Echo connector (wp-content/mu-plugins/rhythm-echo.php), reporting to http://127.0.0.1:8025.
 
   It runs only where WP_ENVIRONMENT_TYPE is local, development or staging. WordPress
-  treats an unset WP_ENVIRONMENT_TYPE as production, and there the connector does
+  treats an unset WP_ENVIRONMENT_TYPE as production and there the connector does
   nothing. On staging, add this to wp-config.php, above "That's all, stop editing!":
 
     define( 'WP_ENVIRONMENT_TYPE', 'staging' );
@@ -73,7 +73,7 @@ Installed the Echo connector (wp-content/mu-plugins/rhythm-echo.php), reporting 
     flush: ["wp cron event run --due-now", "wp action-scheduler run"]
 ```
 
-The path is the site's root (with `wp-config.php`) or its `wp-content` folder. If you can't write there, use `--wp-cli` or `--container`; Laravel, Next.js, Node and other stacks are in [Connectors](Echo-Install-Connectors).
+The path is the site's root (with `wp-config.php`) or its `wp-content` folder. If you can't write there, use `--wp-cli` or `--container`; Laravel, Next.js, Node and other stacks are in [Connectors](Echo-Install-Connectors). Prefer a regular plugin you can see in wp-admin? `--plugin` installs [Echo Staging Seal](Echo-Install-Connectors#echo-staging-seal) instead.
 
 When `wp-config.php` already sets `WP_ENVIRONMENT_TYPE` to `staging`, `development` or `local`, that paragraph is replaced by `wp-config.php sets WP_ENVIRONMENT_TYPE to staging, so the connector runs.`
 
@@ -82,20 +82,22 @@ When `wp-config.php` already sets `WP_ENVIRONMENT_TYPE` to `staging`, `developme
 
 ## 4. Check every layer
 
-Tell Echo where the site is, then let `doctor` send a test message through each layer:
+Write a config with a first action for your stack, then tell Echo where the site is:
 
 ```sh
-rhythm echo init
+rhythm echo init --stack wordpress
 ```
 
 ```text
-Wrote .echo/config.yaml. Every setting is optional; add actions to snapshot and compare.
+Wrote .echo/config.yaml for a WordPress site, with one action to start from (Lost password).
+Set site: in it to your staging site's URL; the action's URL is relative to it.
+Then: rhythm echo up, rhythm echo doctor and rhythm echo snapshot.
 ```
 
-Open `.echo/config.yaml` and set `site:` to your staging URL:
+Run in the WordPress folder itself, `init` finds the stack without `--stack`. Open `.echo/config.yaml` and set `site:` to your staging URL:
 
 ```yaml
-site: https://staging.shop.test
+site: http://staging.shop.test
 ```
 
 ```sh
@@ -103,10 +105,11 @@ rhythm echo doctor
 ```
 
 ```text
-  ♪ rhythm echo 1.0.0                                                   doctor
+  ♪ rhythm echo 1.1.1                                                   doctor
   ────────────────────────────────────────────────────────────────────────────
 
-  ✓ Echo          seal mode at http://127.0.0.1:8025, 34 providers recognized
+  ✓ Echo          seal mode at http://127.0.0.1:8025, 53 providers recognized
+  · Payments      live calls refused for Stripe, PayPal, Adyen, Braintree, Square, Authorize.net, Mollie and Razorpay, even in observe mode
   ✓ SMTP          127.0.0.1:1025 receives mail
   ✓ WordPress     active (staging), layers: wp_mail, pre_http_request
   ✓ Canaries      wp_mail and wp_remote_post were both caught
@@ -124,43 +127,50 @@ In another terminal:
 rhythm echo watch
 ```
 
-Now use the site as a visitor would: send the contact form, place a test order. Each message appears as it's sent:
+Now use the site as a visitor would: send the contact form, place a test order. Each message appears as it's sent, with any problem Echo finds in it underneath:
 
 ```text
 Watching http://127.0.0.1:8025 (seal mode). Ctrl+C to stop.
-  08:19:45  ✉ email                     → office@shop.test  New message from Jamie  faked
-  08:19:45  ✉ email                     → jamie@shop.test  Thanks for getting in touch  faked
-  08:19:45  # Slack message             → slack webhook  New contact form message from Jamie  faked
-  08:19:45  ◆ Twilio SMS                → +15551230000  Hi Jamie, your order #1042 has shipped.  faked
-  08:19:45  ↗ Zapier webhook            → hooks.zapier.com/hooks/catc…  POST  faked
+  14:22:23  ✉ email                     → owner@shop.example.com  New message from the contact form  faked
+  14:22:23  ✉ email                     → jamie@shop.test  Thanks for getting in touch  faked
+  14:22:23  ↗ Zapier webhook            → hooks.zapier.com/hooks/catc…  POST  faked
+  14:22:23  ◆ Twilio SMS                → 15551230000  Bean & Leaf: order #1001 is confirmed. …  faked
+            ! warning  Message sent to a number that isn't in international format
+  14:22:23  # Slack message             → slack webhook  :shopping_trolley: New order #1001: $49…  faked
+  14:22:23  ∿ GA4 event                 → G-TESTBED01  purchase  faked
+  14:22:23  ∿ Meta Conversions API …    → 1234567890123456  Purchase  faked
+            ! warning  Meta Conversions API event carries a credential in its body
+  14:22:23  ✉ email                     → jamie@shop.test  Your Bean & Leaf order #1001  faked
+  14:22:24  ↗ WooCommerce webhook       → gate:18856/woo/orders  order.created  faked
 ```
 
-Piped or with `--plain`, each message is one line of text instead: `08:19:45 Zapier webhook to hooks.zapier.com/hooks/catch/123456/ab•••••: POST [faked]`. The last part of a Zapier, Make or n8n hook URL is its secret, so Echo masks it everywhere it shows the URL.
+That order was placed with a phone number typed without its `+`, which Echo flags; the Meta event carries its access token in the body, which Echo masked and flags too. Piped or with `--plain`, each message is one line of text instead: `14:22:49 Zapier webhook to hooks.zapier.com/hooks/catch/1234567/ab•••••: POST [faked]`. The last part of a Zapier, Make or n8n hook URL is its secret, so Echo masks it everywhere it shows the URL.
 
 `faked` means Echo answered in the service's place: the site got a normal "sent" reply and nothing left. `rhythm echo ls` lists everything captured so far; `rhythm echo show <id>` prints one message as JSON. See [Messages and checks](Echo-Messages-And-Checks).
 
 ## 6. List the actions
 
-An **action** is something that makes the site send messages. Add yours to `.echo/config.yaml`; this is the test shop's:
+An **action** is something that makes the site send messages. Add yours to `.echo/config.yaml`; this is the shop's:
 
 ```yaml
-site: https://staging.shop.test
-quiet: 1s          # the test shop sends at once; the default is 2s
+site: http://staging.shop.test
+flush:
+  - wp --path=/var/www/staging cron event run --due-now --quiet
+  - wp --path=/var/www/staging testbed-queue run --quiet
+quiet: 1s               # the shop sends at once; the default is 2s
 
 actions:
   - name: Contact form
-    http: {method: POST, url: /contact, form: {name: "${fake:name}", email: "${fake:email}", message: Hello}}
+    http: {method: POST, url: "/?rest_route=/testbed-forms/v1/contact", form: {name: "${fake:name}", email: "${fake:email}", message: Hello}}
     expect: {email: 2}
-  - name: Order shipped
-    http: {method: POST, url: /order, form: {name: Jamie, email: jamie@shop.test}}
-  - name: Weekly digest
-    command: |
-      printf 'To: team@shop.test\nSubject: Weekly digest\n\n3 new orders this week.\n' | rhythm-echo sendmail -t
+  - name: Checkout
+    http: {method: POST, url: "/?rest_route=/testbed-shop/v1/checkout", form: {name: Jamie, email: jamie@shop.test, phone: "+15551230000"}}
+    expect: {email: 1, sms: 1, analytics: {purchase: 1}}
 ```
 
 - `http` sends a request to the site, here two form posts. URLs are relative to `site:`. `${fake:email}` and `${fake:name}` become test data that changes each run and that `compare` knows to ignore.
-- `command` runs a shell command, such as `wp eval '…'` or `php artisan …`.
-- `expect: {email: 2}` makes the action fail when fewer than two emails go out.
+- `flush` runs after each action, so mail and webhooks the site queues (WP-Cron, a job queue) go out while the action is still open.
+- `expect` makes the action fail when fewer messages go out: two emails from the form, an email, an SMS and a GA4 `purchase` event from the checkout.
 
 Every request and command is tagged with the action it belongs to, so messages are never mixed up between actions. Forms in a real browser and multi-step journeys are better driven by Soundcheck; see [With Soundcheck](Echo-With-Soundcheck). Every action type is in [Actions and compare](Echo-Actions-And-Compare).
 
@@ -171,28 +181,33 @@ rhythm echo snapshot --name before-update
 ```
 
 ```text
-  ♪ rhythm echo 1.0.0                                https://staging.shop.test
+  ♪ rhythm echo 1.1.1                                 http://staging.shop.test
   ────────────────────────────────────────────────────────────────────────────
 
   ▸ Snapshot      "before-update"
   ▸ Echo          seal mode at http://127.0.0.1:8025
-  ✓ Contact form                         2 emails, 1 chat message
-  ✓ Order shipped                        1 SMS, 1 webhook
-  ✓ Weekly digest                        1 email
- ╭──────────────────────────────────╮
- │  SNAPSHOT BEFORE-UPDATE   saved  │
- │  ✓ no problems in what was sent  │
- ╰──────────────────────────────────╯
-  3 actions · 3 emails, 1 SMS, 1 chat message, 1 webhook · 3s · seal mode
+  ✓ Contact form                         2 emails, 1 webhook
+  ✓ Checkout                             1 email, 1 SMS, 1 chat message, 1 webhook, 2 analytics events
+
+  WARNINGS  1 ────────────────────────────────────────────────────────────────
+
+ ▌  WARNING    Meta Conversions API event carries a credential in its body   
+ ▌             → Don't put API keys or passwords in payloads; send them in a…
+
+ ╭──────────────────────────────────────────╮
+ │  SNAPSHOT BEFORE-UPDATE   saved          │
+ │  ✗ 0 errors   ▲ 1 warning   · 0 notices  │
+ ╰──────────────────────────────────────────╯
+  2 actions · 3 emails, 1 SMS, 1 chat message, 2 webhooks, 2 analytics events · 2s · seal mode
 
   → next: make your change, then run: rhythm echo compare
 ```
 
-Each action ran in turn. Echo waited until nothing new had arrived for `quiet` (one second here) before moving on. The snapshot is in `.echo/snapshots/before-update/` and is now the *latest* one, which `compare` uses. If the snapshot found problems in what was sent (an unfilled placeholder, a PHP warning in an email), they're listed above the panel: that's the starting point.
+Each action ran in turn. Echo waited until everything `expect` asked for had arrived, then a moment with nothing new, before moving on. The snapshot is in `.echo/snapshots/before-update/` and is now the *latest* one, which `compare` uses. The problems the snapshot found in what was sent (here the token in Meta's payload) are listed above the panel: that's the starting point. `compare` reports only what changes from it.
 
 ## 8. Make your change
 
-Update the plugin, switch the SMTP plugin, deploy the branch. In the test shop, the "update" stopped the admin notification, changed the autoresponder's subject, broke the SMS template and dropped a field from the Zapier webhook.
+Update the plugin, switch the SMTP plugin, deploy the branch. In the shop, the "update" switched off the owner's notification, left a merge tag in the receipt, rewrote the order SMS with emoji and dropped the customer's email from the order webhook.
 
 ## 9. Compare
 
@@ -201,65 +216,93 @@ rhythm echo compare
 ```
 
 ```text
-  ♪ rhythm echo 1.0.0                                https://staging.shop.test
+  ♪ rhythm echo 1.1.1                                 http://staging.shop.test
   ────────────────────────────────────────────────────────────────────────────
 
-  ▸ Snapshot      "before-update", 3 actions, taken just now
+  ▸ Snapshot      "before-update", 2 actions, taken just now
   ▸ Echo          seal mode at http://127.0.0.1:8025
-  ✓ Contact form                         1 email, 1 chat message
-  ✓ Order shipped                        1 SMS, 1 webhook
-  ✓ Weekly digest                        1 email
+  ✗ Contact form                         1 email, 1 webhook, fewer than expected
+  ✓ Checkout                             1 email, 1 SMS, 1 chat message, 1 webhook, 2 analytics events
 
-  BROKE  3 ───────────────────────────────────────────────────────────────────
+  BROKE  4 ───────────────────────────────────────────────────────────────────
 
- ▌  BROKE      Email to office@shop.test is no longer sent       Contact form
- ▌             sent → not sent
+ ▌  BROKE      Email to owner@shop.example.com is no longer sent             
+ ▌             Contact form                                                  
+ ▌             sent → not sent                                               
  ▌             → Something in the change stopped this message: check the plu…
 
  ▌  BROKE      Sent fewer emails than expected                   Contact form
- ▌             expected 2, got 1
+ ▌             email: expected 2, got 1                                      
  ▌             → Check the settings of whatever sends them, or update expect…
 
- ▌  BROKE      Unfilled placeholder {first_name} in Twilio SMS  Order shipped
+ ▌  BROKE      Unfilled placeholder {customer_first_name} in email   Checkout
  ▌             The template still contains the placeholder, so readers see i…
- ▌             → Check the tag's spelling against the plugin's list of tags,…
+ ▌             → Check the tag's spelling against the plugin's list of tags.…
 
-  CHANGED  3 ─────────────────────────────────────────────────────────────────
+ ▌  BROKE      WooCommerce webhook to gate ("order.created"): payload lost f…
+ ▌             Checkout                                                      
+ ▌             billing.email                                                 
+ ▌             → Whatever receives this (a CRM, Zapier, an app) may depend o…
 
-    ■  Email to the test submitter: subject changed              Contact form
-    ■  Twilio SMS to the test number: text changed              Order shipped
-    ■  Zapier webhook to hooks.zapier.com/hooks/catch/12345…    Order shipped
+  NEW  1 ─────────────────────────────────────────────────────────────────────
+
+ ▌  NEW        SMS needs more than one part                          Checkout
+ ▌             3 parts (UCS-2); each part is charged                         
+ ▌             → Keep SMS under 160 GSM-7 characters (70 with emoji or other…
+
+  CHANGED  1 ─────────────────────────────────────────────────────────────────
+
+    ■  Twilio SMS to the test number: text changed                   Checkout
+       line 1 changed: Bean & Leaf: order #1002 is confirmed. Track it at h…
+         - Bean & Leaf: order #1002 is confirmed. Track it at https://shop.…
+         + 🎉 Hi Jamie! Thanks so much for your order #1004 with Bean & Lea…
 
  ╭─────────────────────────────────────────────────╮
  │  ECHO   Something broke                         │
- │  ✗ 3 broke   ▲ 0 new   ■ 3 changed   ✓ 0 fixed  │
+ │  ✗ 4 broke   ▲ 1 new   ■ 1 changed   ✓ 0 fixed  │
  ╰─────────────────────────────────────────────────╯
-  3 actions compared with snapshot "before-update" (just now) · 2 emails, 1 SMS, 1 chat message, 1 webhook
+  2 actions compared with snapshot "before-update" (just now) · 2 emails, 1 SMS, 1 chat message, 2 webhooks, 2 analytics events
 
-  → full report: .echo/runs/2026-10-24T08-37-26/report.html
+  → full report: .echo/runs/2026-10-25T14-23-14-f6f2df/report.html
 ```
 
-Reading from the top:
+It exits `1`, since something broke. Reading from the top:
 
-- **BROKE** is what the snapshot sent and this run doesn't. The office's copy of the contact form is gone, so the `expect` fails too. The SMS now has an unfilled `{first_name}`, which is a new error.
-- **CHANGED** is the same message with different content. "The test submitter" is the `${fake:email}` address, which changes every run; Echo compares it as a role, not an address. The same goes for `+1555…` numbers, which are test numbers. The Zapier payload lost a field that whatever receives it may need; a catch hook (Zapier, Make, n8n) is named by its URL, with the secret part masked, since each URL is its own Zap or scenario.
+- **BROKE** is what the snapshot sent and this run doesn't, or a new error. The owner's copy of the contact form is gone, so the `expect` fails too. The receipt now shows `{customer_first_name}` to the customer. The order webhook lost `billing.email`, which the CRM needs.
+- **NEW** is a problem that wasn't there before: the new SMS text needs three parts, each one charged.
+- **CHANGED** is the same message with different content, shown as a line diff. "The test number" is the `+1555…` test number Echo compares as a role, not a number. The order numbers differ on every run and aren't a change on their own.
 - **The panel** gives the verdict and the count per class.
 
-To see the details of every change, including the before and after values, print the stored result in plain text:
+To see the details of every change, print the stored result in plain text:
 
 ```sh
 rhythm echo report --plain
 ```
 
 ```text
-[CHANGED] Email to the test submitter: subject changed - Contact form
-  Thanks for getting in touch → We got your message
-[CHANGED] Twilio SMS to the test number: text changed - Order shipped
-  Hi Jamie, your order #1042 has shipped. → Hi {first_name}, your order #1042 has shipped.
-  fix: Read the new text; if the change is intended, take a new snapshot.
-[CHANGED] Zapier webhook to hooks.zapier.com/hooks/catch/123456/ab•••••: payload lost fields - Order shipped
-  order.email
+[BROKE] Email to owner@shop.example.com is no longer sent - Contact form
+  sent → not sent
+  fix: Something in the change stopped this message: check the plugin or code that sends it and its settings.
+[BROKE] Sent fewer emails than expected - Contact form
+  email: expected 2, got 1
+  fix: Check the settings of whatever sends them, or update expect in .echo/config.yaml if the change is intended.
+[BROKE] Unfilled placeholder {customer_first_name} in email - Checkout
+  The template still contains the placeholder, so readers see it instead of their data.
+  fix: Check the tag's spelling against the plugin's list of tags. Make sure the data it needs exists when the message is sent.
+[BROKE] WooCommerce webhook to gate ("order.created"): payload lost fields - Checkout
+  billing.email
   fix: Whatever receives this (a CRM, Zapier, an app) may depend on these fields.
+[NEW] SMS needs more than one part - Checkout
+  3 parts (UCS-2); each part is charged
+  fix: Keep SMS under 160 GSM-7 characters (70 with emoji or other Unicode).
+[CHANGED] Twilio SMS to the test number: text changed - Checkout
+  line 1 changed: Bean & Leaf: order #1002 is confirmed. Track it at https://shop.example.com/t/1… → 🎉 Hi Jamie! Thanks so much for your order #1004 with Bean & Leaf ☕️ We’re roast…
+    - Bean & Leaf: order #1002 is confirmed. Track it at https://shop.example.com/t/1002
+    + 🎉 Hi Jamie! Thanks so much for your order #1004 with Bean & Leaf ☕️ We’re roasting your beans now and they’ll ship tomorrow. Track it any time at https://shop.example.com/t/1004 🚚
+  fix: Read the new text; if the change is intended, take a new snapshot.
+
+Something broke - 4 broke, 1 new, 1 changed, 0 fixed - 2 actions compared, 2 emails, 1 SMS, 1 chat message, 2 webhooks, 2 analytics events
+full report: .echo/runs/2026-10-25T14-23-14-f6f2df/report.html
 ```
 
 [Actions and compare](Echo-Actions-And-Compare#reading-a-comparison) explains every class and how messages are matched.
@@ -267,7 +310,23 @@ rhythm echo report --plain
 > [!TIP]
 > Fix from the top. A message that's no longer sent usually has one cause: the plugin you just updated, its settings, or the mailer it now uses.
 
-## 10. Open the report
+## 10. Accept what you meant
+
+The new SMS text was intended; its length was a known cost. Each change has a key, which `-v` prints (`key: 562b5cf7`). Pass the keys of the changes you meant to `--accept` and they leave the comparison, with a note:
+
+```sh
+rhythm echo compare --plain --accept 562b5cf7 --accept df2d8e35
+```
+
+```text
+Something broke - 4 broke, 0 new, 0 changed, 0 fixed - 2 actions compared, 2 emails, 1 SMS, 1 chat message, 2 webhooks, 2 analytics events
+note: accepted as intended: SMS needs more than one part (df2d8e35)
+note: accepted as intended: Twilio SMS to the test number: text changed (562b5cf7)
+```
+
+A key stays the same from run to run until the change itself differs. When everything left is intended, take a new snapshot as the new baseline.
+
+## 11. Open the report
 
 Every snapshot, run and comparison writes a standalone HTML report. Open it with `--open`, or show the last result again at any time:
 
@@ -276,14 +335,14 @@ rhythm echo compare --open
 rhythm echo report --open
 ```
 
-The report shows each action with its messages: emails rendered in a sandboxed frame, SMS and chat messages as bubbles and webhook bodies as they were sent. Each comes with the answer it got. The changes are on top. It's one file, so you can attach it to a ticket.
+The report shows each action with its messages: emails rendered in a sandboxed frame with remote images blocked until you load them, SMS and chat messages as bubbles and webhook bodies as they were sent, each with the answer it got. The changes are on top, text changes as diffs. It's one file, readable by you only, so you can attach it to a ticket.
 
 ## Next steps
 
 - **Something you didn't intend?** Fix it and run `rhythm echo compare` again; it always compares with the same snapshot.
 - **Everything intended?** Take a new snapshot as the new baseline: `rhythm echo snapshot --name after-update`.
 - **Test real forms.** Run Soundcheck with `--echo`: [With Soundcheck](Echo-With-Soundcheck).
-- **Async mail.** If messages are sent by WP-Cron, Action Scheduler or a queue, add a `flush:` command so they go out during the action: [Actions and compare](Echo-Actions-And-Compare#flush-queued-work).
+- **Async mail.** If messages are sent by WP-Cron, Action Scheduler or a queue, keep a `flush:` command so they go out during the action: [Actions and compare](Echo-Actions-And-Compare#flush-queued-work).
 - **Want this in CI?** See [CI](Echo-CI).
 
 ---
