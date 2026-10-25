@@ -122,13 +122,19 @@ foreach ($R in @(
         @('9.0.3', $All, $New, 'yes', 'nosums'),
         @('9.0.4', $All, $New, 'yes', 'nobundle'),
         @('9.0.5', $All, $New, 'yes'),
-        @('9.0.6', $All, $New, 'yes'))) {
+        @('9.0.6', $All, $New, 'yes'),
+        @('9.0.7', $All, $New, 'yes'),
+        @('9.0.8', $All, $New, 'yes'))) {
     $Binary = Join-Path $Build "$($R[0])/rhythm$Exe"
     New-Stub $R[0] $R[1] $R[2] $R[3] $Binary
     $Base = switch ($R[0]) {
         '9.0.1' { 'http://example.invalid/dl/rhythm/v9.0.1' }
         '9.0.5' { '{{BASE}}/hang/dl/rhythm/v9.0.5' }
         '9.0.6' { 'http://example.invalid?@127.0.0.1/dl/rhythm/v9.0.6' }
+        # Downloads that redirect to plain http on this server.
+        '9.0.7' { '{{BASE}}/redirect/{{HOSTPORT}}/dl/rhythm/v9.0.7' }
+        # https downloads, which the $Hops prelude redirects and serves.
+        '9.0.8' { 'https://dl.invalid/dl/rhythm/v9.0.8' }
         default { "{{BASE}}/dl/rhythm/v$($R[0])" }
     }
     New-Release $R[0] $Binary $Base $(if ($R.Count -gt 4) { $R[4] } else { '' })
@@ -222,7 +228,7 @@ $Vars = 'RHYTHM_GITHUB_API', 'RHYTHM_INSTALL_DIR', 'RHYTHM_VERSION', 'RHYTHM_TOO
 'PATH', 'GH_TOKEN', 'GH_CONFIG_DIR', 'RHYTHM_SKIP_SIGNATURE', 'RHYTHM_TEST_VERIFY',
 'FAKE_SIG_LOG', 'FAKE_COSIGN_EXIT', 'FAKE_GH_AUTH', 'FAKE_GH_EXIT', 'FAKE_GH_OLD', 'RHYTHM_TEST_DEFAULTS', 'RHYTHM_LOCKED',
 'RHYTHM_TEST_ALREADY', 'RHYTHM_INSTALL_TIMEOUT', 'PROCESSOR_ARCHITECTURE', 'PROCESSOR_ARCHITEW6432',
-'RHYTHM_TEST_CASEDIR'
+'RHYTHM_TEST_BASE', 'RHYTHM_TEST_CASEDIR'
 # The CPU variables as Windows set them for this shell, kept for every
 # case unless it sets its own.
 $CpuVar = $env:PROCESSOR_ARCHITECTURE
@@ -257,6 +263,7 @@ function Invoke-Install([hashtable]$Set = @{}, [string]$Prelude = '', [string]$S
         TMPDIR             = $Tmp
         PROCESSOR_ARCHITECTURE = $CpuVar
         PROCESSOR_ARCHITEW6432 = $Wow64Var
+        RHYTHM_TEST_BASE   = $BaseUrl
     }
     foreach ($K in $Set.Keys) { $Values[$K] = $Set[$K] }
     $Saved = @{}
@@ -287,7 +294,26 @@ function Invoke-Install([hashtable]$Set = @{}, [string]$Prelude = '', [string]$S
 # Authorization header, then fails as if offline.
 $Mock = @'
 function Invoke-RestMethod { param($Uri, $Headers, [switch]$UseBasicParsing, $TimeoutSec) Add-Content -Path $env:MOCK_LOG -Value "$Uri auth=$($Headers.Authorization)"; throw 'offline' }
-function Invoke-WebRequest { param($Uri, $OutFile, [switch]$UseBasicParsing, $TimeoutSec) Add-Content -Path $env:MOCK_LOG -Value "$Uri"; throw 'offline' }
+function Invoke-WebRequest {
+    [CmdletBinding()] param($Uri, $Headers, [switch]$UseBasicParsing, $TimeoutSec, $MaximumRedirection, $OutFile, [switch]$PassThru)
+    Add-Content -Path $env:MOCK_LOG -Value "$Uri auth=$($Headers.Authorization)"; throw 'offline'
+}
+'@
+
+# A prelude for https downloads, which the fake API can't serve: a URL on
+# dl.invalid answers 302 to the same path on cdn.invalid, which answers
+# 307 to a relative URL, which is fetched from the fake API. Every URL is
+# logged with the Authorization it was sent with.
+$Hops = @'
+function Invoke-WebRequest {
+    [CmdletBinding()] param($Uri, $Headers, [switch]$UseBasicParsing, $TimeoutSec, $MaximumRedirection, $OutFile, [switch]$PassThru)
+    $U = [Uri]"$Uri"
+    Add-Content -Path $env:MOCK_LOG -Value "$U auth=$($Headers.Authorization)"
+    if ($U.Host -eq 'dl.invalid') { return [pscustomobject]@{ StatusCode = 302; Headers = @{ Location = "https://cdn.invalid$($U.AbsolutePath)" } } }
+    if ($U.Host -eq 'cdn.invalid' -and -not $U.Query) { return [pscustomobject]@{ StatusCode = 307; Headers = @{ Location = "$($U.AbsolutePath)?hop=2" } } }
+    if ($U.Host -eq 'cdn.invalid') { $PSBoundParameters.Uri = "$env:RHYTHM_TEST_BASE$($U.AbsolutePath)" }
+    Microsoft.PowerShell.Utility\Invoke-WebRequest @PSBoundParameters
+}
 '@
 
 function Get-Requests { if (Test-Path $RequestLog) { @(Get-Content $RequestLog) } else { @() } }
@@ -1032,6 +1058,43 @@ function Case-readonly_dir {
     }
 }
 
+function Case-redirect_to_http {
+    # A loopback mirror may use plain http itself; a redirect from it to
+    # plain http (here localhost on the same port) is refused before
+    # anything is sent there, for the API and for a download.
+    $Port = ([Uri]$BaseUrl).Port
+    Clear-Requests
+    Invoke-Install @{ RHYTHM_GITHUB_API = "$BaseUrl/redirect/localhost:$Port"; RHYTHM_GITHUB_TOKEN = 'mirror-test-secret' }
+    Assert-Code 1
+    Assert-Out "rhythm install: 127.0.0.1 redirected to a URL that isn't https ($BaseUrl/redirect/localhost:$Port/repos/RhythmShahriar/rhythm/releases/latest)"
+    Assert-NoOut 'mirror-test-secret'
+    Assert-NoFile 'rhythm.exe'
+    $Got = (Get-Requests) -join '|'
+    if ($Got -ne "GET /redirect/localhost:$Port/repos/RhythmShahriar/rhythm/releases/latest auth=Bearer mirror-test-secret") { Fail "requests were: $Got" }
+
+    Clear-Requests
+    Invoke-Install @{ RHYTHM_VERSION = '9.0.7' }
+    Assert-Code 1
+    Assert-Out "rhythm install: refusing to follow a redirect that isn't https from $BaseUrl/redirect/127.0.0.1:$Port/dl/rhythm/v9.0.7/rhythm_windows_amd64.zip"
+    Assert-NoFile 'rhythm.exe'
+    if (Get-Requests | Where-Object { $_ -like 'GET /dl/rhythm/v9.0.7/*' }) { Fail 'the http download was fetched' }
+}
+
+function Case-redirect_followed {
+    # Redirects that stay on https are followed, a relative one too, and
+    # no Authorization goes with them.
+    Invoke-Install @{ RHYTHM_VERSION = '9.0.8'; RHYTHM_TOOLS = 'none'; RHYTHM_GITHUB_TOKEN = 'mirror-test-secret' } $Hops
+    Assert-Code 0
+    if ((Get-Version) -ne 'rhythm 9.0.8') { Fail "rhythm.exe is $(Get-Version), want rhythm 9.0.8" }
+    $Log = @(Get-Content (Join-Path $script:CaseDir 'mock.log'))
+    foreach ($Want in "$BaseUrl/repos/RhythmShahriar/rhythm/releases/tags/v9.0.8 auth=Bearer mirror-test-secret",
+        'https://dl.invalid/dl/rhythm/v9.0.8/rhythm_windows_amd64.zip auth=',
+        'https://cdn.invalid/dl/rhythm/v9.0.8/rhythm_windows_amd64.zip auth=',
+        'https://cdn.invalid/dl/rhythm/v9.0.8/rhythm_windows_amd64.zip?hop=2 auth=') {
+        if ($Log -notcontains $Want) { Fail "no request '$Want' in: $($Log -join '|')" }
+    }
+}
+
 function Case-wow64 {
     # 32-bit PowerShell on 64-bit Windows sees PROCESSOR_ARCHITECTURE=x86;
     # PROCESSOR_ARCHITEW6432 names the CPU.
@@ -1105,7 +1168,7 @@ function Set-RawUserPath($Value, $Kind) {
 
 if (-not $Cases.Count) {
     $Cases = 'default', 'none', 'some', 'commas', 'typo', 'tool_fails', 'defaults', 'pins', 'locked', 'path_note',
-    'signature_cosign', 'signature_cosign_fails', 'signature_gh', 'signature_none', 'skip_signature', 'router_verify', 'bad_checksum', 'no_checksums', 'missing_dir', 'relative_dir', 'truncated', 'http_refused', 'http_download_refused', 'api_not_plain', 'version_checked', 'timeout', 'github_token', 'rhythm_token',
+    'signature_cosign', 'signature_cosign_fails', 'signature_gh', 'signature_none', 'skip_signature', 'router_verify', 'bad_checksum', 'no_checksums', 'missing_dir', 'relative_dir', 'truncated', 'http_refused', 'http_download_refused', 'redirect_to_http', 'redirect_followed', 'api_not_plain', 'version_checked', 'timeout', 'github_token', 'rhythm_token',
     'rate_limit', 'old_router', 'old_router_named', 'router_without_dry_run', 'router_without_tools_block',
     'unknown_tool', 'running_exe', 'swap_fallback', 'swap_restore', 'readonly_dir', 'wow64', 'user_path_raw'
 }

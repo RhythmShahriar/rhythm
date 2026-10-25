@@ -124,6 +124,54 @@
         default { if ($env:RHYTHM_ARCH) { $env:RHYTHM_ARCH } else { throw "rhythm install: unsupported CPU '$Cpu'" } }
     }
 
+    # Invoke-Get fetches $Url with Invoke-WebRequest (to $OutFile when one
+    # is given) and returns the response. It follows redirects itself (at
+    # most 10) and refuses one to any URL that isn't https, as install.sh's
+    # curl --proto-redir =https does. pwsh turns down a redirect from https
+    # to http by itself; Windows PowerShell 5.1 would follow it. The
+    # target is checked before anything is sent there. Authorization goes
+    # to the first URL only, as the cmdlets and curl do when they follow a
+    # redirect. A 3xx comes back as the response in 5.1 and as an error in
+    # pwsh, so both are read. -ForApi picks the message install.sh gives for
+    # the API or for a download.
+    function Invoke-Get([string]$Url, [hashtable]$Hdrs = @{}, [string]$OutFile = '', [switch]$ForApi) {
+        $From = $Url
+        for ($Hop = 0; ; $Hop++) {
+            $Params = @{ Uri = $Url; Headers = $Hdrs; UseBasicParsing = $true; TimeoutSec = $Timeout; MaximumRedirection = 0; ErrorAction = 'SilentlyContinue' }
+            if ($OutFile) { $Params.OutFile = $OutFile; $Params.PassThru = $true }
+            $Resp = $null
+            try {
+                $Resp = Invoke-WebRequest @Params
+            }
+            catch {
+                $R = $_.Exception.Response
+                $Code = if ($R) { [int]$R.StatusCode } else { 0 }
+                if ($Code -lt 300 -or $Code -gt 399) { throw }
+                $Resp = $R
+            }
+            $Code = if ($Resp) { [int]$Resp.StatusCode } else { 0 }
+            if ($Code -lt 300 -or $Code -gt 399) { return $Resp }
+            # The cmdlet's response, 5.1's HttpWebResponse or pwsh's
+            # HttpResponseMessage, each with its own kind of headers.
+            $Loc = $null
+            if ($Resp -is [Net.WebResponse]) { $Loc = $Resp.Headers['Location'] }
+            elseif ($Resp.GetType().FullName -eq 'System.Net.Http.HttpResponseMessage') {
+                if ($Resp.Headers.Location) { $Loc = $Resp.Headers.Location.OriginalString }
+            }
+            elseif ($Resp.Headers -and $Resp.Headers.ContainsKey('Location')) { $Loc = @($Resp.Headers['Location'])[0] }
+            if (-not $Loc) { return $Resp }
+            $Next = $null
+            if (-not [Uri]::TryCreate([Uri]$Url, [string]$Loc, [ref]$Next) -or $Next.Scheme -ne 'https') {
+                if ($ForApi) { throw "rhythm install: $(([Uri]$From).Host) redirected to a URL that isn't https ($From)" }
+                throw "rhythm install: refusing to follow a redirect that isn't https from $From"
+            }
+            if ($Hop -ge 10) { throw "rhythm install: too many redirects from $From" }
+            $Url = $Next.AbsoluteUri
+            $Hdrs = @{} + $Hdrs
+            $Hdrs.Remove('Authorization')
+        }
+    }
+
     # The tag the signature must name: v, a digit, then only [0-9A-Za-z.+-],
     # so it is safe in a URL path and a cosign flag. A pinned version is what
     # the user asked for, so a mirror can't answer with another one. It is
@@ -142,9 +190,12 @@
     # Explorer engine, which fails where IE was never set up (Server Core,
     # a fresh account). pwsh ignores it.
     try {
-        $Release = Invoke-RestMethod -Uri $ReleaseUrl -Headers $Headers -UseBasicParsing -TimeoutSec $Timeout
+        $Body = (Invoke-Get $ReleaseUrl $Headers -ForApi).Content
+        if ($Body -is [byte[]]) { $Body = [Text.Encoding]::UTF8.GetString($Body) }
+        $Release = $Body | ConvertFrom-Json
     }
     catch {
+        if ("$($_.Exception.Message)" -like 'rhythm install: *') { throw }
         $Status = 0
         if ($_.Exception.Response) { $Status = [int]$_.Exception.Response.StatusCode }
         if ($Status -eq 403 -or $Status -eq 429) {
@@ -175,15 +226,14 @@
     Assert-Https $Sums.browser_download_url
     if ($Bundle) { Assert-Https $Bundle.browser_download_url }
 
-    # Save-Url downloads $Url to $OutFile, naming a timeout as one. Unlike
-    # curl the cmdlets can't be told to refuse a redirect to http: pwsh
-    # turns one down by itself, while Windows PowerShell 5.1 follows it. The
-    # checksum and signature checks below still cover the bytes.
+    # Save-Url downloads $Url to $OutFile, naming a timeout as one. A
+    # redirect must stay on https (see Invoke-Get).
     function Save-Url([string]$Url, [string]$OutFile) {
         try {
-            Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -TimeoutSec $Timeout
+            $null = Invoke-Get $Url @{} $OutFile
         }
         catch {
+            if ("$($_.Exception.Message)" -like 'rhythm install: *') { throw }
             if (Test-Timeout $_) { throw "rhythm install: timed out after $($Timeout)s downloading $Url; set RHYTHM_INSTALL_TIMEOUT to wait longer" }
             throw
         }
