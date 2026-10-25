@@ -12,6 +12,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -679,6 +680,27 @@ func TestLockedBinary(t *testing.T) {
 	f := &releaseAPI{s: &sandbox{}, data: map[string]string{}, kit: map[string]bool{}}
 	if got, err := lockedBinary(f.build(repoOf("tuner"), "1.0.0", false), "rhythm-tuner"); err != nil || !strings.Contains(string(got), "rhythm-tuner 1.0.0") {
 		t.Errorf("tar.gz: %q %v", got, err)
+	}
+	if _, err := lockedBinary(f.build(repoOf("tuner"), "1.0.0", false), "rhythm-echo"); err == nil || err.Error() != "no rhythm-echo in the archive" {
+		t.Errorf("tar.gz without the binary: %v", err)
+	}
+	if _, err := lockedBinary(buf.Bytes(), "rhythm-echo.exe"); err == nil || err.Error() != "no rhythm-echo.exe in the archive" {
+		t.Errorf("zip without the binary: %v", err)
+	}
+	// A symlink named like the binary is skipped, as kit/update skips it.
+	buf.Reset()
+	zw = zip.NewWriter(&buf)
+	h := &zip.FileHeader{Name: "rhythm-tuner.exe"}
+	h.SetMode(fs.ModeSymlink | 0o777)
+	if w, err = zw.CreateHeader(h); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = w.Write([]byte("/etc/passwd"))
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := lockedBinary(buf.Bytes(), "rhythm-tuner.exe"); err == nil {
+		t.Errorf("zip: read %q from a symlink", got)
 	}
 	if _, err := lockedBinary([]byte("not an archive"), "rhythm-tuner"); err == nil {
 		t.Error("read a binary from junk")
