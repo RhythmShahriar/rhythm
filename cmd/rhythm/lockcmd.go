@@ -234,7 +234,7 @@ func platformList(platforms map[string]string) string {
 func lockedBinary(archive []byte, bin string) ([]byte, error) {
 	if zr, err := zip.NewReader(bytes.NewReader(archive), int64(len(archive))); err == nil {
 		for _, f := range zr.File {
-			if path.Base(f.Name) == bin && !f.FileInfo().IsDir() {
+			if path.Base(f.Name) == bin && f.Mode().IsRegular() {
 				rc, err := f.Open()
 				if err != nil {
 					return nil, err
@@ -252,6 +252,9 @@ func lockedBinary(archive []byte, bin string) ([]byte, error) {
 	tr := tar.NewReader(zr)
 	for {
 		h, err := tr.Next()
+		if err == io.EOF {
+			return nil, fmt.Errorf("no %s in the archive", bin)
+		}
 		if err != nil {
 			return nil, err
 		}
