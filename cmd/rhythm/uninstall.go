@@ -122,6 +122,13 @@ func uninstallScope(names []string, all bool, stderr io.Writer) ([]string, int) 
 	return list, 0
 }
 
+// removeFile and onWindows are os.Remove and the platform, so tests can
+// act out Windows, which refuses to delete a running program.
+var (
+	removeFile = os.Remove
+	onWindows  = runtime.GOOS == "windows"
+)
+
 // errNotInstalled is uninstallOne's answer for a tool that isn't there.
 var errNotInstalled = errors.New("not installed")
 
@@ -164,12 +171,22 @@ func uninstallOne(tool string, purge, quietMissing bool, stdout, stderr io.Write
 		files = append([]string{path}, files...) // the link on PATH goes too, or it would dangle
 	}
 	failed := false
+	renamed := false
 	for i, f := range files {
-		err := os.Remove(f)
-		if err != nil && runtime.GOOS == "windows" && tool == selfName && f == real {
+		if renamed && f == real+".old" {
+			// The running rhythm itself, which Windows won't delete yet.
+			continue
+		}
+		err := removeFile(f)
+		if err != nil && onWindows && tool == selfName && f == real {
 			// Windows can't delete a running program. It can rename it.
 			if err = os.Rename(f, f+".old"); err == nil {
-				fmt.Fprintf(stdout, "Removed %s (%s.old is left; delete it once this command ends)\n", f, filepath.Base(f))
+				renamed = true
+				when := "delete it once this command ends"
+				if deleteAtRestart(f+".old") == nil {
+					when = "Windows deletes it at the next restart"
+				}
+				fmt.Fprintf(stdout, "Removed %s (%s.old is left; %s)\n", f, filepath.Base(f), when)
 				continue
 			}
 		}

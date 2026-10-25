@@ -33,7 +33,7 @@ For each tool it removes the copy that runs (the first on your `PATH`, plus the 
 | `rhythm-tuner is managed by Homebrew; remove it with: brew uninstall rhythm-tuner` | 1, nothing removed, not even with `--purge` |
 | `rhythm-echo        can't remove /usr/local/bin/rhythm-echo; rerun with sudo` | 1 |
 
-A tool a package manager installed is left to it, with the right command (`brew uninstall`, `nix profile remove`, `mise uninstall`, `asdf uninstall`, `scoop uninstall`, `winget uninstall`). On Windows the running `rhythm.exe` can't delete itself; it is renamed and the line says `(rhythm.exe.old is left; delete it once this command ends)`.
+A tool a package manager installed is left to it, with the right command (`brew uninstall`, `nix profile remove`, `mise uninstall`, `asdf uninstall`, `scoop uninstall`, `winget uninstall`). On Windows the running `rhythm.exe` can't delete itself; it is renamed and the line says `(rhythm.exe.old is left; delete it once this command ends)`. Run from an administrator terminal, rhythm asks Windows to delete that file at the next restart and the line says `(rhythm.exe.old is left; Windows deletes it at the next restart)`. Either way the uninstall succeeds. Reinstalling with `install.ps1` removes a leftover `rhythm.exe.old` too.
 
 `--purge` keeps the `seen/` markers, so a tool you remove isn't announced as new by the next `rhythm update`. Extensions go with `rhythm ext remove <name>`; see [Extensions](Extensions). Then remove the install folder from your `PATH` if you added it. Delete the settings folder if you like (see [below](#whats-in-the-cache-and-settings-folders)).
 
