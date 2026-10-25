@@ -115,6 +115,10 @@ func updater(repo, binary, current string) *update.Updater {
 // kit/update's Updater follows: RHYTHM_GITHUB_TOKEN when it is set (it
 // then wins on GitHub too), otherwise GITHUB_TOKEN, to GitHub only. name
 // is the variable used, "" when no token goes to api.
+//
+// GITHUB_TOKEN is usually a CI job's credential for GitHub itself, so it
+// never goes to a mirror: whoever runs the mirror would get it. A mirror
+// gets a token only when the user names one for it.
 func apiToken(getenv func(string) string, api string) (name, value string) {
 	if tok := getenv("RHYTHM_GITHUB_TOKEN"); tok != "" {
 		return "RHYTHM_GITHUB_TOKEN", tok
@@ -175,6 +179,10 @@ type explainTransport struct {
 	sourceRels map[string]*update.Release // by version, as the source gave them
 }
 
+// RoundTrip answers req from the first place that has it: the pinned
+// bytes (checked checksums.txt, a locked or cached archive), then the
+// release source behind bundleHost, then the network unless RHYTHM_OFFLINE
+// is set. Pinned bytes come first so what was checked is what installs.
 func (t *explainTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if body, ok := t.pinned[req.URL.String()]; ok {
 		return t.watch(req, synthetic(req, io.NopCloser(bytes.NewReader(body)), int64(len(body)))), nil
@@ -195,6 +203,8 @@ func (t *explainTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	}
 	h := resp.Header
 	switch code := resp.StatusCode; {
+	// GitHub also answers 403 for a token without access, so only a 403
+	// or 429 that carries the rate-limit headers counts as the limit.
 	case (code == http.StatusForbidden || code == http.StatusTooManyRequests) &&
 		(h.Get("X-RateLimit-Remaining") == "0" || h.Get("Retry-After") != ""):
 		_ = resp.Body.Close()
@@ -432,6 +442,7 @@ type netReport struct {
 	blocked map[string]string // host -> key of the problem that blocks it
 }
 
+// netGroup is one network problem and the binaries it hit, in order.
 type netGroup struct {
 	binaries []string
 	text     func(binaries string) string
@@ -496,6 +507,7 @@ func (r *netReport) print(w io.Writer) {
 	}
 }
 
+// exe adds the .exe that a binary's file name has on Windows.
 func exe(name string) string {
 	if runtime.GOOS == "windows" {
 		return name + ".exe"
@@ -589,6 +601,9 @@ func (it installItem) String() string {
 	return it.tool + "@" + it.spec
 }
 
+// cmdInstall is rhythm install: it checks every name, then installs each
+// tool in turn. One tool failing doesn't stop the others; with --locked
+// nothing is installed until every archive matches the lock.
 func cmdInstall(args []string, stdout, stderr io.Writer) int {
 	// --from is offered only by a rhythm that can read bundles.
 	fromHelp := ""
@@ -1294,6 +1309,8 @@ func resolveSpec(ctx context.Context, u *update.Updater, spec string, minAge tim
 		prefix = strings.TrimPrefix(spec, "v") + "."
 		want = prefix + "x"
 	}
+	// One page only: a range or a cooldown picks from the newest 100
+	// releases the API lists.
 	var list []ghRelease
 	if err := apiGet(ctx, u, "/releases?per_page=100", want, &list); err != nil {
 		return nil, err
@@ -1373,6 +1390,8 @@ type ghRelease struct {
 	} `json:"assets"`
 }
 
+// picked converts r to the release kit/update installs, keyed by asset
+// name, with its publish time for the cooldown.
 func (r ghRelease) picked() *pickedRelease {
 	rel := &update.Release{Version: strings.TrimPrefix(r.Tag, "v"), Assets: map[string]string{}}
 	for _, a := range r.Assets {
@@ -1449,8 +1468,9 @@ func parseChecksums(data []byte) map[string]string {
 	return sums
 }
 
-// releaseFile downloads the release asset name, at most limit bytes of
-// it. what words the asset for errors, such as "checksums".
+// releaseFile downloads the release asset at rawURL, at most limit bytes
+// of it. what words the asset for errors, such as "checksums". A file
+// over the limit is refused rather than cut short.
 func releaseFile(ctx context.Context, u *update.Updater, rawURL, what string, limit int64) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
@@ -1475,6 +1495,8 @@ func releaseFile(ctx context.Context, u *update.Updater, rawURL, what string, li
 	return data, nil
 }
 
+// sha256Hex is a lowercase hex sha256, as checksums.txt and rhythm.lock
+// write it.
 var sha256Hex = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 // platformsOf picks binary's archives out of sums, keyed by os_arch as
@@ -1708,6 +1730,7 @@ type trustFlags struct {
 	cache         *bool
 }
 
+// addTrustFlags defines --skip-signature and --cache on fs.
 func addTrustFlags(fs *flag.FlagSet) trustFlags {
 	return trustFlags{
 		skipSignature: fs.Bool("skip-signature", false, "install without checking release signatures"),
@@ -1879,7 +1902,9 @@ func (r *runOptions) cacheLookup(sum, archive string) []byte {
 }
 
 // cacheStore keeps an archive kit/update has just installed, if it is
-// the one checksums.txt names. Errors are ignored, like a miss.
+// the one checksums.txt names. Errors are ignored, like a miss. The file
+// is written under a temporary name and renamed, so a crash or a second
+// run never leaves a partial archive under the hash.
 func (r *runOptions) cacheStore(sum, archive string, data []byte) {
 	if sum == "" || len(data) == 0 {
 		return

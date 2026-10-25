@@ -119,6 +119,8 @@ func runTool(ctx context.Context, timeout time.Duration, bin string, args ...str
 	return out, 0, nil
 }
 
+// cmdDoctor is rhythm doctor. Only a fail sets the exit status; a warn
+// is advice.
 func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 	flags := newFlagSet("doctor", doctorSynopsis)
 	offline := flags.Bool("offline", false, "skip the data refresh and the release API check")
@@ -191,6 +193,7 @@ func printChecks(w io.Writer, checks []check) {
 	fmt.Fprintf(w, "%s, %s.\n", plural(fails, "failure"), plural(warns, "warning"))
 }
 
+// plural is "1 failure" or "2 failures".
 func plural(n int, word string) string {
 	if n == 1 {
 		return "1 " + word
@@ -198,6 +201,7 @@ func plural(n int, word string) string {
 	return strconv.Itoa(n) + " " + word + "s"
 }
 
+// anyFailed reports whether any check failed.
 func anyFailed(checks []check) bool {
 	for _, c := range checks {
 		if c.Status == statusFail {

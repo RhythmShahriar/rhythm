@@ -16,6 +16,7 @@ import (
 	"github.com/RhythmShahriar/rhythm/kit/cli"
 )
 
+// packs is the data report for the checks pack at version.
 func packs(version string) []cli.DataPack {
 	return []cli.DataPack{{Name: "checks", Version: version, SHA256: strings.Repeat("b", 64)}}
 }

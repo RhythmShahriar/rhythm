@@ -31,6 +31,8 @@ commas. rhythm itself is removed only when named together with --all.
 Exit status: 0 when every tool was removed or wasn't installed, 1 when
 any couldn't be removed and 2 for a usage error.`
 
+// cmdUninstall is rhythm uninstall. A tool that isn't installed isn't a
+// failure: the end state is what was asked for.
 func cmdUninstall(args []string, stdout, stderr io.Writer) int {
 	flags := newFlagSet("uninstall", uninstallSynopsis)
 	purge := flags.Bool("purge", false, "also remove each tool's cache and update-check state")

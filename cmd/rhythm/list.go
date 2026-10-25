@@ -62,6 +62,8 @@ type listEntry struct {
 	latestErr  string // why the latest release is unknown
 }
 
+// cmdList is rhythm list. A release that can't be looked up doesn't fail
+// it: the row shows "?" and the reason goes to stderr.
 func cmdList(args []string, stdout, stderr io.Writer) int {
 	flags := newFlagSet("list", listSynopsis)
 	offline := flags.Bool("offline", false, "don't look up the latest releases")
@@ -188,6 +190,8 @@ type listTool struct {
 	Error      string `json:"error"`
 }
 
+// listJSON builds the rhythm-list/v1 report. Unknown values are "" in
+// JSON, where the table shows "unknown" or "-".
 func listJSON(entries []listEntry, nets *netReport) listReport {
 	rep := listReport{Schema: "rhythm-list/v1", Tools: []listTool{}}
 	for _, e := range entries {

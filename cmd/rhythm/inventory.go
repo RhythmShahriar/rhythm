@@ -484,6 +484,8 @@ type capped struct {
 	max int
 }
 
+// Write always reports all of p as written. A short write would make
+// exec stop copying and fail the command over output rhythm doesn't need.
 func (c *capped) Write(p []byte) (int, error) {
 	if room := c.max - c.buf.Len(); room > 0 {
 		c.buf.Write(p[:min(len(p), room)])

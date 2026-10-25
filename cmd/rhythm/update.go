@@ -329,6 +329,7 @@ type skippedJSON struct {
 	Published string `json:"published"` // RFC 3339; "" when the API didn't say
 }
 
+// newSkippedJSON is s as the report writes it.
 func newSkippedJSON(s *skippedRelease) *skippedJSON {
 	j := &skippedJSON{Version: s.version}
 	if !s.published.IsZero() {
