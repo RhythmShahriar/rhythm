@@ -66,7 +66,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 		args = append([]string{"version"}, args[1:]...)
 	}
 	if c, ok := commands[args[0]]; ok {
-		return c.run(args[1:], stdout, stderr)
+		// rhythm's own release check runs alongside the command and may
+		// offer an update once it is done, never before.
+		check := selfCheck(c, args[1:], stdout, stderr)
+		code := c.run(args[1:], stdout, stderr)
+		selfPrompt(check, args[1:], stdout, stderr)
+		return code
 	}
 
 	tool := args[0]

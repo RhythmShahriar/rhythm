@@ -514,11 +514,22 @@ func (u *Updater) checkDisabled() bool {
 }
 
 // checkState is the update-check/<binary>.json file in the config dir:
-// when the release API was last asked and the version it named. One file
-// per binary, so tools sharing the config dir don't reset each other.
+// when the release API was last asked, the version it named and the
+// version the user last said no to at the update prompt. One file per
+// binary, so tools sharing the config dir don't reset each other.
 type checkState struct {
-	Checked time.Time `json:"checked"`
-	Latest  string    `json:"latest"`
+	Checked  time.Time `json:"checked"`
+	Latest   string    `json:"latest"`
+	Declined string    `json:"declined,omitempty"`
+}
+
+// checkStatePath is where the release check of binary keeps its state.
+func checkStatePath(binary string) (string, error) {
+	dir, err := config.Dir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "update-check", binary+".json"), nil
 }
 
 // Check returns the latest version if it is newer than Current. It asks
@@ -529,14 +540,13 @@ func (u *Updater) Check(ctx context.Context) (latest string, newer bool) {
 	if u.checkDisabled() {
 		return "", false
 	}
-	dir, err := config.Dir()
+	path, err := checkStatePath(u.Binary)
 	if err != nil {
 		return "", false
 	}
-	statePath := filepath.Join(dir, "update-check", u.Binary+".json")
 	var st checkState
 	fresh := false
-	if err := cache.ReadJSON(statePath, &st); err == nil {
+	if err := cache.ReadJSON(path, &st); err == nil {
 		// A state from the future (a clock that was wrong, or a copied
 		// config dir) would otherwise silence checks until that date.
 		age := time.Since(st.Checked)
@@ -548,9 +558,10 @@ func (u *Updater) Check(ctx context.Context) (latest string, newer bool) {
 		if err != nil {
 			return "", false
 		}
-		st = checkState{Checked: time.Now().UTC(), Latest: rel.Version}
+		// The declined version is kept, so a "no" outlasts the daily check.
+		st = checkState{Checked: time.Now().UTC(), Latest: rel.Version, Declined: st.Declined}
 		// Atomic, so tools starting together never leave a torn file.
-		_ = cache.WriteJSON(statePath, st)
+		_ = cache.WriteJSON(path, st)
 	}
 	return st.Latest, Newer(u.Current, st.Latest)
 }
@@ -573,7 +584,7 @@ func Notice(ctx context.Context, u *Updater) <-chan string {
 		cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 		if latest, newer := u.Check(cctx); newer {
-			ch <- fmt.Sprintf("A new release of %s is available: %s → %s\n  run: rhythm update", u.Binary, u.Current, latest)
+			ch <- noticeText(u, latest)
 		}
 	}()
 	return ch

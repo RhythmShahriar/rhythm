@@ -35,8 +35,10 @@
 //     mirror; it takes precedence over GITHUB_TOKEN.
 //   - RHYTHM_OFFLINE: anything but "" or "0" turns on offline mode, as
 //     Updater.Offline does: no request is sent at all.
-//   - RHYTHM_NO_UPDATE_CHECK or CI: no background update check (Check
-//     and Notice), while an explicit Install still works.
+//   - RHYTHM_NO_UPDATE_CHECK or CI: no background update check (Check,
+//     Notice and StartCheck), while an explicit Install still works.
+//   - RHYTHM_UPDATE_PROMPT: ask, notify or off; overrides the
+//     update-prompt setting PromptAtExit follows (see below).
 //
 // The default client takes its proxy from HTTPS_PROXY, HTTP_PROXY and
 // NO_PROXY.
@@ -105,6 +107,18 @@
 // forth with the same undo on failure, refuses a .prev whose sha256 has
 // changed and returns ErrNoPrevious when there is none. Failing to keep
 // .prev never fails an install; it removes any older .prev instead.
+//
+// # Update prompt
+//
+// A tool starts StartCheck when a run begins and calls PromptAtExit once
+// its work is done. On a terminal, outside CI and without --json or
+// --quiet, PromptAtExit asks "Update now? [y/N]" when a newer release is
+// out and runs `rhythm update <tool>` on y, so the update takes rhythm's
+// verified path. The default is no; a no is remembered per version
+// in the update-check state. Elsewhere it prints the one-line notice.
+// The update-prompt setting (ask, notify or off, saved with
+// SetPromptMode in the config folder) and RHYTHM_UPDATE_PROMPT choose
+// between asking, the notice alone and silence.
 //
 // # Errors
 //

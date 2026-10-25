@@ -1,4 +1,4 @@
-One command keeps `rhythm`, every installed tool and their data current. This page explains what `rhythm update` does, how to update only some tools, hold back new releases, go to a chosen version or back to the last one, how downloads are verified, the once-a-day release notice, how Tuner refreshes its vulnerability data and checks on its own, how Soundcheck keeps its browser current and what Echo updates.
+One command keeps `rhythm`, every installed tool and their data current. This page explains what `rhythm update` does, how to update only some tools, hold back new releases, go to a chosen version or back to the last one, how downloads are verified, the update prompt and the once-a-day release notice, how Tuner refreshes its vulnerability data and checks on its own, how Soundcheck keeps its browser current and what Echo updates.
 
 ## Update everything
 
@@ -188,9 +188,57 @@ On a shared CI runner, set `GITHUB_TOKEN` to lift GitHub's limit of 60 release l
 
 The full list is in the [Command reference](Command-Reference#environment).
 
+## The update prompt
+
+When a newer release of rhythm or a tool is out, the run you just did ends with a question on stderr, the way oh-my-zsh asks:
+
+```console
+$ rhythm-tuner scan example.com
+...
+A new release of Tuner is out: 0.4.0 (you have 0.3.2). Update now? [y/N] y
+rhythm-tuner       0.3.2 → 0.4.0 ✔
+  Signature ok  RhythmShahriar/tuner @ refs/tags/v0.4.0 (release-go.yml)
+  Checksum ok   sha256:…
+```
+
+- It asks only **after** the run, never before it, so it never stands between you and your scan.
+- The answer defaults to **no**: Enter, `n` or anything but `y` or `yes` leaves the binary alone.
+- `y` runs `rhythm update <tool>` (`rhythm update --self-only` for rhythm itself), the same path as typing it. The signature and checksum checks can't be skipped from the prompt. When one fails you see why, then `Tuner wasn't updated and 0.3.2 is still installed: …` and `  try again with: rhythm update tuner`. The old binary stays in place.
+- A **no is remembered** for that version, in the tool's `update-check/<binary>.json` file. You aren't asked about 0.4.0 again; the plain notice below still shows. The next release asks once more.
+- Ctrl-C at the question ends it without remembering anything.
+
+It asks only when all of these hold; otherwise you get the notice below, or nothing:
+
+| Condition | Otherwise |
+|---|---|
+| stdin, stdout and stderr are all a terminal | notice: piped output (`rhythm-tuner scan x \| less`) and scripts are never asked |
+| `CI` is unset and `RHYTHM_NO_UPDATE_CHECK` is unset | nothing: no check runs at all |
+| the run has no `--json`, `-q` or `--quiet` | notice |
+| the update prompt is `ask` (the default) | notice for `notify`, nothing for `off` |
+| rhythm is on your `PATH` (a tool updates through it) | notice |
+
+rhythm asks about its own releases after its own commands, such as `rhythm list` or `rhythm doctor`. It doesn't ask after `update`, `uninstall`, `version`, `completion` or `config`. When you run a tool through rhythm (`rhythm tuner scan …`), the tool asks. Tuner, Soundcheck and Echo ask from their first release built on rhythm's kit 0.8.0; older ones print the notice.
+
+### Choose ask, notify or off
+
+```console
+$ rhythm config update-prompt
+ask  (default)
+$ rhythm config update-prompt notify
+update-prompt set to notify
+```
+
+| Mode | At the end of a run |
+|---|---|
+| `ask` | asks "Update now? [y/N]" on a terminal, the notice elsewhere (default) |
+| `notify` | only the notice |
+| `off` | nothing; the check still runs once a day, for `rhythm doctor` |
+
+The choice is saved in `settings.json` in rhythm's config folder and applies to rhythm and every tool. `RHYTHM_UPDATE_PROMPT=ask|notify|off` overrides it for one shell or one run. A value that isn't one of the three counts as `notify` and `rhythm config` reports it: `rhythm: RHYTHM_UPDATE_PROMPT: "sometimes" isn't an update-prompt mode; use ask, notify or off`.
+
 ## The "new release" notice
 
-When a newer Tuner, Soundcheck or Echo release is out, a scan, a check, or an Echo snapshot, compare or run ends with a line on stderr:
+When a newer Tuner, Soundcheck or Echo release is out and the [update prompt](#the-update-prompt) doesn't ask, a scan, a check, or an Echo snapshot, compare or run ends with a line on stderr:
 
 ```text
 A new release of rhythm-tuner is available: 0.3.0 → 0.3.1
@@ -199,13 +247,14 @@ A new release of rhythm-tuner is available: 0.3.0 → 0.3.1
 
 - Each tool asks GitHub at most **once a day**, in the background while it runs. It never delays the run for it. The answer is remembered in `update-check/rhythm-tuner.json` (or `rhythm-soundcheck.json`, `rhythm-echo.json`) under your config directory (`~/.config/rhythm` on Linux).
 - The notice only appears with the terminal view. It doesn't appear with `--quiet`.
-- It never installs anything. Rhythm doesn't update binaries silently; you run `rhythm update` when you choose to.
+- It never installs anything. Rhythm doesn't update binaries silently: you say `y` at the prompt or run `rhythm update` when you choose to.
 
 To turn the check off, set one of these:
 
 | Variable | Effect |
 |---|---|
-| `RHYTHM_NO_UPDATE_CHECK=1` | No release check, no notice. |
+| `RHYTHM_NO_UPDATE_CHECK=1` | No release check, no prompt, no notice. |
+| `RHYTHM_UPDATE_PROMPT=off` | The check runs and nothing is printed; see [Choose ask, notify or off](#choose-ask-notify-or-off). |
 | `CI` (any value) | Same. Most CI systems set it for you. |
 | `RHYTHM_OFFLINE` (any value but `0`) | Same, for tools on a kit that knows it; it also stops their other downloads. |
 
