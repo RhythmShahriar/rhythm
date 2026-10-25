@@ -60,11 +60,11 @@ func SeverityColor(sev string) lipgloss.Color {
 
 // Regression palette, for tools that compare a run against an earlier one.
 const (
-	Broke   = Danger // worked before, fails now
-	New     = High   // a problem that wasn't there before
-	Changed = Warn   // different, maybe fine
-	Slower  = "#A78BFA"
-	Fixed   = Ok
+	Broke   = Danger    // worked before, fails now
+	New     = High      // a problem that wasn't there before
+	Changed = Warn      // different, maybe fine
+	Slower  = "#A78BFA" // works but takes longer; violet, apart from the severities
+	Fixed   = Ok        // failed before, works now
 )
 
 // Badge renders a label as a fixed-width tag: filled for confirmed

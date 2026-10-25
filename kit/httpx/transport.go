@@ -42,6 +42,8 @@ type transport struct {
 func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	r := t.prepare(req)
 	ctx := r.Context()
+	// A body that can't be read again (no GetBody) would go out empty on
+	// a retry, so such a request is sent once.
 	retryable := idempotent(r.Method) && (r.Body == nil || r.Body == http.NoBody || r.GetBody != nil)
 	lim := t.hosts.For(r.URL.Host)
 	for n := 0; ; n++ {
@@ -64,6 +66,8 @@ func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		resp, err := t.base.RoundTrip(att)
 		t.log.response(att, resp, err, time.Since(began))
 		if err != nil {
+			// A refused private address is a decision, not a glitch:
+			// retrying would only be refused again.
 			if !retryable || n >= t.opts.Retries || ctx.Err() != nil || errors.Is(err, ErrPrivate) {
 				return nil, err
 			}
@@ -113,11 +117,16 @@ func (t *transport) prepare(req *http.Request) *http.Request {
 // headers in offTarget are always removed off the target for the same
 // reason.
 func (t *transport) scopeHeaders(r *http.Request) {
+	// Without a Target there is no host to scope to: user headers are
+	// never sent (Options.Headers needs one) and Go's own redirect rules
+	// decide what a caller's headers do on each hop.
 	if t.opts.Target == nil {
 		return
 	}
 	if SameHost(t.opts.Target, r.URL) {
 		for k, vs := range t.headers {
+			// Go sends r.Host and ignores a Host entry in r.Header, so
+			// -H "Host: ..." has to set the field to take effect.
 			if k == "Host" {
 				r.Host = vs[len(vs)-1]
 				continue

@@ -41,7 +41,8 @@
 // A crawl returns at most Options.Limit pages (500), keeps
 // Options.PerGroup pages per URL template (3) and makes a path segment a
 // template after Options.FanOut children (10). It reads at most 5 MB of
-// any response, 1000 sitemap files (Options.MaxSitemaps), 50,000 URLs per
+// a page, 512 KB of robots.txt, 50 MB of a sitemap (also after gunzip),
+// 1000 sitemap files (Options.MaxSitemaps), 50,000 URLs per
 // sitemap and sitemap indexes 3 levels deep, follows at most 10 redirects
 // per request and runs 4 requests at a time (Options.Concurrency) at
 // Options.Rate per host. The default client times out after 30 s and
@@ -87,11 +88,14 @@ type Options struct {
 	Include      []string // if set, only paths matching one of these globs (case-insensitive, see Excluded)
 	Exclude      []string // added to DefaultExcludes (case-insensitive)
 	IgnoreRobots bool     // for your own site, when robots.txt blocks pages you want checked or is unavailable
-	NoSitemaps   bool
+	NoSitemaps   bool     // skip sitemaps: pages come from the start page's links only
 	// NoFollow stops after robots.txt, sitemaps and the start page: the
 	// caller follows links itself, e.g. from pages it renders in a browser,
 	// so pages aren't fetched twice.
-	NoFollow    bool
+	NoFollow bool
+	// UserAgent is sent with every request and picks the robots.txt
+	// group: its product token, the part before the first "/" or space.
+	// Empty sends Go's default and follows the "*" group.
 	UserAgent   string
 	Rate        float64 // requests per second per host; 0 means unlimited
 	Concurrency int     // 0 means 4
@@ -110,7 +114,7 @@ type Options struct {
 
 // Page is one discovered page.
 type Page struct {
-	URL    string `json:"url"`
+	URL    string `json:"url"`    // absolute and normalized (see Normalize)
 	Group  string `json:"group"`  // URL template, e.g. /product/{slug}
 	Source string `json:"source"` // start, sitemap, link, or config (pages the caller listed)
 	Depth  int    `json:"depth"`  // links from the start page
@@ -295,6 +299,8 @@ func New(opts Options) *Crawler {
 func (c *Crawler) Crawl(ctx context.Context, start *url.URL) (*Frontier, error) {
 	f := NewFrontier(start, c.opts)
 	st := &crawlState{start: start, front: f}
+	// A caller's own client keeps its own dialing rules; only the
+	// default client gets the guard, which newClient wired in.
 	if c.opts.HTTP == nil && !c.opts.AllowPrivate {
 		st.guard = httpx.NewGuard(start.Hostname())
 	}
@@ -302,6 +308,8 @@ func (c *Crawler) Crawl(ctx context.Context, start *url.URL) (*Frontier, error) 
 	if !c.opts.IgnoreRobots || !c.opts.NoSitemaps {
 		f.robots = c.robots(ctx, start)
 	}
+	// IgnoreRobots drops the rules but still uses the Sitemap lines,
+	// which are where a site lists its pages.
 	if c.opts.IgnoreRobots {
 		f.robots = &robots{sitemaps: f.robots.sitemapsOrNil()}
 	}
@@ -515,6 +523,10 @@ func (c *Crawler) xml(ctx context.Context, loc string, v any) error {
 	if resp.StatusCode != http.StatusOK {
 		return errors.New(resp.Status)
 	}
+	// A sitemap may be bigger than a page (50,000 URLs), so it gets
+	// 50 MB, before and after gunzip. Sitemaps named *.xml.gz are usually
+	// served as plain files without Content-Encoding, so Go's transport
+	// doesn't decompress them: the gzip magic bytes are checked here.
 	br := bufio.NewReader(io.LimitReader(resp.Body, 50<<20))
 	if b, _ := br.Peek(2); len(b) == 2 && b[0] == 0x1f && b[1] == 0x8b {
 		zr, err := gzip.NewReader(br)
@@ -583,6 +595,8 @@ func ExtractLinks(base *url.URL, r io.Reader) ([]string, error) {
 				if b, err := base.Parse(href); err == nil {
 					base = b
 				}
+			// rel=nofollow is the site asking crawlers not to follow it;
+			// a download link names a file rather than a page.
 			case (tag == "a" || tag == "area") && href != "" && target != "download" && !strings.Contains(rel, "nofollow"):
 				if u, err := base.Parse(strings.TrimSpace(href)); err == nil {
 					out = append(out, u.String())

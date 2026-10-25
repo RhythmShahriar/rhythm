@@ -41,6 +41,8 @@ func Normalize(base *url.URL, href string) (string, bool) {
 		u.Host = u.Hostname()
 	}
 	u.Fragment, u.RawFragment = "", ""
+	// A link with user:password@ would carry the credential into the page
+	// list and reports; the page is the same without it.
 	u.User = nil
 	u.Path = cleanPath(u.Path)
 	if u.RawPath != "" {
@@ -181,9 +183,10 @@ func IsPage(u *url.URL) bool { return !nonPage.MatchString(u.Path) }
 // DefaultExcludes skips admin, login, feeds, APIs and URLs with side
 // effects: logout, add to cart, comment replies, unsubscribe and opt-out
 // links, confirmations (/confirm, /confirm-email/..., /confirm_sub),
-// e-mail verification and account activation, delete and trash actions and links carrying a
-// token or nonce, which can act on a real person's account just by being
-// visited. Patterns match the lower-cased path and query.
+// e-mail verification and account activation, delete and trash actions
+// and links carrying a token or nonce, which can act on a real person's
+// account just by being visited. Patterns match the lower-cased path and
+// query.
 var DefaultExcludes = append([]string{
 	"/wp-admin*", "/wp-login.php*", "/xmlrpc.php*", "/wp-json*", "*/feed", "*/feed/*", "/wp-cron.php*",
 	"*?*replytocom=*", "*?*add-to-cart=*", "*?*remove_item=*", "*?*undo_item=*", "*?*removed_item=*",
@@ -221,7 +224,9 @@ func Excluded(u *url.URL, patterns []string) bool {
 	return slices.ContainsFunc(patterns, func(p string) bool { return glob(strings.ToLower(p), target) })
 }
 
-// glob matches s against p where * is any run of characters.
+// glob matches s against p where * is any run of characters. Taking the
+// first match of each middle part is enough: with only * as a wildcard, a
+// later match can never succeed where the earliest one failed.
 func glob(p, s string) bool {
 	parts := strings.Split(p, "*")
 	if len(parts) == 1 {

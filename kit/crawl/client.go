@@ -37,6 +37,8 @@ type crawlState struct {
 	guard *httpx.Guard
 }
 
+// stateKey is the context key for crawlState. An unexported type keeps
+// any other package from reading or replacing the state.
 type stateKey struct{}
 
 func stateFrom(ctx context.Context) *crawlState {

@@ -60,6 +60,9 @@ type call struct {
 	fellBack bool
 }
 
+// entry is the file format: {"fetched": RFC 3339 time in UTC, "data": the
+// value}. Freshness comes from fetched rather than the file's mtime, so
+// copying or restoring a cache folder doesn't make old data look new.
 type entry[T any] struct {
 	Fetched time.Time `json:"fetched"`
 	Data    T         `json:"data"`
@@ -73,10 +76,9 @@ type entry[T any] struct {
 // Within a process, concurrent calls for one kind, key and type share a
 // single lookup and a successful result is remembered for later calls.
 // A failed lookup is not remembered, so the next call tries again. Nor
-// is a stale copy returned because the fetch failed. When
-// the caller running the lookup gives up (its context ends), the others
-// waiting on it start their own lookup instead of getting its context
-// error.
+// is a stale copy returned because the fetch failed. When the caller
+// running the lookup gives up (its context ends), the others waiting on
+// it start their own lookup instead of getting its context error.
 //
 // kind is a folder under Dir and must be a relative path that stays
 // inside it (filepath.IsLocal); key can be any string.
@@ -113,8 +115,8 @@ func Load[T any](s *Store, ctx context.Context, kind, key string, fetch func(con
 
 // lead runs a lookup as the caller that started it, then publishes the
 // result: kept for later calls on success, dropped on failure or a
-// stale fallback. If the
-// lookup panics, the callers waiting on it start their own.
+// stale fallback. If the lookup panics, the callers waiting on it start
+// their own.
 func (s *Store) lead(id memoKey, c *call, run func()) {
 	finished := false
 	defer func() {

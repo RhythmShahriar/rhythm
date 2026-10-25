@@ -94,6 +94,10 @@ func (g *Guard) DialContext(ctx context.Context, network, addr string) (net.Conn
 	}
 	if !proxied {
 		ips := g.targetIPs(ctx)
+		// Control runs once per address the dialer tries, after DNS and
+		// before connect, so every A and AAAA record is checked and a
+		// name that rebinds between lookups can't slip a private
+		// address past an earlier check.
 		d.ControlContext = func(_ context.Context, _, address string, _ syscall.RawConn) error {
 			host, _, err := net.SplitHostPort(address)
 			if err != nil {
