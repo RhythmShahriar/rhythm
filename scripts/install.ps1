@@ -518,10 +518,42 @@
 
     # A terminal keeps the PATH it started with, so a folder that is new to
     # the user PATH, or not yet in this session's, needs a new terminal.
+    # The user PATH is read and written raw, in the registry: through
+    # [Environment] an entry such as %USERPROFILE%\bin would come back
+    # expanded and be saved that way, as a plain REG_SZ. An entry counts
+    # as $Dir once expanded.
     if ($OnWindows) {
-        $UserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-        if (-not (($UserPath -split ';') -contains $Dir)) {
-            [Environment]::SetEnvironmentVariable('Path', (($UserPath, $Dir) -join ';').TrimStart(';'), 'User')
+        $Key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment')
+        try {
+            $UserPath = [string]$Key.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+            $Want = $Dir.TrimEnd('\')
+            $Has = @($UserPath -split ';' | Where-Object { [Environment]::ExpandEnvironmentVariables($_).TrimEnd('\') -eq $Want }).Count -gt 0
+            if (-not $Has) {
+                $New = if ($UserPath.TrimEnd(';')) { "$($UserPath.TrimEnd(';'));$Dir" } else { $Dir }
+                $Key.SetValue('Path', $New, [Microsoft.Win32.RegistryValueKind]::ExpandString)
+            }
+        }
+        finally {
+            $Key.Close()
+        }
+        if (-not $Has) {
+            # Programs that are running, Explorer above all, reread the
+            # environment when told it changed; new terminals then see the
+            # new PATH. [Environment] did this itself.
+            try {
+                if (-not ('RhythmInstall.Native' -as [type])) {
+                    Add-Type -Namespace RhythmInstall -Name Native -MemberDefinition @'
+[DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);
+'@
+                }
+                $Result = [UIntPtr]::Zero
+                # HWND_BROADCAST, WM_SETTINGCHANGE, SMTO_ABORTIFHUNG, 5 s.
+                $null = [RhythmInstall.Native]::SendMessageTimeout([IntPtr]0xffff, 0x1A, [UIntPtr]::Zero, 'Environment', 2, 5000, [ref]$Result)
+            }
+            catch {
+                Write-Host "Note: couldn't tell running programs that PATH changed; sign out and back in if a new terminal doesn't find rhythm."
+            }
             Write-Host "Added $Dir to your user PATH. Open a new terminal to use rhythm."
         }
         elseif (-not (($env:Path -split ';') -contains $Dir)) {
