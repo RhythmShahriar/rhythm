@@ -10,7 +10,7 @@ Discovery only happens in `snapshot`, `run` and the `--against` site of a two-si
 4. **Links in each rendered page.** As the browser visits a page, the same-site links in it (`<a href>`, including those its scripts added, such as menus and "load more") join the queue. Those pages are visited in turn. Soundcheck doesn't fetch pages a second time just to read their links: what the browser sees is what's followed.
 5. **Extra pages** you list with `--page` or `pages.extra`, for pages nothing links to.
 
-The crawl stays on the site: `yoursite.com` and `www.yoursite.com` count as the same site, other hosts don't. URLs are normalized before they're counted: fragments and tracking parameters (`utm_*`, `fbclid`, `gclid` and similar) are dropped, query parameters sorted. `/about` and `/about/` are one page. Files that aren't pages (images, PDFs, archives, CSS, JS, fonts, feeds) are skipped; the browser checks assets as each page loads them.
+The crawl stays on the site: the same host (ignoring case and `www.`), scheme and port, where a missing port is 80 for http and 443 for https. `yoursite.com` and `www.yoursite.com` count as the same site; other hosts, other ports and, on an https site, plain `http://` links to the same host don't. The one exception is the upgrade from http on port 80 to https on 443. URLs are normalized before they're counted: fragments and tracking parameters (`utm_*`, `fbclid`, `gclid` and similar) are dropped, query parameters sorted. `/about` and `/about/` are one page. Files that aren't pages (images, PDFs, archives, CSS, JS, fonts, feeds) are skipped; the browser checks assets as each page loads them.
 
 The discovery line tells you what the start page and the sitemaps gave and why the rest was left out:
 
@@ -18,7 +18,13 @@ The discovery line tells you what the start page and the sitemaps gave and why t
   ▸ Pages         36 pages · 13 left out (grouped 13)
 ```
 
-Links found while pages render add to that, so the final count can be higher (37 in the same run). The reasons:
+Links found while pages render add to that, so the final count can be higher (37 in the same run). When pages found that way were left out too, a closing line after the last page gives the final counts for every reason, largest first:
+
+```text
+Skipped: 3 (robots unavailable)
+```
+
+There's no `Skipped:` line when nothing was left out after the `Pages:` line. The reasons:
 
 | Reason | Means |
 |---|---|
@@ -28,7 +34,8 @@ Links found while pages render add to that, so the final count can be higher (37
 | `robots.txt` | `robots.txt` disallows it |
 | `page limit` | the limit was reached |
 | `not a page` | a file such as an image or a PDF |
-| `other site` | a link to another host |
+| `other site` | a link to another host or port, or an http link on an https site |
+| `robots-unavailable` | `robots.txt` couldn't be read (see [below](#robotstxt)) |
 
 The counts for the whole run, rendered links included, are in the run's JSON under `skipped`.
 
@@ -94,6 +101,19 @@ Excluded pages are never requested at all, not even by the [broken link check](S
 
 Soundcheck honors the `robots.txt` group for its user agent (`rhythm-soundcheck`), falling back to `*`, with the usual longest-match rule (`Allow` wins a tie). A disallowed page is left out with the reason `robots.txt`.
 
+A `robots.txt` that can't be read (a 5xx, 429, a timeout or a network error) means only the start page and the pages you listed with `--page` or `pages.extra` are checked, as RFC 9309 asks. The rest count as `robots-unavailable` and the run says so:
+
+```text
+Pages: 1 page to start
+Browser: Chrome 153.0.8010.52 (/usr/bin/google-chrome)
+[1/1] / 200 1.34s (ok)
+Skipped: 3 (robots unavailable)
+⋮
+note: robots.txt couldn't be read (HTTP 503), so only the start page and the pages you listed were checked; on your own site, pass --ignore-robots
+```
+
+A `robots.txt` that is missing (4xx) allows everything. `compare` checks the snapshot's pages and doesn't read `robots.txt`.
+
 On your own site, `--ignore-robots` (or `pages.ignore_robots: true`) checks pages `robots.txt` disallows, such as on a staging site that blocks everything:
 
 ```sh
@@ -125,9 +145,13 @@ Some URLs do something when you load them: log you out, add to the cart, preview
 | `/wp-admin*`, `/wp-login.php*`, `/xmlrpc.php*`, `/wp-cron.php*` | admin, login and background endpoints |
 | `/wp-json*`, `*/feed`, `*/feed/*` | APIs and feeds, not pages |
 | `*?*add-to-cart=*`, `*?*remove_item=*`, `*?*undo_item=*`, `*?*removed_item=*`, `/cart/?*` | WooCommerce cart actions |
-| `*?*action=logout*`, `*/logout*`, `*/log-out*`, `*/signout*`, `/my-account/customer-logout*` | logging out |
+| `*?*action=logout*`, the path segments `logout`, `log-out`, `signout`, `/my-account/customer-logout*` | logging out |
 | `*?*replytocom=*`, `*?*preview=*`, `*?*attachment_id=*`, `*?*customize_changeset_uuid=*` | comment replies, previews, attachment and customizer URLs |
 | `*?s=*`, `*&s=*` | search results |
+| `*unsubscribe*`, `*/opt-out*`, `*/optout*`, `*/confirm-*`, `*/confirm_*` and the path segments `confirm`, `verify-email`, `activate`, `sign-out`, `logoff` | unsubscribing, confirming and activating accounts |
+| `*?*action=delete*`, `*?*action=trash*`, `*?*token=*`, `*?*_wpnonce=*`, `*?*rest_route=*` | delete and trash actions, one-time links and REST calls |
+
+Patterns match without case, so `/WP-ADMIN/` is excluded like `/wp-admin/`. A `--page` that names an excluded URL is refused: `!--page <url> matches the default exclude <pattern>; not checked`.
 
 The list is `DefaultExcludes` in [`kit/crawl`](https://github.com/RhythmShahriar/rhythm/blob/master/kit/crawl/url.go), shared by every Rhythm tool that crawls.
 
@@ -136,4 +160,4 @@ The list is `DefaultExcludes` in [`kit/crawl`](https://github.com/RhythmShahriar
 Discovery, page visits and every plain request share the run's pace: at most `--rate` page loads a second per host (default 5), with up to `--tabs` pages open at once (default 8). The rate is what keeps a run polite; more tabs only help when pages are slow. Discovery requests carry the same User-Agent, headers, cookie and proxy as the browser. See [CLI reference](Soundcheck-CLI-Reference#requests-and-browser).
 
 ---
-<sub>← [Reading results](Soundcheck-Reading-Results) · [Home](Home) · [Page health](Soundcheck-Page-Health) →</sub>
+<sub>← [Review and accept](Soundcheck-Review-And-Accept) · [Home](Home) · [Page health](Soundcheck-Page-Health) →</sub>

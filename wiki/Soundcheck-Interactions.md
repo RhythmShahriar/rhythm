@@ -25,7 +25,7 @@ Pass the same levels to `compare`, or keep them in the config file; otherwise th
 Levels 1 to 3 run on every page while it's open at desktop size, before the mobile reload. Level 4 runs once, after all pages. Nothing is clicked or submitted on `/wp-admin` or `/wp-login.php` pages. Submitting and flows are covered in [Forms and flows](Soundcheck-Forms-And-Flows).
 
 > [!TIP]
-> A form can say "sent" while no email goes out: the confirmation is on the page, the mailer behind it is broken. Soundcheck alone can't see that. Add `--echo` with [Echo](Echo) running: each submit records the emails, SMS and webhooks it caused; a form that sent nothing gets *Form says sent, but no message went out*. A message the snapshot had is BROKE when it's gone. See [With Soundcheck](Echo-With-Soundcheck).
+> A form can say "sent" while no email goes out: the confirmation is on the page, the mailer behind it is broken. Soundcheck alone can't see that. Add `--echo` with [Echo](Echo) running: each submit records the emails, SMS and webhooks it caused; a form that sent nothing gets *Form says sent, but no message went out*. A message the snapshot had is BROKE when it's gone. See [With Soundcheck](Echo-With-Soundcheck). <!-- style:ignore: the check's released title -->
 
 ## Level 1: inspect
 
@@ -99,13 +99,14 @@ interactions:
 List your live site under `production` in `.soundcheck/config.yaml`:
 
 ```yaml
-production: ["https://yoursite.com", "https://www.yoursite.com"]
+production: ["yoursite.com"]
 ```
 
-Entries are URL prefixes: a page is production when its URL starts with one, so list every host the site answers on. On production URLs Soundcheck:
+Entries are sites, matched by host: `yoursite.com` covers http and https, `www.yoursite.com` and any port. `*.yoursite.com` covers every subdomain and the apex; without `*.`, `shop.yoursite.com` isn't covered. A port in an entry (`staging.test:8443`) matches only that port. A path (`yoursite.com/shop`) matches only that part of the site. A bad entry is a usage error: `production: "http://" isn't a site like example.com, *.example.com or https://example.com/shop/`. The run header lists them: `Production: yoursite.com: forms are not submitted there` (or `Production: none listed: submit and flows run on any site`). On production URLs Soundcheck:
 
 - **Doesn't submit forms.** Level 3 skips every form with `production URL; allowlist the form in interactions.forms to submit it`, unless the form matches a selector in `interactions.forms`.
 - **Doesn't run the cache leak test**, which would serve the test account's pages to real visitors if the cache leaks. See [Cache](Soundcheck-Cache#the-leak-test).
+- **Doesn't run `--lighthouse`**, since Unlighthouse crawls every page with its own settings.
 
 - **Refuses click and submit steps in flows**, unless the flow file sets `production: true`. Read-only steps (`goto`, `fill`, `select`, `check`, `wait`, `expect`, `screenshot`) still run; the flow stops at the first refused step with a warning, `interact/flow-production`. See [Flows on production](Soundcheck-Forms-And-Flows#flows-on-production).
 

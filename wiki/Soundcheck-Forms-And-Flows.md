@@ -38,7 +38,7 @@ The detail is the message the plugin showed. A successful submit isn't reported 
 {"kind": "submit", "selector": "form.wpcf7-form", "label": "Contact Form 7 #12", "outcome": "success", "detail": "Thank you for your message. It has been sent."}
 ```
 
-A form can show "sent" and still email nobody. With [Echo](Echo) running, `--echo` records what each successful submit sent, adds it to the detail (`… · sent 2 emails, 1 chat message`), reports *Form says sent, but no message went out* and compares each form's messages with the snapshot's. See [With Soundcheck](Echo-With-Soundcheck).
+A form can show "sent" and still email nobody. With [Echo](Echo) running, `--echo` records what each successful submit sent, adds it to the detail (`… · sent 2 emails, 1 chat message`), reports *Form says sent, but no message went out* and compares each form's messages with the snapshot's. See [With Soundcheck](Echo-With-Soundcheck). <!-- style:ignore: the check's released title -->
 
 ### Forms that are never submitted
 
@@ -52,8 +52,11 @@ A form can show "sent" and still email nobody. With [Echo](Echo) running, `--ech
 | the WooCommerce cart form | `cart form` |
 | forms that post to `/wp-admin` or `wp-login.php` | `posts to WordPress admin` |
 | forms with no fields | `no fields` |
+| forms that post to another site, by their `action` or by the submit button's `formaction` | `posts to <host>` |
 
 A form listed in `interactions.forms` (by CSS selector) is always eligible, on production too.
+
+While the submit level runs, a request to another site that carries Soundcheck's test data (anything but GET or HEAD whose body contains `soundcheck-test` or `Soundcheck Test`) is held back and never sent. Requests to other sites without test data, such as a CAPTCHA's check, go on. The run notes each one held: `interact /contact/: kept a form's test data from going to another site: POST list.example.net/subscribe`.
 
 ## Form profiles
 
@@ -188,7 +191,7 @@ Each step waits up to the run's `timeout` (default 30 s) for its element.
 | `${fake:email}`, `${fake:name}`, `${fake:first_name}`, `${fake:last_name}`, `${fake:phone}`, `${fake:url}`, `${fake:company}`, `${fake:subject}`, `${fake:text}`, `${fake:message}`, `${fake:number}`, `${fake:address}`, `${fake:city}`, `${fake:zip}`, `${fake:date}` | the [test data](#test-data) above (aliases such as `${fake:tel}`, `${fake:postcode}` and `${fake:full_name}` work too) |
 | `${env:NAME}` | the environment variable `NAME` |
 
-Values from `${env:…}` are never stored or printed: every error message is masked (`****`). Use them for coupon codes, test card numbers and anything else you don't want in the repository. A missing variable fails the step.
+Values from `${env:…}` are never stored or printed: every error message is masked (`•••••`). Flows read only `SOUNDCHECK_*` variables; to let a flow read another, pass `--allow-env NAME` (a flow file can come from a pull request, so it can't pick your secrets itself). The run header lists what each flow reads, by name only (`Flows: "Home page smoke test" reads GITHUB_TOKEN`). A flow that reads a variable you didn't allow stops the command before anything runs: `.soundcheck/flows/smoke.yaml: flows read only SOUNDCHECK_* variables; to let this one read GITHUB_TOKEN, pass --allow-env GITHUB_TOKEN`. In the same way, `goto` and `start` stay on the site being checked unless you pass `--allow-host <host>` (for a payment page, say). Use them for coupon codes, test card numbers and anything else you don't want in the repository. A missing variable fails the step.
 
 ### Mistakes in a flow file
 
@@ -235,7 +238,7 @@ rhythm soundcheck snapshot staging.yoursite.com
 ```
 
 ```text
-Login: as so*** (from SOUNDCHECK_USER)
+Login: logging in as so••••• (from SOUNDCHECK_USER) for the leak test and login flows
 ```
 
 Credentials are read only from these two variables, never from flags or the config file, so they don't end up in shell history, config files or reports. They're masked in every error message. Cookies stay in the browser's memory.
@@ -259,7 +262,7 @@ On WordPress, Soundcheck logs in through `/wp-login.php` (`#user_login`, `#user_
 |---|---|
 | `WordPress refused the login: <message>` | wrong user or password; WordPress's own message |
 | `… has no WordPress login form (#user_login); set login.url, or login.flow for other sites` | the login page isn't WordPress's |
-| `logged in, but the site doesn't show the admin bar or the logged-in body class (a cache may be serving anonymous pages to logged-in users)` | the cookie was set; the site doesn't look logged in |
+| `logged in, yet the site doesn't show the admin bar or the logged-in body class (a cache may be serving anonymous pages to logged-in users)` | the cookie was set; the site doesn't look logged in |
 
 For sites that aren't WordPress, write a flow that logs in and point `login.flow` at it:
 

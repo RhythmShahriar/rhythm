@@ -49,7 +49,7 @@ Pages that hold one visitor's cart, order or account must never come from a shar
 [BROKE] Private page is served from cache - /cart/
   source: nginx
   x-cache-status: HIT; cache-control: max-age=86400; age: 24
-  fix: Exclude cart, checkout, account and login pages from every cache layer (nginx), and bypass the cache for requests with woocommerce_items_in_cart, wp_woocommerce_session_* or wordpress_logged_in_* cookies. WooCommerce marks these pages no-cache; a cache rule is overriding that. Purge the cache afterwards.
+  fix: Exclude cart, checkout, account and login pages from every cache layer (nginx) and bypass the cache for requests with woocommerce_items_in_cart, wp_woocommerce_session_* or wordpress_logged_in_* cookies. WooCommerce marks these pages no-cache; a cache rule is overriding that. Purge the cache afterwards.
 ```
 
 A private page counts as cached when the cache says hit, or when it carries a shared-cache `Cache-Control` and a positive `Age`.
@@ -79,7 +79,7 @@ How it works:
 ```text
 [ERROR] Cache leaks logged-in content to visitors - /, /about/, /services/ +6 more
   source: nginx
-  fix: Purge the page cache now. Then make every cache layer (nginx) bypass requests carrying wordpress_logged_in_* or other session cookies, and never store responses rendered for a logged-in user.
+  fix: Purge the page cache now. Then make every cache layer (nginx) bypass requests carrying wordpress_logged_in_* or other session cookies and never store responses rendered for a logged-in user.
 ```
 
 The detail lists what leaked, **masked** to its first two characters:
