@@ -80,7 +80,7 @@ A relative `RHYTHM_INSTALL_DIR` is made absolute, so the messages and the `PATH`
   | anything else | the same as zsh with `~/.profile` |
 
   When the folder is on your `PATH` but another copy comes first, it says `Note: <path> comes first on your PATH; remove it to use this install.`
-- **Windows:** the installer adds the folder to your **user** `PATH` if it isn't there yet (`Added <dir> to your user PATH. Open a new terminal to use rhythm.`), or says `<dir> is on your user PATH. Open a new terminal to use rhythm.` when only the current session lacks it.
+- **Windows:** the installer adds the folder to your **user** `PATH` if it isn't there yet (`Added <dir> to your user PATH. Open a new terminal to use rhythm.`), or says `<dir> is on your user PATH. Open a new terminal to use rhythm.` when only the current session lacks it. It edits the stored value: entries written with a variable, such as `%USERPROFILE%\bin`, stay as they are. An entry that names the folder through a variable counts as the folder.
 
 ### Requirements
 

@@ -221,7 +221,8 @@ $Vars = 'RHYTHM_GITHUB_API', 'RHYTHM_INSTALL_DIR', 'RHYTHM_VERSION', 'RHYTHM_TOO
 'RHYTHM_TEST_LOG', 'GITHUB_TOKEN', 'RHYTHM_GITHUB_TOKEN', 'MOCK_LOG', 'TEMP', 'TMP', 'TMPDIR',
 'PATH', 'GH_TOKEN', 'GH_CONFIG_DIR', 'RHYTHM_SKIP_SIGNATURE', 'RHYTHM_TEST_VERIFY',
 'FAKE_SIG_LOG', 'FAKE_COSIGN_EXIT', 'FAKE_GH_AUTH', 'FAKE_GH_EXIT', 'FAKE_GH_OLD', 'RHYTHM_TEST_DEFAULTS', 'RHYTHM_LOCKED',
-'RHYTHM_TEST_ALREADY', 'RHYTHM_INSTALL_TIMEOUT', 'PROCESSOR_ARCHITECTURE', 'PROCESSOR_ARCHITEW6432'
+'RHYTHM_TEST_ALREADY', 'RHYTHM_INSTALL_TIMEOUT', 'PROCESSOR_ARCHITECTURE', 'PROCESSOR_ARCHITEW6432',
+'RHYTHM_TEST_CASEDIR'
 # The CPU variables as Windows set them for this shell, kept for every
 # case unless it sets its own.
 $CpuVar = $env:PROCESSOR_ARCHITECTURE
@@ -1045,14 +1046,72 @@ function Case-wow64 {
     Assert-Out "rhythm install: unsupported CPU 'x86'"
 }
 
+function Case-user_path_raw {
+    # The user PATH keeps entries written with variables as they are, and
+    # stays REG_EXPAND_SZ.
+    if (-not $OnWindows) { Write-Host "skip $($script:Case)"; return }
+    $Bin = Join-Path $script:CaseDir 'bin'
+    Set-RawUserPath '%USERPROFILE%\rhythm-test-bin;C:\rhythm-test-plain' 'ExpandString'
+    Invoke-Install @{ RHYTHM_TOOLS = 'none' }
+    Assert-Code 0
+    Assert-Out "Added $Bin to your user PATH. Open a new terminal to use rhythm."
+    $P = Get-RawUserPath
+    if ($P.Value -ne "%USERPROFILE%\rhythm-test-bin;C:\rhythm-test-plain;$Bin") { Fail "the user PATH is now '$($P.Value)'" }
+    if ($P.Kind -ne 'ExpandString') { Fail "the user PATH is now $($P.Kind)" }
+
+    # The folder written with a variable counts as there.
+    Set-RawUserPath '%RHYTHM_TEST_CASEDIR%\bin\' 'ExpandString'
+    Invoke-Install @{ RHYTHM_TOOLS = 'none'; RHYTHM_TEST_CASEDIR = $script:CaseDir }
+    Assert-Code 0
+    Assert-NoOut 'Added'
+    Assert-Out "$Bin is on your user PATH. Open a new terminal to use rhythm."
+    if ((Get-RawUserPath).Value -ne '%RHYTHM_TEST_CASEDIR%\bin\') { Fail "the user PATH is now '$((Get-RawUserPath).Value)'" }
+
+    # No user PATH at all, then one that is REG_SZ.
+    Set-RawUserPath $null $null
+    Invoke-Install @{ RHYTHM_TOOLS = 'none' }
+    Assert-Code 0
+    if ((Get-RawUserPath).Value -ne $Bin) { Fail "the user PATH is now '$((Get-RawUserPath).Value)'" }
+    Set-RawUserPath 'C:\rhythm-test-plain;' 'String'
+    Invoke-Install @{ RHYTHM_TOOLS = 'none' }
+    Assert-Code 0
+    $P = Get-RawUserPath
+    if ($P.Value -ne "C:\rhythm-test-plain;$Bin" -or $P.Kind -ne 'ExpandString') { Fail "the user PATH is now $($P.Kind) '$($P.Value)'" }
+}
+
+# Get-RawUserPath and Set-RawUserPath read and write the user PATH in the
+# registry as it is stored, variables unexpanded, with its value kind.
+# $null stands for no Path value at all.
+function Get-RawUserPath {
+    $K = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment')
+    try {
+        if ($null -eq $K -or $null -eq $K.GetValue('Path')) { return @{ Value = $null; Kind = $null } }
+        @{ Value = [string]$K.GetValue('Path', $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames); Kind = "$($K.GetValueKind('Path'))" }
+    }
+    finally {
+        if ($K) { $K.Close() }
+    }
+}
+function Set-RawUserPath($Value, $Kind) {
+    $K = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment')
+    try {
+        if ($null -eq $Value) { $K.DeleteValue('Path', $false) }
+        else { $K.SetValue('Path', $Value, [Microsoft.Win32.RegistryValueKind]$Kind) }
+    }
+    finally {
+        $K.Close()
+    }
+}
+
 if (-not $Cases.Count) {
     $Cases = 'default', 'none', 'some', 'commas', 'typo', 'tool_fails', 'defaults', 'pins', 'locked', 'path_note',
     'signature_cosign', 'signature_cosign_fails', 'signature_gh', 'signature_none', 'skip_signature', 'router_verify', 'bad_checksum', 'no_checksums', 'missing_dir', 'relative_dir', 'truncated', 'http_refused', 'http_download_refused', 'api_not_plain', 'version_checked', 'timeout', 'github_token', 'rhythm_token',
     'rate_limit', 'old_router', 'old_router_named', 'router_without_dry_run', 'router_without_tools_block',
-    'unknown_tool', 'running_exe', 'swap_fallback', 'swap_restore', 'readonly_dir', 'wow64'
+    'unknown_tool', 'running_exe', 'swap_fallback', 'swap_restore', 'readonly_dir', 'wow64', 'user_path_raw'
 }
-# Installing on Windows adds the folder to the user PATH; put it back after.
-$UserPath = if ($OnWindows) { [Environment]::GetEnvironmentVariable('Path', 'User') } else { $null }
+# Installing on Windows adds the folder to the user PATH; put it back
+# after, as it was stored.
+$UserPath = if ($OnWindows) { Get-RawUserPath } else { $null }
 $Failed = $false
 try {
     foreach ($C in $Cases) {
@@ -1070,7 +1129,7 @@ catch {
     $Failed = $true
 }
 finally {
-    if ($OnWindows) { [Environment]::SetEnvironmentVariable('Path', $UserPath, 'User') }
+    if ($OnWindows) { Set-RawUserPath $UserPath.Value $UserPath.Kind }
     Stop-Process -Id $Server.Id -Force -ErrorAction SilentlyContinue
     if ($env:RHYTHM_TEST_KEEP -eq '1') { Write-Host "kept $Work" } else { Remove-Item -Recurse -Force $Work -ErrorAction SilentlyContinue }
 }
