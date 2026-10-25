@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -227,7 +228,10 @@ func WriteJSON(path string, v any) error {
 }
 
 // WriteFile writes data atomically, creating the directory. The temp
-// file is removed on any failure, so none are left behind.
+// file is flushed to disk before it is renamed into place and the
+// directory is flushed after, where the OS can. A crash then leaves the
+// old file or the new one, never an empty one. The temp file is removed on any
+// failure, so none are left behind.
 func WriteFile(path string, data []byte) (err error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
@@ -245,8 +249,34 @@ func WriteFile(path string, data []byte) (err error) {
 	if _, err := tmp.Write(data); err != nil {
 		return err
 	}
+	if err := syncFile(tmp); err != nil {
+		return err
+	}
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp.Name(), path)
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		return err
+	}
+	// The new file is in place; a directory that can't be flushed (some
+	// file systems refuse) doesn't undo that.
+	syncDir(filepath.Dir(path))
+	return nil
 }
+
+// syncFile and syncDir flush a file and a directory to disk; tests
+// replace them.
+var (
+	syncFile = (*os.File).Sync
+	syncDir  = func(dir string) {
+		// Windows can't open a directory for flushing; NTFS orders the
+		// rename itself.
+		if runtime.GOOS == "windows" {
+			return
+		}
+		if d, err := os.Open(dir); err == nil { //nolint:gosec // the cache's own folder
+			_ = d.Sync()
+			_ = d.Close()
+		}
+	}
+)

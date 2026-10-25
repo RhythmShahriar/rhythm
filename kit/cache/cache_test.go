@@ -334,3 +334,47 @@ func TestWriteFileReadOnlyDir(t *testing.T) {
 		t.Error("creating a folder inside a read-only one should fail")
 	}
 }
+
+func TestWriteFileSyncsBeforeRename(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "f.json")
+	if err := os.WriteFile(target, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	oldFile, oldDir := syncFile, syncDir
+	t.Cleanup(func() { syncFile, syncDir = oldFile, oldDir })
+
+	var steps []string
+	syncFile = func(f *os.File) error {
+		got, _ := os.ReadFile(f.Name())
+		old, _ := os.ReadFile(target)
+		steps = append(steps, "file "+string(got)+" over "+string(old))
+		return oldFile(f)
+	}
+	syncDir = func(d string) {
+		got, _ := os.ReadFile(target)
+		steps = append(steps, "dir "+filepath.Base(d)+" holds "+string(got))
+		oldDir(d)
+	}
+	if err := WriteFile(target, []byte("new")); err != nil {
+		t.Fatal(err)
+	}
+	want := "file new over old|dir " + filepath.Base(dir) + " holds new"
+	if got := strings.Join(steps, "|"); got != want {
+		t.Errorf("steps %q, want %q", got, want)
+	}
+
+	// A flush that fails stops the write: the old file stays and no temp
+	// file is left.
+	syncFile = func(*os.File) error { return errors.New("disk full") }
+	if err := WriteFile(target, []byte("newer")); err == nil || err.Error() != "disk full" {
+		t.Errorf("err = %v", err)
+	}
+	if got, _ := os.ReadFile(target); string(got) != "new" {
+		t.Errorf("target holds %q after a failed flush", got)
+	}
+	entries, _ := os.ReadDir(dir)
+	if len(entries) != 1 {
+		t.Errorf("left %v behind", entries)
+	}
+}
