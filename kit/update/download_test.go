@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"math/rand/v2"
 	"net/http"
 	"net/http/httptest"
@@ -301,4 +302,66 @@ func TestCapReader(t *testing.T) {
 // urlRelease is a release whose one asset, "f", is at raw.
 func urlRelease(raw string) *Release {
 	return &Release{Version: "0.2.0", Assets: map[string]string{"f": raw}}
+}
+
+func TestExtractSkipsLinks(t *testing.T) {
+	// A link named like the binary comes first; the regular file after it
+	// is the one used. An archive with only the link has no binary.
+	var zbuf bytes.Buffer
+	zw := zip.NewWriter(&zbuf)
+	h := &zip.FileHeader{Name: "rhythm-tuner.exe"}
+	h.SetMode(fs.ModeSymlink | 0o777)
+	lw, _ := zw.CreateHeader(h)
+	lw.Write([]byte("/etc/passwd"))
+	zw.Close()
+	linkOnlyZip := bytes.Clone(zbuf.Bytes())
+
+	zbuf.Reset()
+	zw = zip.NewWriter(&zbuf)
+	lw, _ = zw.CreateHeader(h)
+	lw.Write([]byte("/etc/passwd"))
+	w, _ := zw.Create("rhythm-tuner.exe")
+	w.Write([]byte("NEW EXE"))
+	zw.Close()
+	bothZip := zbuf.Bytes()
+
+	tarOf := func(withFile bool) []byte {
+		var buf bytes.Buffer
+		gw := gzip.NewWriter(&buf)
+		tw := tar.NewWriter(gw)
+		tw.WriteHeader(&tar.Header{Name: "rhythm-tuner.exe", Typeflag: tar.TypeSymlink, Linkname: "/etc/passwd", Mode: 0o777})
+		if withFile {
+			tw.WriteHeader(&tar.Header{Name: "rhythm-tuner.exe", Typeflag: tar.TypeReg, Mode: 0o755, Size: 7})
+			tw.Write([]byte("NEW EXE"))
+		}
+		tw.Close()
+		gw.Close()
+		return buf.Bytes()
+	}
+
+	for _, c := range []struct {
+		name string
+		data []byte
+		want string // the binary read, or "" for none
+	}{
+		{"a.zip", linkOnlyZip, ""},
+		{"a.zip", bothZip, "NEW EXE"},
+		{"a.tar.gz", tarOf(false), ""},
+		{"a.tar.gz", tarOf(true), "NEW EXE"},
+	} {
+		p := filepath.Join(t.TempDir(), c.name)
+		os.WriteFile(p, c.data, 0o600)
+		var got []byte
+		err := extract(p, c.name, "rhythm-tuner.exe", func(r io.Reader) error {
+			var rerr error
+			got, rerr = io.ReadAll(r)
+			return rerr
+		})
+		switch {
+		case c.want == "" && (err == nil || err.Error() != c.name+": no rhythm-tuner.exe in the archive"):
+			t.Errorf("%s with only a link: err = %v, read %q", c.name, err, got)
+		case c.want != "" && (err != nil || string(got) != c.want):
+			t.Errorf("%s: err = %v, read %q, want %q", c.name, err, got, c.want)
+		}
+	}
 }

@@ -221,7 +221,9 @@ func fromZip(f *os.File, name, bin string, use func(io.Reader) error) error {
 		return fmt.Errorf("%s: %w", name, err)
 	}
 	for _, zf := range zr.File {
-		if path.Base(zf.Name) == bin && !zf.FileInfo().IsDir() {
+		// Regular files only, as in a tar.gz: a symlink entry's data is
+		// the name of another file, not the binary.
+		if path.Base(zf.Name) == bin && zf.Mode().IsRegular() {
 			rc, err := zf.Open()
 			if err != nil {
 				return fmt.Errorf("%s: %w", name, err)
