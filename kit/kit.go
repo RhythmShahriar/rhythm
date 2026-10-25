@@ -14,6 +14,7 @@
 //   - ratelimit: per-host request pacing that slows down on 429 and 503
 //   - httpx: HTTP clients that keep headers and cookies on the scanned site
 //   - secrets: finding and masking credentials in anything a tool prints
+//   - term: making text from a scanned site safe to print or put in Markdown
 //   - cli: flags, help, exit codes, did-you-mean and the tool skeleton
 //
 // Release order: tag the kit first, then bump the kit in each tool and

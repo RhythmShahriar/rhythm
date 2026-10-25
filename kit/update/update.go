@@ -260,11 +260,15 @@ func nextRun(s string) (run, rest string) {
 	return s[:i], s[i:]
 }
 
+// semver is a parsed version. Build metadata is dropped on parsing:
+// SemVer gives it no part in ordering.
 type semver struct {
 	n   [3]int
 	pre string
 }
 
+// parseSemver reads [v]X[.Y[.Z]][-pre][+build]; a missing minor or
+// patch counts as 0. "dev" and other non-versions are not ok.
 func parseSemver(v string) (semver, bool) {
 	var s semver
 	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
@@ -509,6 +513,9 @@ func (u *Updater) checkDisabled() bool {
 	return u.Offline || CheckDisabled(u.Current)
 }
 
+// checkState is the update-check/<binary>.json file in the config dir:
+// when the release API was last asked and the version it named. One file
+// per binary, so tools sharing the config dir don't reset each other.
 type checkState struct {
 	Checked time.Time `json:"checked"`
 	Latest  string    `json:"latest"`

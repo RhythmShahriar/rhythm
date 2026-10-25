@@ -141,6 +141,8 @@ type capReader struct {
 	left int64
 }
 
+// Read asks for one byte past the cap, so a binary of exactly left bytes
+// passes and a bigger one fails instead of being cut short.
 func (c *capReader) Read(b []byte) (int, error) {
 	if c.left < 0 {
 		return 0, errors.New("binary is larger than expected")
@@ -201,6 +203,8 @@ func fromTarGz(f *os.File, name, bin string, use func(io.Reader) error) error {
 		if err != nil {
 			return fmt.Errorf("%s: %w", name, err)
 		}
+		// Regular files only: a symlink or hard link entry with the
+		// binary's name holds no data, just the name of another file.
 		if h.Typeflag == tar.TypeReg && path.Base(h.Name) == bin {
 			return use(tagged{tr, name})
 		}

@@ -87,12 +87,17 @@ func (u *Updater) token(target *url.URL) string {
 	if err != nil {
 		return ""
 	}
+	// RHYTHM_GITHUB_TOKEN is meant for the API host alone. Host includes
+	// the port, so another service on the same machine never gets it. When
+	// it is set GITHUB_TOKEN is never sent, not even to github.com.
 	if tok := os.Getenv("RHYTHM_GITHUB_TOKEN"); tok != "" {
 		if strings.EqualFold(target.Host, api.Host) {
 			return tok
 		}
 		return ""
 	}
+	// GITHUB_TOKEN is usually a CI token for github.com. A mirror is
+	// someone else's server, so with one configured it is never sent.
 	tok := os.Getenv("GITHUB_TOKEN")
 	if tok == "" || target.Scheme != "https" || !strings.EqualFold(api.Host, "api.github.com") {
 		return ""
