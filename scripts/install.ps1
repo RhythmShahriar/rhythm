@@ -25,6 +25,9 @@
 & {
     $ErrorActionPreference = 'Stop'
     $ProgressPreference = 'SilentlyContinue' # Invoke-WebRequest is far slower with the progress bar
+    # Windows PowerShell 5.1 on an older .NET Framework may offer only TLS
+    # 1.0 and 1.1, which GitHub refuses, so TLS 1.2 is turned on for this
+    # session.
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
     $Repo = 'RhythmShahriar/rhythm'
@@ -74,7 +77,9 @@
     }
 
     $Headers = @{ Accept = 'application/vnd.github+json'; 'User-Agent' = 'rhythm-install' }
-    # GITHUB_TOKEN belongs to github.com, so it never goes to a mirror.
+    # GITHUB_TOKEN belongs to github.com, so it never goes to a mirror. The
+    # web cmdlets drop Authorization when they follow a redirect, so the
+    # token reaches only the API host itself.
     if ($env:RHYTHM_GITHUB_TOKEN) {
         $Headers.Authorization = "Bearer $env:RHYTHM_GITHUB_TOKEN"
     }
@@ -108,6 +113,8 @@
         return "$($Err.Exception.Message)" -match 'time(d)? ?out|Timeout'
     }
 
+    # Off Windows (the installer tests under pwsh) PROCESSOR_ARCHITECTURE
+    # is unset, so RHYTHM_ARCH names the build to fetch.
     $Arch = switch ($env:PROCESSOR_ARCHITECTURE) {
         'AMD64' { 'amd64' }
         'ARM64' { 'arm64' }
@@ -128,6 +135,9 @@
     else {
         $ReleaseUrl = "$Api/repos/$Repo/releases/latest"
     }
+    # -UseBasicParsing keeps Windows PowerShell 5.1 off the Internet
+    # Explorer engine, which fails where IE was never set up (Server Core,
+    # a fresh account). pwsh ignores it.
     try {
         $Release = Invoke-RestMethod -Uri $ReleaseUrl -Headers $Headers -UseBasicParsing -TimeoutSec $Timeout
     }
@@ -162,7 +172,10 @@
     Assert-Https $Sums.browser_download_url
     if ($Bundle) { Assert-Https $Bundle.browser_download_url }
 
-    # Save-Url downloads $Url to $OutFile, naming a timeout as one.
+    # Save-Url downloads $Url to $OutFile, naming a timeout as one. Unlike
+    # curl the cmdlets can't be told to refuse a redirect to http: pwsh
+    # turns one down by itself, while Windows PowerShell 5.1 follows it. The
+    # checksum and signature checks below still cover the bytes.
     function Save-Url([string]$Url, [string]$OutFile) {
         try {
             Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -TimeoutSec $Timeout
@@ -317,6 +330,8 @@
         # A relative folder would be wrong in PATH and in what rhythm is told.
         $Dir = (Resolve-Path -LiteralPath $Dir).ProviderPath
         # The old rhythm.exe is kept until the new one has checked itself.
+        # The copy lives in a folder of its own, outside $Tmp, since $Tmp is
+        # gone by the time that check runs.
         $Dest = Join-Path $Dir 'rhythm.exe'
         $Keep = Join-Path ([IO.Path]::GetTempPath()) ([Guid]::NewGuid().ToString())
         $OldCopy = ''

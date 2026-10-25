@@ -27,6 +27,8 @@ def slug(text):
 
 
 def headings(path):
+    """Returns the anchors of the headings in path, outside code fences. A
+    repeated heading gets -1, -2 and so on, as on GitHub."""
     seen, anchors, fenced = {}, set(), False
     with open(path, encoding='utf-8') as f:
         for line in f:
@@ -43,6 +45,8 @@ def headings(path):
 
 
 def links(path):
+    """Yields (line number, target) for each link in path, Markdown or
+    href, outside code fences and code spans. Images are left out."""
     fenced = False
     with open(path, encoding='utf-8') as f:
         for no, line in enumerate(f, 1):
