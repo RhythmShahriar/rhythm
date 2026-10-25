@@ -32,6 +32,7 @@ from pathlib import Path
 
 
 def handler(root, log, lock):
+    """Returns the request handler class for ROOT, logging to LOG under lock."""
     class Handler(http.server.SimpleHTTPRequestHandler):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, directory=root, **kwargs)
@@ -100,7 +101,10 @@ def main():
     root, log = os.path.abspath(sys.argv[1]), os.path.abspath(sys.argv[2])
     port = int(sys.argv[3]) if len(sys.argv) == 4 else 0
     server = http.server.ThreadingHTTPServer(("127.0.0.1", port), handler(root, log, threading.Lock()))
+    # A /hang request never ends; daemon threads let the server exit anyway.
     server.daemon_threads = True
+    # Written aside and renamed, so a test polling for .port never reads a
+    # half-written number.
     tmp = os.path.join(root, ".port.tmp")
     with open(tmp, "w", encoding="utf-8") as f:
         f.write(str(server.server_address[1]))
