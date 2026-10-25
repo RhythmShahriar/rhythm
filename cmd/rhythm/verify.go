@@ -178,11 +178,15 @@ func reportTrust(w io.Writer, u *update.Updater, rel *update.Release, dest strin
 // verifiedFile is the record's name in rhythm's config folder.
 const verifiedFile = "verified.json"
 
+// verifiedDoc is verified.json, keyed by binary path with symlinks
+// resolved.
 type verifiedDoc struct {
 	Schema   string                   `json:"schema"` // rhythm-verified/v1
 	Binaries map[string]verifiedEntry `json:"binaries"`
 }
 
+// verifiedEntry is one binary that passed a signature check. Its sha256
+// is what keeps "yes" honest: a binary changed since no longer matches.
 type verifiedEntry struct {
 	SHA256     string    `json:"sha256"` // of the binary file
 	Repo       string    `json:"repo"`
@@ -191,6 +195,7 @@ type verifiedEntry struct {
 	VerifiedAt time.Time `json:"verified_at"`
 }
 
+// verifiedPath is where verified.json lives.
 func verifiedPath() (string, error) {
 	dir, err := config.Dir()
 	if err != nil {
@@ -199,6 +204,9 @@ func verifiedPath() (string, error) {
 	return filepath.Join(dir, verifiedFile), nil
 }
 
+// readVerified returns the record, or an empty one when it is missing,
+// unreadable or of another schema. An empty record only turns SIGNED
+// into "-", never into "yes".
 func readVerified() verifiedDoc {
 	doc := verifiedDoc{Schema: "rhythm-verified/v1", Binaries: map[string]verifiedEntry{}}
 	p, err := verifiedPath()
@@ -217,7 +225,10 @@ func readVerified() verifiedDoc {
 }
 
 // recordVerified notes that the binary now at dest is version of repo,
-// signed by signer. Entries for binaries that are gone are dropped.
+// signed by signer. Entries for binaries that are gone are dropped. The
+// file is replaced by rename, so a reader never sees half of it; two runs
+// at once can still lose one entry, which then shows "-" until rhythm
+// verify records it again.
 func recordVerified(dest, repo, version, signer string) error {
 	sum, err := fileSHA256(dest)
 	if err != nil {
@@ -266,6 +277,7 @@ func recordedStatus(p string) string {
 	return "yes"
 }
 
+// fileSHA256 returns the lowercase hex sha256 of the file at p.
 func fileSHA256(p string) (string, error) {
 	f, err := os.Open(p) //nolint:gosec // an installed binary rhythm looks after
 	if err != nil {
@@ -318,6 +330,8 @@ type verifyTarget struct {
 	Error         string `json:"error"`
 }
 
+// cmdVerify is rhythm verify. Its signature check can't be turned off:
+// a verify that skipped it would vouch for nothing.
 func cmdVerify(args []string, stdout, stderr io.Writer) int {
 	flags := newFlagSet("verify", verifySynopsis)
 	asJSON := flags.Bool("json", false, "print the report as rhythm-verify/v1 JSON")

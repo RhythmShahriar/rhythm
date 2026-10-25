@@ -58,6 +58,7 @@ var shells = map[string]string{
 // shellNames lists the shells in the order help names them.
 var shellNames = []string{"bash", "zsh", "fish", "powershell"}
 
+// cmdCompletion is rhythm completion: it prints one shell's script.
 func cmdCompletion(args []string, stdout, stderr io.Writer) int {
 	fs := cli.NewFlagSet("completion", completionSynopsis, stderr)
 	if cli.HasFlag(args, "h") || cli.HasFlag(args, "help") {
@@ -97,6 +98,8 @@ func cmdComplete(args []string, stdout, _ io.Writer) int {
 	return cli.ExitOK
 }
 
+// completeWords returns the completions for words, the last of which is
+// being typed: a command or tool name first, then what that one takes.
 func completeWords(words []string) []string {
 	cur := words[len(words)-1]
 	if len(words) == 1 {

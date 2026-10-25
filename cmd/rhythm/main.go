@@ -1,8 +1,16 @@
 // Copyright (c) 2026 Rhythm Shahriar <me@rhy.io>
 // SPDX-License-Identifier: AGPL-3.0-only
 
-// rhythm is the umbrella CLI. `rhythm <tool> ...` runs the `rhythm-<tool>`
-// binary found on PATH (same extension model as git and gh).
+// Command rhythm is the umbrella CLI for the Rhythm tools. `rhythm <tool> ...`
+// runs the `rhythm-<tool>` binary found on PATH (the same extension model
+// as git and gh). rhythm's own commands look after those binaries: install,
+// update, uninstall and list them, pin them in rhythm.lock, check them
+// against their signed releases and pack them into offline bundles.
+//
+// Every download goes through one updater (install.go), so the release API
+// rules, the token rules and the signature check are the same for each
+// command. Each command lives in its own file and registers itself from
+// init.
 package main
 
 import (
@@ -20,6 +28,8 @@ import (
 	"github.com/RhythmShahriar/rhythm/kit/cli"
 )
 
+// version is set at release time with -ldflags "-X main.version=...".
+// "dev" marks a development build, which update and lock leave alone.
 var version = "dev"
 
 // command is one of rhythm's own subcommands, as opposed to a tool.
@@ -45,6 +55,8 @@ func register(c command) {
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
+// run is main without the exit: it hands args to one of rhythm's commands
+// or to a tool and returns the exit code. Tests call it with buffers.
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
 		usage(stdout)

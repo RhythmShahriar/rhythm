@@ -51,6 +51,7 @@ var toolsJSON []byte
 // the registry tests catch it before a release.
 var registry = mustLoadRegistry(toolsJSON)
 
+// mustLoadRegistry is loadRegistry for the embedded tools.json.
 func mustLoadRegistry(data []byte) []toolInfo {
 	tools, err := loadRegistry(data)
 	if err != nil {

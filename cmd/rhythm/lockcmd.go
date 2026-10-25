@@ -34,6 +34,7 @@ type (
 	dataPack  = lock.DataPack
 )
 
+// lockFileName is rhythm.lock.
 const lockFileName = lock.FileName
 
 // sourceExtension marks an extension's entry in rhythm.lock.
@@ -91,6 +92,8 @@ Exit status: 0 when the lock was written, 1 when any program couldn't be
 locked (nothing is written then), 2 for a usage error and 130 when
 interrupted.`
 
+// cmdLock is rhythm lock. The lock is written only when every program
+// could be locked, so it never pins half an install.
 func cmdLock(args []string, stdout, stderr io.Writer) int {
 	flags := newFlagSet("lock", lockSynopsis)
 	noData := flags.Bool("no-data", false, "don't record the tools' data")
