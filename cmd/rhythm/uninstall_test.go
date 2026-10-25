@@ -4,6 +4,8 @@
 package main
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -198,6 +200,61 @@ func TestUninstallAll(t *testing.T) {
 	}
 	if !strings.HasSuffix(out, "Removed "+self+"\n") {
 		t.Errorf("rhythm isn't removed last:\n%s", out)
+	}
+}
+
+// actWindows makes uninstall act as on Windows with self running: self
+// can be renamed but neither it nor the copy renamed from it deleted.
+// restart is what scheduling a delete at the next restart answers.
+func actWindows(t *testing.T, self string, restart error) {
+	t.Helper()
+	oldRemove, oldWindows, oldRestart := removeFile, onWindows, deleteAtRestart
+	removeFile = func(p string) error {
+		if p == self || p == self+".old" {
+			return &fs.PathError{Op: "remove", Path: p, Err: fs.ErrPermission}
+		}
+		return os.Remove(p)
+	}
+	onWindows = true
+	deleteAtRestart = func(p string) error {
+		if p != self+".old" {
+			t.Errorf("deleteAtRestart(%q), want %q", p, self+".old")
+		}
+		return restart
+	}
+	t.Cleanup(func() { removeFile, onWindows, deleteAtRestart = oldRemove, oldWindows, oldRestart })
+}
+
+func TestUninstallSelfRunningOnWindows(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		restart error
+		note    string
+	}{
+		{"by hand", errors.New("access denied"), "delete it once this command ends"},
+		{"at restart", nil, "Windows deletes it at the next restart"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s := newSandbox(t, map[string]string{}, nil)
+			self := s.stub(t, "rhythm", "0.1.0", "")
+			fakeSelf(t, self, "0.1.0")
+			touch(t, self+".prev")
+			touch(t, self+".old") // left by an earlier update
+			actWindows(t, self, c.restart)
+
+			code, out, errs := runCmd("uninstall", "--all", "rhythm")
+			if code != 0 || errs != "" {
+				t.Fatalf("exit %d\n%s%s", code, out, errs)
+			}
+			base := filepath.Base(self)
+			if !strings.Contains(out, "Removed "+self+" ("+base+".old is left; "+c.note+")\n") ||
+				!strings.Contains(out, "Removed "+self+".prev\n") {
+				t.Errorf("stdout:\n%s", out)
+			}
+			if got := files(t, s.bin); len(got) != 1 || got[0] != base+".old" {
+				t.Errorf("left %v, want only %s.old", got, base)
+			}
+		})
 	}
 }
 
