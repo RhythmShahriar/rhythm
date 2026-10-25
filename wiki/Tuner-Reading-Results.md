@@ -3,56 +3,60 @@ This page explains every part of Tuner's terminal report: what each severity mea
 ## Anatomy of the report
 
 ```text
-  ♪ rhythm tuner 0.3.1                                        yoursite.com      ← 1 header
+  ♪ rhythm tuner 0.4.0           127.0.0.1:20400 (local address: 50 req/s)     ← 1 header
   ────────────────────────────────────────────────────────────────────────
 
-  ▸ Fingerprint   WordPress 6.4.3 · PHP 8.1.27 · Apache/2.4.57 (Debian)          ← 2 fingerprint
-  ▸ Components    theme astra 4.6.0 · contact-form-7 5.3.1                       ← 3 components
+  ▸ Fingerprint   WordPress 6.9.3 · PHP 8.1.2 (from x-powered-by /) · nginx     ← 2 fingerprint
+  ▸ Components    contact-form-7 5.3.1 · theme astra 4.6.0 · wordpress-seo      ← 3 components
   ▸ Baseline      server returns real 404s                                      ← 4 baseline
 
-  CRITICAL  5 ────────────────────────────────────────────────────────────      ← 5 section
+  CRITICAL  4 ────────────────────────────────────────────────────────────      ← 5 section
 
- ▌  CRITICAL   .env file exposed                                    /.env       ← 6 card
- ▌             DB_PASSWORD=Su•••••   sk_live_•••••                               ← 7 evidence
- ▌             → Deny access to dotfiles, then rotate every secret in th…        ← 8 fix
+ ▌  CRITICAL   .env file exposed: 1 secret (DB_PASSWORD=Su•••••)    /.env       ← 6 card
+ ▌             DB_PASSWORD=Su•••••                                              ← 7 evidence
+ ▌             → Deny access to dotfiles, then rotate every secret in the       ← 8 fix
+ ▌               file. (see report)
 
- ▌  CRITICAL   Apache 2.4.57: 73 known vulnerabilities                          ← outline badge
- ▌             ~ likely: a distro build may already include the fix              ← 9 caveat
- ▌             CRITICAL CVE-2024-38475 Improper escaping of output in mo…
- ▌             …and 70 more
- ▌             → Update Apache to 2.4.69 or later from your OS or vendor…
+ ▌  CRITICAL   contact-form-7 5.3.1: 6 known vulnerabilities
+ ▌             CRITICAL CVE-2020-35489 Contact Form 7 < 5.3.2 - Unrestri…
+ ▌             HIGH CVE-2023-6449 Contact Form 7 <= 5.8.3 - Authenticate…
+ ▌             MEDIUM CVE-2024-2242 Contact Form 7 <= 5.9 - Reflected Cr…
+ ▌             …and 3 more
+ ▌             → Update contact-form-7 to 6.0.6 or later (latest is
+ ▌               6.1.3): wp plugin update contact-form-7
 
-  LOW  6 ─────────────────────────────────────────────────────────────────
+  LOW  7 ─────────────────────────────────────────────────────────────────
 
-    ●  X-Content-Type-Options header missing                                    ← 10 compact list
+    ●  X-Content-Type-Options header missing                                    ← 9 compact list
     ●  XML-RPC enabled                                        /xmlrpc.php
 
  ╭────────────────────────────────────────────────────────────────────╮
- │  TUNE SCORE                                               0 / 100  │       ← 11 score panel
+ │  TUNE SCORE                                               0 / 100  │       ← 10 score panel
  │  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  │
- │  ✖ 5 critical   ▲ 3 high   ■ 2 medium   ● 6 low   · 3 info         │
+ │  ✖ 4 critical   ▲ 2 high   ■ 1 medium   ● 7 low   · 1 info         │
  ╰────────────────────────────────────────────────────────────────────╯
-  37 checks · 78 requests · 15.4s                                               ← 12 stats
-  ! vulnerability data: WPVulnerability (wpvulnerability.com, CC0)               ← 13 notes
+  77 checks · 180 requests · 3.6s                                               ← 11 stats
+  ! vulnerability data: WPVulnerability (wpvulnerability.com, CC0)               ← 12 notes
 
-  → full report: rhythm tuner scan yoursite.com -o report.md
+  → run rhythm tuner explain <id> for the full fix                              ← 13 hints
+  → full report: rhythm tuner scan 127.0.0.1:20400 -o report.md
 ```
 
-1. **Header.** Tuner's version and the target as you typed it.
-2. **Fingerprint.** The platform, PHP version and server Tuner detected, e.g. `WordPress 6.4.3 · PHP 8.1.27 · nginx`. A missing number means the version couldn't be read: `PHP` alone means the site runs PHP but hides its version. `unknown` means Tuner recognized none of them.
-3. **Components.** Plugins and themes the home page loads, with versions where Tuner could read them. Up to six are shown, then `+N more`. Themes are prefixed with `theme`.
-4. **Baseline.** `server returns real 404s`, or `soft-404 detected, filtering enabled` when the server answers `200` for pages that don't exist. In the second case Tuner compares every hit with a random path of the same shape, so the catch-all page doesn't produce false findings. Local scans have no baseline line.
+1. **Header.** Tuner's version and the target as you typed it (a password in it shows as `xxxxx`). Notes in brackets say when a [`.tuner.yml`](Tuner-Config) is in use or a local address gets the faster rate.
+2. **Fingerprint.** The platform, PHP version and server Tuner detected, e.g. `WordPress 6.9.3 · PHP 8.1.2 (from x-powered-by /) · nginx`, or `PHP 8.3.36 (from php on PATH)` in a local scan. The PHP version names its source when Tuner knows it. `PHP (version unknown)` means the site runs PHP but hides its version. `unknown` means Tuner recognized none of them.
+3. **Components.** Plugins and themes found on the page, in the REST API index or, with `--plugins deep`, by their `readme.txt`, with versions where Tuner could read them. Up to six are shown, then `+N more`. Themes are prefixed with `theme`.
+4. **Baseline.** `server returns real 404s`, or `soft-404 detected, filtering enabled` when the server answers `200` for pages that don't exist. In the second case Tuner compares every hit with a random path of the same shape, so the catch-all page doesn't produce false findings. The line is left out when the home page was blocked or failed. Local scans have none.
 5. **Severity sections.** Findings grouped from critical to info, with a count. Within a section, confirmed findings come before likely ones.
 6. **Cards.** Critical, high and medium findings get a card: a severity badge, the title and, when it fits, the path that triggered it. The colored rail on the left matches the severity.
-7. **Evidence.** One line showing why the finding fired: the masked secrets found, the text that matched, or for vulnerability findings the top three advisories (`SEVERITY CVE title (fixed in x.y.z)`, `[actively exploited]` for CISA KEV entries, `(no fix for this branch)` for end-of-life PHP) and `…and N more`.
-8. **Fix.** The `→` line is the first line of the fix. The full fix, often with nginx and Apache variants, is in the Markdown and JSON reports.
-9. **Caveat.** Low-confidence findings get an `~ likely:` line saying why they can't be confirmed. See [Confidence](#confidence-and-likely-findings).
-10. **Compact list.** Low and info findings are one line each: a glyph, the title and the path.
-11. **Score panel.** The [Tune score](#the-tune-score), a bar and the count per severity. The panel is green at 80 and above, amber from 50 to 79 and red below 50. With no findings it reads `✔ nothing out of tune`.
-12. **Stats.** How many checks ran, requests sent and how long it took. Extra items appear when they apply: `N baselined` (findings hidden by `--baseline`), `throttled N× (slowed down)` (the site answered `429` or `503`; see [Requests](Tuner-Requests#retries-and-throttling)) and `N errors` (requests that failed after retries).
-13. **Notes.** Lines starting with `!`: warnings (for example that cached vulnerability data was used because the data service couldn't be reached) and data attribution.
+7. **Evidence.** Why the finding fired: the masked secrets found, the text that matched, or for vulnerability findings the top three advisories (`SEVERITY CVE title (fixed in x.y.z)`, `[actively exploited]` for CISA KEV entries, `(no fix for this branch)` for end-of-life PHP) and `…and N more`.
+8. **Fix.** The `→` lines are the first line of the fix, wrapped to the terminal's width; a URL is never cut. `(see report)` means the fix has more lines, often nginx and Apache variants.
+9. **Compact list.** Low and info findings are one line each: a glyph, the title and the path.
+10. **Score panel.** The [Tune score](#the-tune-score), a bar and the count per severity. The panel is green at 80 and above, amber from 50 to 79 and red below 50. With no findings it reads `✔ nothing out of tune`. When a baseline or ignore entries hid findings, it says so: `100 / 100 after baseline (15 hidden)`.
+11. **Stats.** How many checks ran, requests sent and how long it took. Extra items appear when they apply: `throttled N× (slowed down)` (the site answered `429` or `503`; see [Requests](Tuner-Requests#retries-and-throttling)) and `N errors` (requests that failed after retries).
+12. **Notes.** Lines starting with `!`: data attribution, warnings (cached data used, a skipped file) and, for a scan that didn't finish, why: `Incomplete: stopped by --max-time`, `Incomplete: blocked by Cloudflare challenge`, `Incomplete: the home page did not load`, `Incomplete: stopped at the request budget`, `Incomplete: some checksums for --integrity could not be loaded`, `Score excludes known vulnerabilities (vulnerability data missing)`. A partial scan's score is not a clean bill of health.
+13. **Hints.** `explain` prints a finding's full fix offline; `-o report.md` saves everything.
 
-Card text is truncated to fit 72 columns, marked with `…`. Save a report with `-o report.md` to read everything.
+The report follows the terminal's width (between 56 and 100 columns). Long advisory titles are cut with `…`; save a report with `-o report.md` to read everything.
 
 ### Filled and outline badges
 
@@ -85,7 +89,7 @@ A practical order:
 3. **The rest of critical and high**, confirmed findings before likely ones.
 4. **Medium**, then **low** as a hardening pass.
 
-Use `--fail-on high` in CI to stop new critical or high findings from shipping; see [CI and code scanning](Tuner-CI).
+Use `--fail-on high` in CI to stop critical or high findings from shipping, or `--since last.json --fail-on-new high` to stop only new ones; see [CI and code scanning](Tuner-CI).
 
 ## Confidence and "likely" findings
 
@@ -101,7 +105,9 @@ Every finding has a confidence of `high` or `low`. Low-confidence findings are s
 | **phpinfo() settings (remote CVE-2026-115560 check).** An exposed `phpinfo()` page shows the two risky settings; whether the code switches the handler can only be checked on the server. | `not confirmed from outside` | Delete the phpinfo page, then run a local scan. |
 | **Missing settings in an included file (local wp-config review).** `wp-config.php` includes other files that may define what's missing. | Evidence line: `wp-config.php includes other files, which may set this` | Check the included files. |
 
-Two related findings are also low confidence: `wp-components-unverified` (plugins or themes with known vulnerabilities whose installed version couldn't be read) and the remote `php-session-upload-progress` check.
+Other findings that are always low confidence: `wp-components-unverified` (plugins or themes with known vulnerabilities whose installed version couldn't be read), the remote `php-session-upload-progress` check, `local-malware-php-in-uploads` (a few plugins keep PHP files in uploads on purpose) and `local-integrity-plugin-unlisted` (a development build has no checksums either).
+
+In CI, `--min-confidence confirmed` keeps likely findings in the report but stops them from failing `--fail-on` and `--fail-on-new`. That's the usual fix for a pipeline that fails on every Ubuntu host's PHP build.
 
 > [!NOTE]
 > "Likely" doesn't mean "probably fine". A likely critical finding still deserves a look; it means the last step of confirmation is yours.
@@ -136,46 +142,57 @@ Vulnerability findings have one ID per component (`vuln-plugin-elementor`, `vuln
 | `vuln-apache` (critical, likely) | 15 |
 | **Score** | 100 − 57 = **43** |
 
-The score reflects what's in the report. Findings hidden with `--baseline` are left out and the score is recomputed; checks you didn't run (a narrower `--profile`, `--tags`, `--id` or `--severity`) can't cost points. Compare scores between runs that used the same options.
+The score reflects what's in the report. Findings hidden with `--baseline` or `.tuner.yml` ignore entries are left out and the score is recomputed (the summary says `after baseline (N hidden)`); checks you didn't run (a narrower `--profile`, `--tags`, `--id` or `--severity`) can't cost points. Compare scores between runs that used the same options.
 
 ## Plain mode
 
-When output isn't a terminal (a pipe, a file, a CI log), or with `--plain`, Tuner prints a plain report with no color, box drawing or decorative glyphs. It suits logs and screen readers:
+When output isn't a terminal (a pipe, a file, a CI log), or with `--plain`, Tuner prints a plain report with no color, box drawing or decorative glyphs. It suits logs and screen readers. The same test site, shortened:
 
 ```text
-rhythm tuner 0.3.1 - scanning yoursite.com
+rhythm tuner 0.4.0 - scanning 127.0.0.1:20400 (local address: 50 req/s)
 
-Fingerprint: WordPress 6.4.3 · PHP 8.1.27 · Apache/2.4.57 (Debian)
-Components: theme astra 4.6.0 · contact-form-7 5.3.1
+Fingerprint: WordPress 6.9.3 · PHP 8.1.2 (from x-powered-by /) · nginx
+Components: contact-form-7 5.3.1 · theme astra 4.6.0 · wordpress-seo
 Baseline: server returns real 404s
 
-[LOW] X-Content-Type-Options header missing - https://yoursite.com
+[LOW] X-Content-Type-Options header missing - http://127.0.0.1:20400
   evidence: no X-Content-Type-Options header
-[CRITICAL] contact-form-7 5.3.1: 6 known vulnerabilities - https://yoursite.com/wp-content/plugins/contact-form-7/
+  fix: nginx:  add_header X-Content-Type-Options nosniff always; (see report)
+…
+[CRITICAL] .env file exposed: 1 secret (DB_PASSWORD=Su•••••) - http://127.0.0.1:20400/.env
+  secrets: DB_PASSWORD=Su•••••
+  fix: Deny access to dotfiles, then rotate every secret in the file. (see report)
+[CRITICAL] contact-form-7 5.3.1: 6 known vulnerabilities - http://127.0.0.1:20400/wp-content/plugins/contact-form-7/
   - CRITICAL CVE-2020-35489 Contact Form 7 < 5.3.2 - Unrestricted File Upload (fixed in 5.3.2)
   - HIGH CVE-2023-6449 Contact Form 7 <= 5.8.3 - Authenticated (Editor+) Arbitrary File Upload (fixed in 5.8.4)
   - MEDIUM CVE-2024-2242 Contact Form 7 <= 5.9 - Reflected Cross-Site Scripting (fixed in 5.9.2)
   - …and 3 more
-  fix: Update contact-form-7 to 6.0.6 or later (latest is 6.2.3): wp plugin update contact-form-7
-[CRITICAL] .env file exposed - https://yoursite.com/.env
-  secrets: DB_PASSWORD=Su•••••  sk_live_•••••
-  fix: Deny access to dotfiles, then rotate every secret in the file.
-[CRITICAL, likely] Apache 2.4.57: 73 known vulnerabilities - https://yoursite.com
-  likely: a distro build may already include the fix
-  - CRITICAL CVE-2024-38475 Apache HTTPD 2.4 <= 2.4.59 [actively exploited]
-  …
+  fix: Update contact-form-7 to 6.0.6 or later (latest is 6.1.3): wp plugin update contact-form-7
+…
 
-Score 0/100 - 5 critical, 3 high, 2 medium, 6 low, 3 info - 37 checks, 78 requests, 15.4s
+Findings by severity:
+[CRITICAL] .env file exposed: 1 secret (DB_PASSWORD=Su•••••) - http://127.0.0.1:20400/.env
+[CRITICAL] WordPress 6.9.3: 22 known vulnerabilities - http://127.0.0.1:20400/
+[CRITICAL] PHP 8.1.2: 55 known vulnerabilities - http://127.0.0.1:20400/
+[CRITICAL] contact-form-7 5.3.1: 6 known vulnerabilities - http://127.0.0.1:20400/wp-content/plugins/contact-form-7/
+[HIGH] PHP 8.1 is past end of life - http://127.0.0.1:20400/
+[HIGH] guzzlehttp/guzzle 7.4.1: 3 known vulnerabilities (from exposed composer.lock) - http://127.0.0.1:20400/composer.lock
+[MEDIUM] Site served over plain HTTP - http://127.0.0.1:20400
+…
+[INFO] Referrer-Policy header missing - http://127.0.0.1:20400
+
+Score 0/100 - 4 critical, 2 high, 1 medium, 7 low, 1 info - 77 checks, 180 requests, 3.6s
 note: vulnerability data: WPVulnerability (wpvulnerability.com, CC0)
+run rhythm tuner explain <id> for the full fix
 ```
 
-Differences from the pretty view:
+Differences from the terminal view:
 
-- Findings **stream in the order they're found**, one `[SEVERITY] title - URL` line each, instead of being grouped by severity at the end.
-- Each finding has at most one detail: up to three advisories, the masked secrets, or the first evidence line.
-- The `fix:` line is shown only for critical and high findings.
-- A low-confidence finding reads `[SEVERITY, likely]`, with the reason on the next line, so logs never present it as confirmed. (Before v0.3.2 plain output left the marker out.) The Markdown report adds a "Why only likely" line. `--json` has both `confidence` and `caveat`.
-- The summary is one line, `Score N/100 - counts - stats`, followed by `note:` lines.
+- Findings **stream in the order they're found**, one `[SEVERITY] title - URL` line each, then a **Findings by severity** block lists them again, most severe first, so a CI log reads well from the bottom.
+- Each finding has its detail (up to three advisories, the masked secrets, or the first evidence line) and a `fix:` line, whatever its severity. A longer fix ends in `(see report)`.
+- A low-confidence finding reads `[SEVERITY, likely]`, with the reason on the next line, so logs never present it as confirmed. The Markdown report adds a "Why only likely" line; JSON has `confidence` and `caveat`.
+- Local findings show the path inside the scanned folder (`/wp-config.php`), not the full `file://` URL.
+- The summary is one line, `Score N/100 - counts - stats`, preceded by any `Incomplete:` notes and followed by `note:` lines. `-q` keeps the findings and this line.
 
 See [Output and reports](Tuner-Output) for every output mode.
 

@@ -22,15 +22,21 @@
 - [Output and reports](Tuner-Output)
 - [Batch scans](Tuner-Batch-Scans)
 - [Local scans](Tuner-Local-Scans)
+- [Integrity and malware](Tuner-Integrity-And-Malware)
+- [Changes and notifications](Tuner-Changes-And-Notifications)
 
 **Tuner in depth**
 - [Known vulnerabilities](Tuner-Known-Vulnerabilities)
 - [PHP advisories](Tuner-PHP-Advisories)
 - [CI and code scanning](Tuner-CI)
+- [GitHub Action](Tuner-GitHub-Action)
+- [Config file](Tuner-Config)
+- [Watch and serve](Tuner-Watch-And-Serve)
 - [Writing checks](Tuner-Writing-Checks)
 - [Check packs](Tuner-Check-Packs)
 - [Finding reference](Tuner-Finding-Reference)
 - [CLI reference](Tuner-CLI-Reference)
+- [Coming from Wordfence CLI or WPScan](Tuner-Coming-From-Wordfence-Or-WPScan)
 - [FAQ and troubleshooting](Tuner-FAQ)
 
 **Soundcheck**

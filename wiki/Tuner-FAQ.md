@@ -5,7 +5,7 @@ Answers to common questions and fixes for common problems. If yours isn't here, 
 ### "can't reach" a site
 
 ```text
-rhythm tuner: yoursite.com: can't reach yoursite.com: Get "http://yoursite.com": dial tcp: lookup yoursite.com: no such host
+rhythm tuner scan: 127.0.0.1:20499: can't reach 127.0.0.1:20499: Get "http://127.0.0.1:20499": dial tcp 127.0.0.1:20499: connect: connection refused
   check the address and that the site is up
 ```
 
@@ -17,12 +17,16 @@ Tuner couldn't load the home page, so it couldn't scan anything. Work through th
 4. **Slow sites.** Raise the per-request timeout: `--timeout 30s`.
 5. **Proxies.** On a network that requires a proxy, set `HTTPS_PROXY` or pass `--proxy`. See [Proxies](#proxies-and-corporate-networks).
 
-For a bare hostname, Tuner tries `https://` first and then `http://`; the error shows the last attempt. Run with `-v` to see every request. In a [batch scan](Tuner-Batch-Scans) the other sites carry on and the run exits `3`.
+For a bare hostname, Tuner tries `https://` first and then `http://`; the error shows the last attempt. With `-H`, `--cookie` or a password in the target it won't fall back to plain http after a TLS error; pass `http://` explicitly if that's what you mean (see [Targets without a scheme](Tuner-Requests#targets-without-a-scheme)). Run with `-v` to see every request. In a [batch scan](Tuner-Batch-Scans) the other sites carry on and the run exits `3`.
+
+### "redirects to … pass --follow-host"
+
+The home page redirected to a different host. Tuner stopped instead of scanning a host you didn't name. Scan the host it redirects to directly if you own it, or pass `--follow-host` to continue there (your headers and cookies stay behind). See [Redirects](Tuner-Requests#redirects).
 
 ### Invalid TLS certificate
 
 ```text
-rhythm tuner: staging.yoursite.com: can't reach staging.yoursite.com: invalid TLS certificate: x509: certificate signed by unknown authority (rerun with --insecure to scan anyway)
+rhythm tuner scan: https://127.0.0.1:20403: can't reach 127.0.0.1:20403: invalid TLS certificate: x509: cannot validate certificate for 127.0.0.1 because it doesn't contain any IP SANs (rerun with --insecure to scan anyway)
 ```
 
 The site's certificate is self-signed, expired, issued for another name, or missing an intermediate certificate. To scan it anyway, add `-k`:
@@ -43,7 +47,11 @@ If you still see a finding you believe is a soft-404 page, look at its evidence 
 
 ### The scan is slow, throttled or blocked
 
-The default is five requests a second per site. If the stats line says `throttled N× (slowed down)`, the site answered `429` or `503` and Tuner backed off. Lower the rate from the start (`--rate 1` or `--rate 2`), or allowlist the scan in the firewall. If many requests come back `403` or as a challenge page (check with `-v`), a firewall is blocking the scan and results will be incomplete. See [Requests and politeness](Tuner-Requests#retries-and-throttling).
+The default is five requests a second per host. If the stats line says `throttled N× (slowed down)`, the site answered `429` or `503` and Tuner backed off. Lower the rate from the start (`--rate 1` or `--rate 2`), or allowlist the scan in the firewall. If a firewall challenges the scan, the report says `Incomplete: blocked by …` and `--fail-on` won't pass it. See [Requests and politeness](Tuner-Requests#cloudflare-and-other-firewalls).
+
+### Why are scans of localhost so much faster?
+
+Targets on `localhost`, loopback, private and link-local addresses get 50 requests a second instead of 5, since you're scanning your own server; the header says `(local address: 50 req/s)`. Pass `--rate` to choose another pace, or `--rate 0` for no limit until the server pushes back.
 
 To put an upper bound on a run, use `--max-time 10m`. Partial results are still reported.
 
@@ -51,11 +59,14 @@ To put an upper bound on a run, use `--max-time 10m`. Partial results are still 
 
 ### Why isn't my plugin detected?
 
-A remote scan only sees plugins and themes the **home page** loads: it looks for `/wp-content/plugins/<slug>/` and `/wp-content/themes/<slug>/` in asset URLs. A plugin that loads nothing on the home page (an admin-only tool, a form on one page, a plugin that combines its assets) is invisible from outside.
+A remote scan finds plugins and themes the **home page** loads (`/wp-content/plugins/<slug>/` in asset URLs) and plugins the **REST API index** (`/wp-json/`) lists. A plugin that does neither (an admin-only tool, a form on one page, a plugin that combines its assets) is invisible from outside. Many hosts also block `/wp-json/` for anonymous visitors.
+
+`--plugins deep` also asks for the `readme.txt` of the 1,500 most installed plugins, within `--request-budget`. A plugin outside that list is still found only by the page or the REST API. See [Plugin discovery](Tuner-Requests#plugin-discovery).
 
 Other reasons a version is missing or wrong:
 
 - **Quick profile.** `--profile quick` doesn't read `readme.txt` or `style.css`, so versions come only from hints in asset URLs. Use the default profile.
+- **Found through the REST API.** A plugin found only by its REST namespace has no version until its `readme.txt` is read (not in `quick`).
 - **Blocked files.** Some hosts block `readme.txt`; then the version can't be read.
 - **Many plugins.** At most 50 plugins and themes get a version lookup per scan.
 
@@ -63,13 +74,17 @@ For a complete, exact inventory, run a [local scan](Tuner-Local-Scans) on the se
 
 ### Why is the PHP version hidden?
 
-Many servers and page caches remove `X-Powered-By`, which is good practice. Tuner tries up to three uncacheable endpoints (such as `/xmlrpc.php`) to find it. If it's still hidden, the fingerprint shows `PHP` with no number. You may also get `php-version-hidden`: a medium, low-confidence finding listing recent critical PHP flaws and the releases that fix them.
+Many servers and page caches remove `X-Powered-By`, which is good practice. Tuner tries up to three uncacheable endpoints (such as `/xmlrpc.php`) to find it. If it's still hidden, the fingerprint shows `PHP (version unknown)`. You may also get `php-version-hidden`: a medium, low-confidence finding listing recent critical PHP flaws and the releases that fix them.
 
 To resolve it, check the version yourself: `php -v` on the server (the command line can run a different PHP than the web server), your hosting panel, or WordPress → Tools → Site Health → Info → Server. Or run a [local scan](Tuner-Local-Scans) with `--php` pointing at the PHP that serves the site. Then fix or dismiss the finding. See [Known vulnerabilities](Tuner-Known-Vulnerabilities).
 
 ### What does "likely" mean?
 
 A likely finding (outline badge, `~ likely:` line, `"confidence": "low"` in JSON) is one Tuner can't confirm from where it stands. The most common reason is a distribution build: `Apache/2.4.57 (Debian)` or `PHP/7.4.3-4ubuntu2.19` may already include backported fixes even though the version number is old. Likely findings count half in the score. [Reading results](Tuner-Reading-Results#confidence-and-likely-findings) lists every reason and what to do.
+
+### CI fails on every Ubuntu server's PHP
+
+Ubuntu and Debian PHP builds report old upstream version numbers with backported fixes, so their PHP findings are *likely*. Add `--min-confidence confirmed`: they stay in the report but no longer fail `--fail-on` or `--fail-on-new`. See [Failing a build](Tuner-CI#failing-a-build).
 
 ### Why is my score 0?
 
@@ -89,17 +104,22 @@ If it's a genuine false positive, [report it](#reporting-a-false-positive-or-a-b
 
 ### How do I hide findings I've accepted?
 
-Two ways:
+Three ways:
 
 - **Skip the check** for good: `--exclude-id hdr-csp-missing`.
-- **Baseline** what you've reviewed: save a JSON report once, then pass it to later scans. Findings already in it (matched by check ID and URL) are hidden and don't count in the score or for `--fail-on`; new ones still show.
+- **An ignore entry** in [`.tuner.yml`](Tuner-Config) with a reason and an expiry date. It turns back into a finding on its own.
+- **A baseline** of what you've reviewed: save a JSON report once, then pass it to later scans. Findings already in it are hidden and don't count in the score or for `--fail-on`. New ones still show, as do new advisories for a baselined plugin.
 
 ```sh
 rhythm tuner scan yoursite.com -o accepted.json
 rhythm tuner scan yoursite.com --baseline accepted.json
 ```
 
-See [CI and code scanning](Tuner-CI).
+To keep everything visible and only fail on what's new, use `--since last.json --fail-on-new high` instead. See [CI and code scanning](Tuner-CI#accepting-known-findings).
+
+### Is the site clean if Tuner finds nothing?
+
+No scanner can prove that. A clean report means none of Tuner's checks, signatures or advisories matched. Check that the report isn't partial (`Incomplete:` notes, `"complete": false`). On a server you suspect, run a local scan with `--integrity` too; see [Integrity and malware](Tuner-Integrity-And-Malware).
 
 ## Environment
 
@@ -108,11 +128,11 @@ See [CI and code scanning](Tuner-CI).
 Yes, once it has cached data. Vulnerability data and the check pack are cached during normal scans and refreshed once they're a day old. `--offline` uses only the cache and never contacts the data services:
 
 ```sh
-rhythm tuner update                       # while online: refresh everything now
-rhythm tuner scan yoursite.com --offline  # later, without internet
+rhythm tuner update --prefetch yoursite.com   # while online: cache what this site's scan needs
+rhythm tuner scan yoursite.com --offline      # later, without internet
 ```
 
-Components with nothing cached are reported in a warning (`vulnerability data not cached for N components; run once online to cache it`). If the data services are unreachable during a normal scan, Tuner uses the cached copy and says so. For networks with no internet access, point Tuner at internal mirrors with `TUNER_VULN_API`, `TUNER_WPORG_API`, `TUNER_PHPNET_API`, `TUNER_OSV_API` and `TUNER_CHECKS_URL`. See [Known vulnerabilities](Tuner-Known-Vulnerabilities).
+Components with nothing cached are reported in a warning (`vulnerability data not cached for N components; run once online to cache it`). If the data services are unreachable during a normal scan, Tuner gives up on them after the first timeout, uses the cached copy and says so in one line. `--offline` also skips the release check; `RHYTHM_OFFLINE=1` skips only that. For networks with no internet access, point Tuner at internal mirrors with `TUNER_VULN_API`, `TUNER_WPORG_API`, `TUNER_WPDL_API`, `TUNER_PHPNET_API`, `TUNER_OSV_API` and `TUNER_CHECKS_URL`. See [Known vulnerabilities](Tuner-Known-Vulnerabilities).
 
 The scan itself still needs to reach the site, or use a [local scan](Tuner-Local-Scans).
 
@@ -139,7 +159,7 @@ Behind a proxy, Tuner skips the TLS 1.0/1.1 test, because it needs a direct conn
   rhythm tuner scan https://staging.yoursite.com -H "Authorization: Basic $auth"
   ```
 
-- **Local scans** take Windows paths: an existing folder such as `C:\inetpub\wwwroot\yoursite`, or a relative one such as `.\yoursite`. The `wp-config.php` permissions check is skipped on Windows. The session-settings check reads Linux PHP configuration paths, so it's most useful on the server itself.
+- **Local scans** take Windows paths: `C:\inetpub\wwwroot\yoursite`, a relative one such as `.\yoursite`, or `~\sites\yoursite`. Finding URLs are proper `file:///C:/…` URLs. The `wp-config.php` permissions check is skipped on Windows. The session-settings check reads Linux PHP configuration paths, so it's most useful on the server itself.
 - **Quote globs** in PowerShell too: `--id 'leak-*'`.
 
 ### Where is data cached?
@@ -152,7 +172,7 @@ Under your user cache directory:
 | macOS | `~/Library/Caches/rhythm/tuner` |
 | Windows | `%LocalAppData%\rhythm\tuner` |
 
-Inside it, `vulns/` holds the vulnerability data (WPVulnerability, wordpress.org, php.net and `osv/` for Composer packages). `checks/` holds the check pack. `rhythm tuner update` refreshes both and prints the cache path; `rhythm tuner update --clear` deletes them.
+Inside it, `vulns/` holds the vulnerability data (WPVulnerability, wordpress.org, php.net, `osv/` for Composer packages, `wordfence/` for the optional feed and `checksums/` for `--integrity`). `checks/` holds the check pack, `watch/` the reports of [`watch`](Tuner-Watch-And-Serve) and `serve/` its data. `rhythm tuner update` refreshes the data and prints the cache path; `rhythm tuner update --clear` deletes the data and the pack.
 
 The one-time responsible-use notice is remembered in your user config directory (`~/.config/rhythm` on Linux).
 
@@ -160,13 +180,13 @@ The one-time responsible-use notice is remembered in your user config directory 
 
 Open an issue at [github.com/RhythmShahriar/tuner/issues](https://github.com/RhythmShahriar/tuner/issues). Include:
 
-- the output of `rhythm tuner --version` and `check_set` / `check_pack` from a JSON report;
+- the output of `rhythm tuner --version` and `check_set` / `check_pack` from a JSON report (`rhythm tuner explain <id>` shows the check's text, which helps);
 - the finding's **ID**, severity and evidence (request, status, matched text);
 - why you believe it's wrong and what the URL actually returns;
 - the fingerprint line, if it's a version-based finding.
 
 > [!WARNING]
-> Never paste unmasked secrets, credentials, private URLs or client data into a public issue. Tuner's output is already masked; keep it that way. Replace your real domain with `yoursite.com` if you need to.
+> Never paste unmasked secrets, credentials, private URLs or client data into a public issue. Tuner masks the secrets it recognizes; check the evidence for anything it didn't. Replace your real domain with `yoursite.com` if you need to.
 
 Want a new check, or have one ready? See [Writing checks](Tuner-Writing-Checks) and [Contributing](Contributing).
 
@@ -175,4 +195,4 @@ Want a new check, or have one ready? See [Writing checks](Tuner-Writing-Checks) 
 Don't open a public issue. Report it privately as described in the [Security policy](Security-Policy).
 
 ---
-<sub>← [CLI reference](Tuner-CLI-Reference) · [Home](Home) · [Soundcheck overview](Soundcheck) →</sub>
+<sub>← [Coming from Wordfence CLI or WPScan](Tuner-Coming-From-Wordfence-Or-WPScan) · [Home](Home) · [Soundcheck overview](Soundcheck) →</sub>
