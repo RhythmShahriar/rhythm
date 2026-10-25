@@ -120,7 +120,7 @@ Set these environment variables to change what the installer does. Both scripts 
 | `RHYTHM_GITHUB_API` | `https://api.github.com` | A GitHub API mirror or GitHub Enterprise; see [Mirrors and tokens](#mirrors-and-tokens). |
 | `RHYTHM_GITHUB_TOKEN` | none | A token for that mirror; sent to the `RHYTHM_GITHUB_API` host and used instead of `GITHUB_TOKEN`. |
 | `RHYTHM_INSTALL_TIMEOUT` | `30` | Seconds to wait for a server that doesn't answer, at most `3600`. `install.sh` also gives up on a download that has stalled for that long. |
-| `RHYTHM_ARCH` | none | Windows only: the CPU to use when `PROCESSOR_ARCHITECTURE` is neither `AMD64` nor `ARM64`. |
+| `RHYTHM_ARCH` | none | Windows only: the CPU to use when Windows names neither `AMD64` nor `ARM64`. The installer reads `PROCESSOR_ARCHITEW6432` first, so 32-bit PowerShell on 64-bit Windows (where `PROCESSOR_ARCHITECTURE` says `x86`) gets the 64-bit build. |
 
 ```sh
 # rhythm and Soundcheck only

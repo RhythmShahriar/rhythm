@@ -113,12 +113,15 @@
         return "$($Err.Exception.Message)" -match 'time(d)? ?out|Timeout'
     }
 
-    # Off Windows (the installer tests under pwsh) PROCESSOR_ARCHITECTURE
-    # is unset, so RHYTHM_ARCH names the build to fetch.
-    $Arch = switch ($env:PROCESSOR_ARCHITECTURE) {
+    # 32-bit PowerShell on 64-bit Windows runs under WOW64, where
+    # PROCESSOR_ARCHITECTURE says x86 and PROCESSOR_ARCHITEW6432 names the
+    # real CPU. Off Windows (the installer tests under pwsh) both are
+    # unset, so RHYTHM_ARCH names the build to fetch.
+    $Cpu = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
+    $Arch = switch ($Cpu) {
         'AMD64' { 'amd64' }
         'ARM64' { 'arm64' }
-        default { if ($env:RHYTHM_ARCH) { $env:RHYTHM_ARCH } else { throw "rhythm install: unsupported CPU '$env:PROCESSOR_ARCHITECTURE'" } }
+        default { if ($env:RHYTHM_ARCH) { $env:RHYTHM_ARCH } else { throw "rhythm install: unsupported CPU '$Cpu'" } }
     }
 
     # The tag the signature must name: v, a digit, then only [0-9A-Za-z.+-],
