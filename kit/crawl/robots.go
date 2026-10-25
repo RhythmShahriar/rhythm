@@ -45,6 +45,8 @@ func parseRobots(r io.Reader, agent string) *robots {
 	for first := true; sc.Scan(); first = false {
 		text := sc.Text()
 		if first {
+			// Files saved by Windows editors often start with a BOM,
+			// which would hide the first User-agent line.
 			text = strings.TrimPrefix(text, "\uFEFF")
 		}
 		line, _, _ := strings.Cut(text, "#")
@@ -55,6 +57,8 @@ func parseRobots(r io.Reader, agent string) *robots {
 		k, v = strings.ToLower(strings.TrimSpace(k)), strings.TrimSpace(v)
 		switch k {
 		case "user-agent":
+			// Consecutive User-agent lines share one group; the first
+			// after a rule starts a new one (RFC 9309 2.1).
 			if !inAgents {
 				current = nil
 			}

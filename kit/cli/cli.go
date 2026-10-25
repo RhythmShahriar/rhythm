@@ -42,6 +42,8 @@ type ListFlag []string
 
 func (l *ListFlag) String() string { return strings.Join(*l, ",") }
 
+// Set adds each non-empty item of a comma-separated value, so
+// "--skip a,b --skip c" and "--skip a --skip b,c" collect the same list.
 func (l *ListFlag) Set(v string) error {
 	for _, p := range strings.Split(v, ",") {
 		if p = strings.TrimSpace(p); p != "" {
@@ -54,7 +56,10 @@ func (l *ListFlag) Set(v string) error {
 // RepeatFlag collects each use of a flag verbatim (e.g. -H "Name: value").
 type RepeatFlag []string
 
-func (r *RepeatFlag) String() string     { return strings.Join(*r, "; ") }
+func (r *RepeatFlag) String() string { return strings.Join(*r, "; ") }
+
+// Set adds v whole. Commas are not split, since a header value such as
+// "Accept: text/html, */*" may contain them.
 func (r *RepeatFlag) Set(v string) error { *r = append(*r, v); return nil }
 
 // UsageError marks an error caused by how the tool was called (exit 2),

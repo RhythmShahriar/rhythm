@@ -35,8 +35,9 @@
 // than a third of it) followed by a fixed run of bullets, so neither the
 // secret nor its length is printed. A value under 3 characters is left
 // alone, except when its name looks like a secret's or it is a URL or
-// curl password, which are masked at any length. FindSecrets returns what it found,
-// Redact masks secrets inside text and RedactHeader masks one HTTP header.
+// curl password, which are masked at any length. FindSecrets returns what
+// it found, Redact masks secrets inside text and RedactHeader masks one
+// HTTP header.
 package secrets
 
 import (
@@ -47,9 +48,9 @@ import (
 
 // Secret is a detected credential. The raw value never leaves this package.
 type Secret struct {
-	Kind   string `json:"kind"`
-	Name   string `json:"name,omitempty"`
-	Masked string `json:"masked"`
+	Kind   string `json:"kind"`           // the ID of the rule that found it, "stripe-key"
+	Name   string `json:"name,omitempty"` // the variable, header or cookie name, when there is one
+	Masked string `json:"masked"`         // the value as Mask leaves it
 }
 
 // String formats the secret as name=masked, or just masked when it has
@@ -64,9 +65,9 @@ func (s Secret) String() string {
 // RuleInfo describes one detection rule, for listings such as
 // `rhythm-tuner checks --tag secrets`.
 type RuleInfo struct {
-	ID          string   `json:"id"` // the Kind of the secrets it finds
-	Description string   `json:"description"`
-	Tags        []string `json:"tags"`
+	ID          string   `json:"id"`          // the Kind of the secrets it finds
+	Description string   `json:"description"` // one line naming the provider and format
+	Tags        []string `json:"tags"`        // categories such as "cloud" or "payment"
 }
 
 // Rules returns every detection rule in the order they are applied.
@@ -78,6 +79,8 @@ func Rules() []RuleInfo {
 	return out
 }
 
+// secretRule is one detection rule: what it looks for and how a match
+// becomes a Secret.
 type secretRule struct {
 	id   string
 	desc string
@@ -114,6 +117,7 @@ type part struct {
 	start, end int
 }
 
+// span is a secret found at s[start:end], before overlaps are dropped.
 type span struct {
 	start, end int
 	secret     Secret
@@ -187,7 +191,9 @@ func findSpans(s string) []span {
 		}
 	}
 	sort.SliceStable(spans, func(i, j int) bool { return spans[i].start < spans[j].start })
-	// Drop overlaps; earlier rules are more specific and were appended first.
+	// Drop overlaps: the span that starts first wins. At the same start
+	// the stable sort keeps rule order, so the earlier and more specific
+	// rule wins.
 	out := spans[:0]
 	end := -1
 	for _, sp := range spans {

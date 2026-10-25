@@ -40,11 +40,11 @@ const OfflineEnv = "RHYTHM_OFFLINE"
 //
 //	func main() { os.Exit(cli.Main(cli.Tool{Name: "rhythm-tuner", ...})) }
 type Tool struct {
-	Name     string // binary name, "rhythm-tuner"; the first word of `version`
-	Version  string // release version, "0.3.0"; empty means "dev"
-	Commit   string // short commit hash, shown by `version` when set
-	Summary  string // one line under the banner in help
-	Commands []Command
+	Name     string    // binary name, "rhythm-tuner"; the first word of `version`
+	Version  string    // release version, "0.3.0"; empty means "dev"
+	Commit   string    // short commit hash, shown by `version` when set
+	Summary  string    // one line under the banner in help
+	Commands []Command // in help order; each needs a unique, unreserved Name and a Run
 
 	// Update refreshes the tool's data (a vulnerability database, a
 	// browser) and reports what it now has. Progress goes to w. When nil,
@@ -129,11 +129,11 @@ type DataPack struct {
 	Pinned bool `json:"pinned,omitempty"`
 }
 
-// ExitError ends a command with a chosen exit code. Main prints Err, when
-// it isn't nil and exits with Code.
+// ExitError ends a command with a chosen exit code. Main prints Err when
+// it isn't nil, then exits with Code.
 type ExitError struct {
-	Code int
-	Err  error
+	Code int   // the process exit code, usually one of the Exit constants
+	Err  error // what to print; nil exits quietly, as ErrFindings does
 }
 
 func (e *ExitError) Error() string {
@@ -162,9 +162,9 @@ var noticeWait = 200 * time.Millisecond
 // document) and update when Update is set (with --json the
 // rhythm-data/v1 document; exit 3 when it fails; --pin when UpdatePinned
 // is set, exit 3 when a pinned version can't be had). Commands run under a
-// context canceled by Ctrl-C or SIGTERM, which exits 130. While a command
-// runs, Main checks for a newer release in the background, unless the
-// tool is offline and prints the notice at the end. The hidden
+// context canceled by Ctrl-C or SIGTERM, which exits 130. Unless the tool
+// is offline, Main checks for a newer release in the background while a
+// command runs and prints the notice at the end. The hidden
 // __complete command (CompleteCommand) answers shell completion.
 func Main(t Tool) int {
 	return t.main(os.Args[1:], os.Stdout, os.Stderr)
