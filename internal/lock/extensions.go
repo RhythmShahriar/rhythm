@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -80,13 +81,25 @@ func (s *Extensions) List() ([]Extension, error) {
 	if err := dec.Decode(&doc); err != nil {
 		return nil, fmt.Errorf("%s: %w", s.path, err)
 	}
+	// One JSON value and nothing after it: a second document or stray
+	// text means the file isn't what rhythm wrote.
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("%s: data after the JSON document", s.path)
+	}
 	if doc.Schema != ExtensionsSchema {
 		return nil, fmt.Errorf("%s: schema %q isn't %q", s.path, doc.Schema, ExtensionsSchema)
 	}
+	// A name listed twice would leave which repo and signer rhythm uses
+	// to the order of the entries.
+	seen := map[string]bool{}
 	for _, x := range doc.Extensions {
 		if err := x.validate(); err != nil {
 			return nil, fmt.Errorf("%s: %w", s.path, err)
 		}
+		if seen[x.Name] {
+			return nil, fmt.Errorf("%s: extension %q listed twice", s.path, x.Name)
+		}
+		seen[x.Name] = true
 	}
 	slices.SortFunc(doc.Extensions, compareExtensions)
 	return doc.Extensions, nil

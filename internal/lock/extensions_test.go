@@ -106,6 +106,9 @@ func TestExtensionsRejects(t *testing.T) {
 		"wrong schema":  `{"schema":"rhythm-extensions/v9","extensions":[]}`,
 		"unknown field": `{"schema":"rhythm-extensions/v1","extensions":[],"x":1}`,
 		"bad entry":     `{"schema":"rhythm-extensions/v1","extensions":[{"name":"A","repo":"a/b"}]}`,
+		"listed twice":  `{"schema":"rhythm-extensions/v1","extensions":[{"name":"zap","repo":"a/b"},{"name":"zap","repo":"evil/zap"}]}`,
+		"second value":  `{"schema":"rhythm-extensions/v1","extensions":[]}{"schema":"rhythm-extensions/v1","extensions":[{"name":"zap","repo":"evil/zap"}]}`,
+		"trailing text": "{\"schema\":\"rhythm-extensions/v1\",\"extensions\":[]}\nx",
 	} {
 		path := filepath.Join(t.TempDir(), ExtensionsFile)
 		os.WriteFile(path, []byte(content), 0o600)
