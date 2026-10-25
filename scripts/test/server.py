@@ -16,8 +16,9 @@ Routes:
                       answers 302 to plain http://<host:port>/..., for the
                       redirect tests
   anything else       the file under ROOT. In files under repos/ the text
-                      {{BASE}} becomes this server's URL, so the release JSON
-                      points at its own downloads whatever the port.
+                      {{BASE}} becomes this server's URL and {{HOSTPORT}} its
+                      127.0.0.1:<port>, so the release JSON points at its own
+                      downloads whatever the port.
 
 Every request is appended to LOG as "GET <path> auth=<Authorization or ->",
 so tests can assert which token, if any, reached the API.
@@ -84,8 +85,9 @@ def handler(root, log, lock):
             if not path.is_file():
                 self.send_error(404)
                 return
-            base = f"http://127.0.0.1:{self.server.server_address[1]}"
-            body = path.read_text(encoding="utf-8").replace("{{BASE}}", base).encode()
+            host = f"127.0.0.1:{self.server.server_address[1]}"
+            base = f"http://{host}"
+            body = path.read_text(encoding="utf-8").replace("{{BASE}}", base).replace("{{HOSTPORT}}", host).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
