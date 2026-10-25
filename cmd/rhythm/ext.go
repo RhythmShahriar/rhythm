@@ -44,6 +44,8 @@ come from the same workflow, or the update is refused.
 Exit status: 0 on success, 1 when something failed, 2 for a usage error
 and 130 when interrupted.`
 
+// cmdExt is rhythm ext: it hands the rest of args to the subcommand named
+// first.
 func cmdExt(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "usage: rhythm ext search|install|list|remove ...; see rhythm ext --help")
@@ -96,6 +98,8 @@ Searches GitHub for repositories with the topic rhythm-extension whose
 names start with rhythm-, most starred first. Names rhythm keeps for its
 own tools and commands are marked; those can't be installed.`
 
+// extSearch is rhythm ext search. Results are third-party text, shown
+// only after term.SafeText.
 func extSearch(args []string, stdout, stderr io.Writer) int {
 	flags := newFlagSet("ext search", extSearchSynopsis)
 	asJSON := flags.Bool("json", false, "print the results as rhythm-ext-search/v1 JSON")
@@ -104,6 +108,8 @@ func extSearch(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 	api := os.Getenv("RHYTHM_GITHUB_API")
+	// The search carries the token too, so it follows the same token and
+	// redirect rules as the release lookups.
 	_, tok := apiToken(os.Getenv, api)
 	c := &ext.Client{API: apiOrDefault(api), HTTP: apiClient(updater("", "", "").HTTP), Token: tok, UserAgent: fmt.Sprintf("rhythm/%s (+https://rythm.sh)", version)}
 	ctx, stop := signalContext()
@@ -176,6 +182,8 @@ repository; an unsigned or wrongly signed release is refused. The
 workflow that signed it is recorded. Later releases must come from the
 same one.`
 
+// extInstall is rhythm ext install. It has no --skip-signature: the
+// signer is what an extension is trusted on.
 func extInstall(args []string, stdout, stderr io.Writer) int {
 	flags := newFlagSet("ext install", extInstallSynopsis)
 	dir := flags.String("dir", "", "install into `dir` (default: next to rhythm)")
@@ -301,6 +309,9 @@ func recordExtension(it installItem, signer string, stderr io.Writer) bool {
 	if signer != "" {
 		x.Signer = signerIdentity(signer)
 	}
+	// The verifier already holds an extension to its own repository's
+	// workflows (see buildVerifier). The rule is checked again here because
+	// every later update trusts the signer on record.
 	if x.Signer != "" && !ext.SignerAllowed(it.repo, x.Signer) {
 		fmt.Fprintf(stderr, "rhythm: %s was signed by %s, which isn't a workflow of %s; not recorded\n", it.repo, x.Signer, it.repo)
 		return false
@@ -327,6 +338,7 @@ func lockedExtension(e *lockEntry, stderr io.Writer) (installItem, bool) {
 	return installItem{tool: e.Name, spec: e.Version, extension: true, repo: e.Repo, signer: e.Signer}, true
 }
 
+// extList is rhythm ext list.
 func extList(args []string, stdout, stderr io.Writer) int {
 	flags := newFlagSet("ext list", "Usage: rhythm ext list [flags]\n\nShows the installed extensions: where each comes from, the workflow that\nmust sign it, its version and where it is.")
 	asJSON := flags.Bool("json", false, "print the list as rhythm-ext-list/v1 JSON")
@@ -406,6 +418,8 @@ func extList(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+// extRemove is rhythm ext remove. Only a name extensions.json lists is
+// removed, so it can't delete one of rhythm's own tools.
 func extRemove(args []string, stdout, stderr io.Writer) int {
 	flags := newFlagSet("ext remove", "Usage: rhythm ext remove <name> [flags]\n\nDeletes the extension's binary (and the copy its last update kept) and\nremoves it from extensions.json.")
 	pos, code, ok := parseArgs(flags, args, stdout, stderr)

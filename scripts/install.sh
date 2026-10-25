@@ -90,7 +90,9 @@ main() {
 		die "refusing to download over http: $1"
 	}
 
-	# fetch downloads URL $1 to file $2.
+	# fetch downloads URL $1 to file $2. curl exits 28 on a timeout and 1
+	# when --proto-redir turns down a redirect, so those two get their own
+	# message.
 	fetch() {
 		check_url "$1"
 		# shellcheck disable=SC2086 # $limits is several flags
@@ -104,6 +106,9 @@ main() {
 
 	# api_get downloads API URL $1 to file $2 and prints the HTTP status. The
 	# token goes to curl on stdin, so it never shows up in a process listing.
+	# There is no -f: the caller turns the status into the message. curl
+	# leaves a custom Authorization header out when a redirect goes to
+	# another host, so -L can't hand the token to a host it wasn't meant for.
 	api_get() {
 		# shellcheck disable=SC2086 # $limits is several flags
 		if [ -n "$token" ]; then
@@ -116,7 +121,9 @@ main() {
 		fi
 	}
 
-	# asset prints the download URL of a release asset by file name.
+	# asset prints the download URL of a release asset by file name. jq
+	# can't be counted on, so the JSON is split at commas and read with
+	# sed; GitHub writes each URL as one plain string.
 	asset() {
 		tr ',' '\n' <"$tmp/release.json" | grep '"browser_download_url"' |
 			sed 's/.*"browser_download_url"[^"]*"\([^"]*\)".*/\1/' | grep "/$1\$" | head -n 1
@@ -359,6 +366,8 @@ main() {
 	# A template, so TMPDIR is used everywhere: macOS's mktemp -d
 	# alone uses the per-user folder whatever TMPDIR says.
 	tmp=$(mktemp -d "${TMPDIR:-/tmp}/rhythm-install.XXXXXX")
+	# Some shells, dash among them, skip the EXIT trap when a signal ends
+	# the script, so INT and TERM exit on purpose and the cleanup still runs.
 	trap 'rm -rf "$tmp"' EXIT
 	trap 'exit 130' INT
 	trap 'exit 143' TERM
@@ -434,11 +443,15 @@ main() {
 		;;
 	esac
 
+	# A sum line is "<hex>  <name>", or "<hex> *<name>" in binary mode. A
+	# missing line counts as a mismatch: nothing unchecked is installed.
 	want=$(grep " \*\{0,1\}$name\$" "$tmp/checksums.txt" | cut -d' ' -f1)
 	got=$(sha256 "$tmp/$name")
 	if [ -z "$want" ] || [ "$want" != "$got" ]; then
 		die "checksum mismatch for $name; nothing was installed"
 	fi
+	# Only the one member is taken out, so nothing else in the archive
+	# lands anywhere.
 	tar -xzf "$tmp/$name" -C "$tmp" rhythm
 
 	if [ -n "${RHYTHM_INSTALL_DIR:-}" ]; then
@@ -456,6 +469,9 @@ main() {
 	if [ -f "$dir/rhythm" ] && cp -p "$dir/rhythm" "$tmp/rhythm.old" 2>/dev/null; then
 		old=$tmp/rhythm.old
 	fi
+	# The copy goes to a temporary name in the same folder and is renamed
+	# over rhythm. A rename on one file system is atomic, so there is never
+	# a half-written rhythm; a rhythm still running keeps its old file.
 	if ! { cp "$tmp/rhythm" "$dir/.rhythm.new" && chmod 0755 "$dir/.rhythm.new" && mv -f "$dir/.rhythm.new" "$dir/rhythm"; }; then
 		die "can't write to $dir; set RHYTHM_INSTALL_DIR or rerun with sudo"
 	fi
@@ -490,6 +506,8 @@ main() {
 	esac
 	tools=
 	todo=
+	# Tool names are split on spaces unquoted from here on; with globbing
+	# off a "*" in RHYTHM_TOOLS stays a name instead of a file list.
 	set -f
 	if [ -n "$locked" ]; then
 		[ -f rhythm.lock ] || die "RHYTHM_LOCKED is set but there is no rhythm.lock in $(pwd)"

@@ -48,6 +48,8 @@ import (
 	"time"
 )
 
+// Set at build time with -X (see above). Unset, the stand-in has every
+// feature.
 var (
 	version    = "0.0.0"
 	tools      = "tuner:t,soundcheck:sc,echo:e"
@@ -67,6 +69,8 @@ func has(f string) bool {
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
+// run handles one invocation and returns its exit code. Every call is
+// logged first, so a test sees the calls that failed too.
 func run(args []string, stdout, stderr io.Writer) int {
 	if log := os.Getenv("RHYTHM_TEST_LOG"); log != "" {
 		if f, err := os.OpenFile(log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil { //nolint:gosec // the test names the log
@@ -104,6 +108,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+// help prints the parts of rhythm's help the installer reads: the
+// "Tools:" block and whether there is a verify command.
 func help(w io.Writer) {
 	fmt.Fprintf(w, "rhythm %s\n\nUsage:\n  rhythm <tool> [args]\n\n", version)
 	if toolsBlock == "yes" {
@@ -120,6 +126,8 @@ func help(w io.Writer) {
 	}
 }
 
+// install mimics rhythm install for the features this build has, down to
+// the lines the installer parses.
 func install(args []string, stdout, stderr io.Writer) int {
 	dir, dry, quiet, defaults, locked := ".", false, false, false, false
 	var want []string
@@ -361,6 +369,7 @@ func suggest(name string, options []string) string {
 	return ""
 }
 
+// levenshtein returns the edit distance between a and b, by bytes.
 func levenshtein(a, b string) int {
 	prev := make([]int, len(b)+1)
 	for j := range prev {
@@ -391,6 +400,8 @@ func onPath(dir string) bool {
 	return false
 }
 
+// copySelf writes this executable to dest, so an installed tool is a
+// real program Windows can run.
 func copySelf(dest string) error {
 	self, err := os.Executable()
 	if err != nil {

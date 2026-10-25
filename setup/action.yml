@@ -18,6 +18,10 @@ branding:
 # Every release is checked the way rhythm install checks it: the Sigstore
 # signature over checksums.txt, then the archive against checksums.txt.
 # A failed check fails the step.
+#
+# Inputs reach the scripts as environment variables, never written into a
+# run line, so a value can't turn into shell code. Third-party actions are
+# pinned by commit, since a tag can be moved.
 
 inputs:
   tools:
@@ -80,6 +84,9 @@ runs:
         INPUT_WORKING_DIRECTORY: ${{ inputs.working-directory }}
       run: bash "$GITHUB_ACTION_PATH/setup.sh" prepare
 
+    # The download cache holds archives by their sha256. rhythm hashes each
+    # one again before it is used, so an older entry restored through
+    # restore-keys is safe: it only saves downloads.
     - id: cache
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
@@ -97,6 +104,8 @@ runs:
         GITHUB_TOKEN: ${{ inputs.token }}
       run: bash "$GITHUB_ACTION_PATH/setup.sh" rhythm
 
+    # install.sh doesn't run under Git Bash (uname says MINGW), so Windows
+    # gets install.ps1.
     - if: runner.os == 'Windows'
       shell: pwsh
       env:

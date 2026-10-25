@@ -80,17 +80,21 @@ func ParseSpec(s string) (Spec, error) {
 
 // SignerAllowed reports whether signer, a certificate SAN, may sign
 // releases of repo: a workflow of repo itself or the shared workflow.
+// The shared workflow's SAN is the same for every repository that calls
+// it, so this check alone doesn't tie the signature to repo; the
+// certificate's source repository and tag, which kit/sigverify checks,
+// do that.
 func SignerAllowed(repo, signer string) bool {
 	return strings.HasPrefix(signer, "https://github.com/"+repo+"/") || strings.HasPrefix(signer, SharedWorkflow+"@")
 }
 
 // Repo is one search result.
 type Repo struct {
-	FullName    string `json:"full_name"`
-	Name        string `json:"name"` // the extension name: the repo name without rhythm-
-	Description string `json:"description"`
-	Stars       int    `json:"stars"`
-	URL         string `json:"url"`
+	FullName    string `json:"full_name"`   // owner/rhythm-name
+	Name        string `json:"name"`        // the extension name: the repo name without rhythm-
+	Description string `json:"description"` // the repository's own, untrusted text
+	Stars       int    `json:"stars"`       // stargazers, the search's sort order
+	URL         string `json:"url"`         // the repository's page on GitHub
 }
 
 // Client asks the GitHub search API.
@@ -98,13 +102,13 @@ type Client struct {
 	API       string       // API base; "" means https://api.github.com
 	HTTP      *http.Client // nil means http.DefaultClient
 	Token     string       // sent as a bearer token, chosen by the caller's token rules
-	UserAgent string
+	UserAgent string       // GitHub refuses API requests without one
 }
 
 // ErrSearch is a search the API refused, such as a query it can't parse.
 type ErrSearch struct {
-	Status  int
-	Message string
+	Status  int    // the HTTP status code
+	Message string // the API's "message" field, "" when the body had none
 }
 
 func (e *ErrSearch) Error() string {
@@ -122,6 +126,8 @@ func (c *Client) Search(ctx context.Context, words []string) ([]Repo, error) {
 	if api == "" {
 		api = "https://api.github.com"
 	}
+	// The same rules as the release API (https, no user info or query),
+	// since Token goes to whatever host this names.
 	if err := update.CheckAPI(api); err != nil {
 		return nil, fmt.Errorf("search API: %w", err)
 	}

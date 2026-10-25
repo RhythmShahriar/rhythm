@@ -22,6 +22,7 @@ import (
 	"github.com/RhythmShahriar/rhythm/kit/update"
 )
 
+// init registers bundle and gives install its bundle reader (--from).
 func init() {
 	openBundle = openBundleSource
 	register(command{name: "bundle", args: "--locked -o <file> [--platform os/arch,...]", summary: "pack what rhythm.lock pins into one file for offline installs", run: cmdBundle})
@@ -80,6 +81,10 @@ func archiveFor(binary, platform string) string {
 	return binary + "_" + platform + ".tar.gz"
 }
 
+// cmdBundle is rhythm bundle. Every release is checked as it is added
+// and the bundle is built under a temporary name next to the output, so
+// a failed or interrupted run leaves no bundle and never replaces an
+// older one.
 func cmdBundle(args []string, stdout, stderr io.Writer) int {
 	flags := newFlagSet("bundle", bundleSynopsis)
 	locked := flags.Bool("locked", false, "bundle the versions in rhythm.lock (required)")
@@ -123,6 +128,8 @@ func cmdBundle(args []string, stdout, stderr io.Writer) int {
 	}
 	entries := make([]*lockEntry, 0, len(list)+1)
 	if e := lock.Rhythm; e != nil {
+		// lockedScope checks the tools' repos; rhythm's own is checked
+		// here, so a cloned lock can't slip another router into a bundle.
 		if !strings.EqualFold(e.Repo, selfRepo) {
 			fmt.Fprintf(stderr, "rhythm: %s says rhythm comes from %s; rhythm is released from %s\n", lockFileName, e.Repo, selfRepo)
 			return 1
@@ -188,6 +195,7 @@ func cmdBundle(args []string, stdout, stderr io.Writer) int {
 		err = cerr
 	}
 	if err == nil {
+		// CreateTemp makes the file 0600.
 		err = os.Chmod(tmp.Name(), 0o644) //nolint:gosec // a bundle is meant to be copied around
 	}
 	if err == nil {
@@ -324,6 +332,8 @@ type routedSource struct {
 	client *http.Client
 }
 
+// Latest returns the bundle's release of the repository, with asset
+// URLs on bundleHost.
 func (s routedSource) Latest(ctx context.Context) (*update.Release, error) {
 	rel, err := s.t.fromSourceSpec(ctx, "", true)
 	if err != nil {
@@ -332,6 +342,7 @@ func (s routedSource) Latest(ctx context.Context) (*update.Release, error) {
 	return rel.Release, nil
 }
 
+// ByTag returns the bundle's release v, with asset URLs on bundleHost.
 func (s routedSource) ByTag(ctx context.Context, v string) (*update.Release, error) {
 	rel, err := s.t.fromSourceSpec(ctx, v, false)
 	if err != nil {
@@ -340,6 +351,8 @@ func (s routedSource) ByTag(ctx context.Context, v string) (*update.Release, err
 	return rel.Release, nil
 }
 
+// Open fetches asset through the client, so explainTransport serves it
+// from the bundle with the same pinning and progress as a download.
 func (s routedSource) Open(ctx context.Context, rel *update.Release, asset string) (io.ReadCloser, int64, error) {
 	raw, ok := rel.Assets[asset]
 	if !ok {

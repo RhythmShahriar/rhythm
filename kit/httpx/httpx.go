@@ -39,8 +39,8 @@ import (
 
 // Defaults for Options fields left at zero.
 const (
-	DefaultTimeout = 30 * time.Second
-	DefaultMaxBody = 5 << 20
+	DefaultTimeout = 30 * time.Second // Options.Timeout
+	DefaultMaxBody = 5 << 20          // Options.MaxBody, in bytes
 	// MaxRedirects is the most redirect hops followed for one request.
 	MaxRedirects = 10
 )
@@ -65,8 +65,8 @@ type Options struct {
 	// value means no limit.
 	MaxBody int64
 	// Headers are the user's -H values ("Name: value"). They are sent
-	// only where SameHost(Target, url) holds, so they need a Target. Malformed
-	// values are skipped; check flags with ParseHeaders first.
+	// only where SameHost(Target, url) holds, so they need a Target.
+	// Malformed values are skipped; check flags with ParseHeaders first.
 	Headers []string
 	// Target is the site being checked. It scopes Headers, anchors the
 	// same-site redirect rule and decides which private addresses may be

@@ -29,6 +29,8 @@ type prevRecord struct {
 	ReplacedBy *binRecord `json:"replaced_by,omitempty"` // the binary that took its place
 }
 
+// binRecord names one binary by version ("" when unknown) and hex
+// sha256, so Rollback can tell whether it is still the file on disk.
 type binRecord struct {
 	Version string `json:"version"`
 	SHA256  string `json:"sha256"`
@@ -64,6 +66,9 @@ func Rollback(dest string) (from, to string, err error) {
 	if cache.ReadJSON(prev+".json", &rec) != nil {
 		rec = prevRecord{} // no sidecar, or a corrupt one: versions unknown
 	}
+	// With no recorded hash there is nothing to compare. This catches a
+	// .prev changed by mistake, not an attacker: whoever can write .prev
+	// can write dest itself.
 	if rec.SHA256 != "" && rec.SHA256 != prevSum {
 		return "", "", fmt.Errorf("%s has changed since it was set aside (sha256 differs); not rolling back", prev)
 	}
@@ -179,7 +184,10 @@ func dropPrev(dest string) {
 }
 
 // snapshot makes a hard link to path under a temp name in the same
-// directory (a copy where links aren't supported) and returns its name. Either way a later rename of it is atomic.
+// directory (a copy where links aren't supported) and returns its name.
+// Being in the same directory, a later rename of it is atomic. The temp
+// file only reserves a unique name: it is removed at once because
+// os.Link won't replace an existing file.
 func snapshot(path string) (string, error) {
 	f, err := createTemp(filepath.Dir(path), "."+filepath.Base(path)+".prev-*")
 	if err != nil {

@@ -189,6 +189,8 @@ func (v *Verifier) VerifyChecksums(ctx context.Context, repo, version string, ch
 	return v.verifyEntity(ctx, entity, repo, version, checksums)
 }
 
+// verifyEntity checks a parsed bundle against the release identity and
+// the checksums digest. It returns the SAN of the signing certificate.
 func (v *Verifier) verifyEntity(ctx context.Context, entity verify.SignedEntity, repo, version string, checksums []byte) (string, error) {
 	// Checked before the root loads once for good: a canceled ctx would
 	// otherwise pin this Verifier to the embedded root.
@@ -218,8 +220,9 @@ func (v *Verifier) verifyEntity(ctx context.Context, entity verify.SignedEntity,
 }
 
 // RootSource reports where the trusted root came from: RootTUF,
-// RootEmbedded or RootCustom. It is empty until the first VerifyChecksums call has loaded
-// the root, or RootCustom from the start with Options.TrustedMaterial.
+// RootEmbedded or RootCustom. It is empty until the first VerifyChecksums
+// call has loaded the root, or RootCustom from the start with
+// Options.TrustedMaterial.
 func (v *Verifier) RootSource() string {
 	if !v.loaded.Load() {
 		return ""
@@ -275,6 +278,8 @@ func (v *Verifier) verifier(ctx context.Context) (*verify.Verifier, error) {
 	return v.sv, v.err
 }
 
+// repoName is GitHub's owner/name shape. repo goes into the identity
+// regex and the Source Repository URI, so nothing else may get in.
 var repoName = regexp.MustCompile(`^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$`)
 
 func validRepo(repo string) bool {

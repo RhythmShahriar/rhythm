@@ -43,6 +43,8 @@ func main() {
 	}
 }
 
+// run parses the flags and serves until the listener fails. The address
+// must be loopback: the installers accept plain http only there.
 func run(args []string, logTo io.Writer) error {
 	fs := flag.NewFlagSet("fakeapi", flag.ContinueOnError)
 	stub := fs.String("stub", "", "the rhythm stand-in to serve")
@@ -103,6 +105,9 @@ func newRelease(version, goos, goarch string, bin []byte) (*release, error) {
 	return r, nil
 }
 
+// ServeHTTP answers the two release API routes, the release's own files
+// under /dl/rhythm/ and any tool archive. Asset URLs are built from the
+// request's Host, so they work on whatever port the server listens on.
 func (r *release) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	base := "http://" + req.Host
 	p := req.URL.Path
@@ -137,16 +142,19 @@ func logged(h http.Handler, l *log.Logger) http.Handler {
 	})
 }
 
+// status records the code a handler sends, for the request log.
 type status struct {
 	http.ResponseWriter
 	code int
 }
 
+// WriteHeader records code and passes it on.
 func (s *status) WriteHeader(code int) {
 	s.code = code
 	s.ResponseWriter.WriteHeader(code)
 }
 
+// tarGzOf returns a .tar.gz holding one executable file.
 func tarGzOf(name string, body []byte) ([]byte, error) {
 	var buf bytes.Buffer
 	zw := gzip.NewWriter(&buf)
@@ -166,6 +174,7 @@ func tarGzOf(name string, body []byte) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// zipOf returns a .zip holding one executable file.
 func zipOf(name string, body []byte) ([]byte, error) {
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)

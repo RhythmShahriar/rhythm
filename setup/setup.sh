@@ -50,7 +50,8 @@ macOS | Darwin) os=macOS ;;
 esac
 
 # winpath turns a Windows path from the environment into one bash and the
-# action both read.
+# action both read: cygpath -m writes C:/a/b, with forward slashes, which
+# Git Bash, pwsh and actions/cache all take.
 winpath() {
 	if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi
 }
@@ -102,6 +103,7 @@ prepare() {
 	fi
 	arch=${RUNNER_ARCH:-$(uname -m)}
 	lock=none
+	# The lock's hash is in the key, so moving a pin saves a new entry.
 	if [ -f rhythm.lock ]; then
 		lock=$(sha256 <rhythm.lock | cut -c1-16)
 	fi
@@ -175,7 +177,9 @@ tools() {
 	out=$(mktemp)
 	status=0
 	# pipefail makes $status rhythm's own exit code; drop_note always
-	# succeeds, even when grep is left with no line.
+	# succeeds, even when grep is left with no line. The ${specs[@]+...}
+	# form is for bash 3.2, the macOS one, where set -u calls an empty
+	# array unbound.
 	"$rhythm" "${args[@]}" ${specs[@]+"${specs[@]}"} | drop_note "$note" | tee "$out" || status=$?
 	# tool@version for each tool now in place, installed or already there.
 	local versions=()

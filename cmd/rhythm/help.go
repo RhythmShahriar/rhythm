@@ -60,6 +60,8 @@ func cmdHelp(args []string, stdout, stderr io.Writer) int {
 	return run([]string{name, "--help"}, stdout, stderr)
 }
 
+// cmdVersion is rhythm version, also reached through -v, -V and
+// --version.
 func cmdVersion(args []string, stdout, stderr io.Writer) int {
 	fs := cli.NewFlagSet("version", "Usage: rhythm version\n\nPrints rhythm's version.", stderr)
 	if cli.HasFlag(args, "h") || cli.HasFlag(args, "help") {
@@ -144,6 +146,7 @@ func isExecutable(path string) bool {
 	return runtime.GOOS == "windows" || fi.Mode()&0o111 != 0
 }
 
+// usage writes rhythm's help: the tools, the commands and the exit codes.
 func usage(w io.Writer) {
 	fmt.Fprintln(w, kit.Banner("rhythm", version))
 	fmt.Fprint(w, "\nUsage:\n  rhythm <tool> [args]\n  rhythm <command> [args]\n\nTools:\n")

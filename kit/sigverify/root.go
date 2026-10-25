@@ -57,7 +57,7 @@ func fetchRoot(ctx context.Context, opts Options) (*root.TrustedRoot, error) {
 	}
 	t := tuf.DefaultOptions()
 	t.CachePath = dir
-	t.CacheValidity = 1 // days
+	t.CacheValidity = 1 // days: metadata less than a day old is reused without a request
 	if opts.Mirror != "" {
 		t.RepositoryBaseURL = opts.Mirror
 	}
@@ -83,6 +83,7 @@ type ctxClient struct {
 	hc  *http.Client
 }
 
+// Do sends req with the verifier's ctx in place of its own.
 func (c ctxClient) Do(req *http.Request) (*http.Response, error) {
 	return c.hc.Do(req.WithContext(c.ctx)) //nolint:gosec // G704: the URL is the configured TUF mirror
 }

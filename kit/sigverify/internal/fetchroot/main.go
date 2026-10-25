@@ -19,6 +19,8 @@ func main() {
 	out := flag.String("o", "trusted_root.json", "file to write")
 	flag.Parse()
 	opts := tuf.DefaultOptions()
+	// Fetched fresh, so an old copy cached on this machine can't end up
+	// embedded in a release.
 	opts.DisableLocalCache = true
 	c, err := tuf.New(opts)
 	if err == nil {

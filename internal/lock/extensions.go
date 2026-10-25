@@ -55,6 +55,10 @@ func ExtensionsAt(path string) *Extensions { return &Extensions{path: path} }
 // Path is the file the store is kept in.
 func (s *Extensions) Path() string { return s.path }
 
+// extensionsDoc is the file format: {"schema": ExtensionsSchema,
+// "extensions": [...]}, sorted by name and written like rhythm.lock. It
+// is 0600 in a 0700 folder, since the signers it records decide what
+// rhythm will run.
 type extensionsDoc struct {
 	Schema     string      `json:"schema"`
 	Extensions []Extension `json:"extensions"`
