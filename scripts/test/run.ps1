@@ -221,7 +221,11 @@ $Vars = 'RHYTHM_GITHUB_API', 'RHYTHM_INSTALL_DIR', 'RHYTHM_VERSION', 'RHYTHM_TOO
 'RHYTHM_TEST_LOG', 'GITHUB_TOKEN', 'RHYTHM_GITHUB_TOKEN', 'MOCK_LOG', 'TEMP', 'TMP', 'TMPDIR',
 'PATH', 'GH_TOKEN', 'GH_CONFIG_DIR', 'RHYTHM_SKIP_SIGNATURE', 'RHYTHM_TEST_VERIFY',
 'FAKE_SIG_LOG', 'FAKE_COSIGN_EXIT', 'FAKE_GH_AUTH', 'FAKE_GH_EXIT', 'FAKE_GH_OLD', 'RHYTHM_TEST_DEFAULTS', 'RHYTHM_LOCKED',
-'RHYTHM_TEST_ALREADY', 'RHYTHM_INSTALL_TIMEOUT'
+'RHYTHM_TEST_ALREADY', 'RHYTHM_INSTALL_TIMEOUT', 'PROCESSOR_ARCHITECTURE', 'PROCESSOR_ARCHITEW6432'
+# The CPU variables as Windows set them for this shell, kept for every
+# case unless it sets its own.
+$CpuVar = $env:PROCESSOR_ARCHITECTURE
+$Wow64Var = $env:PROCESSOR_ARCHITEW6432
 
 # Set-Var sets an environment variable, or deletes it for $null. PowerShell
 # would pass $null to .NET as '', which .NET 9 and later keep as a value.
@@ -250,6 +254,8 @@ function Invoke-Install([hashtable]$Set = @{}, [string]$Prelude = '', [string]$S
         TEMP               = $Tmp
         TMP                = $Tmp
         TMPDIR             = $Tmp
+        PROCESSOR_ARCHITECTURE = $CpuVar
+        PROCESSOR_ARCHITEW6432 = $Wow64Var
     }
     foreach ($K in $Set.Keys) { $Values[$K] = $Set[$K] }
     $Saved = @{}
@@ -1025,11 +1031,25 @@ function Case-readonly_dir {
     }
 }
 
+function Case-wow64 {
+    # 32-bit PowerShell on 64-bit Windows sees PROCESSOR_ARCHITECTURE=x86;
+    # PROCESSOR_ARCHITEW6432 names the CPU.
+    Clear-Requests
+    Invoke-Install @{ PROCESSOR_ARCHITECTURE = 'x86'; PROCESSOR_ARCHITEW6432 = 'ARM64'; RHYTHM_ARCH = $null; RHYTHM_TOOLS = 'none' }
+    Assert-Code 0
+    if (-not (Get-Requests | Where-Object { $_ -like 'GET /dl/rhythm/v0.7.0/rhythm_windows_arm64.zip *' })) { Fail "the arm64 build wasn't fetched: $((Get-Requests) -join '|')" }
+    Invoke-Install @{ PROCESSOR_ARCHITECTURE = 'AMD64'; PROCESSOR_ARCHITEW6432 = $null; RHYTHM_ARCH = $null; RHYTHM_TOOLS = 'none' }
+    Assert-Code 0
+    Invoke-Install @{ PROCESSOR_ARCHITECTURE = 'x86'; PROCESSOR_ARCHITEW6432 = $null; RHYTHM_ARCH = $null; RHYTHM_TOOLS = 'none' }
+    Assert-Code 1
+    Assert-Out "rhythm install: unsupported CPU 'x86'"
+}
+
 if (-not $Cases.Count) {
     $Cases = 'default', 'none', 'some', 'commas', 'typo', 'tool_fails', 'defaults', 'pins', 'locked', 'path_note',
     'signature_cosign', 'signature_cosign_fails', 'signature_gh', 'signature_none', 'skip_signature', 'router_verify', 'bad_checksum', 'no_checksums', 'missing_dir', 'relative_dir', 'truncated', 'http_refused', 'http_download_refused', 'api_not_plain', 'version_checked', 'timeout', 'github_token', 'rhythm_token',
     'rate_limit', 'old_router', 'old_router_named', 'router_without_dry_run', 'router_without_tools_block',
-    'unknown_tool', 'running_exe', 'swap_fallback', 'swap_restore', 'readonly_dir'
+    'unknown_tool', 'running_exe', 'swap_fallback', 'swap_restore', 'readonly_dir', 'wow64'
 }
 # Installing on Windows adds the folder to the user PATH; put it back after.
 $UserPath = if ($OnWindows) { [Environment]::GetEnvironmentVariable('Path', 'User') } else { $null }
