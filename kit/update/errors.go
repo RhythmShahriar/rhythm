@@ -119,7 +119,7 @@ type ErrTooNew struct {
 	Newest  string        // the newest matching version
 	Age     time.Duration // how old it is; zero when Undated
 	Undated bool          // the API gave the newest no publish date
-	MinAge  time.Duration
+	MinAge  time.Duration // the Updater.MinAge in force
 }
 
 // Error names the newest release, its age and the cooldown.
@@ -165,7 +165,7 @@ func redactURL(raw string) string {
 // StatusError is an HTTP status other than 200. The typed errors above
 // wrap it when the status has a known meaning.
 type StatusError struct {
-	Code int
+	Code int // the HTTP status code
 }
 
 // Error is "HTTP <code>".
@@ -194,6 +194,10 @@ func (u *Updater) statusError(req *http.Request, resp *http.Response) error {
 	if resp.StatusCode != http.StatusForbidden && resp.StatusCode != http.StatusTooManyRequests {
 		return status
 	}
+	// GitHub's primary limit comes as X-RateLimit-Remaining: 0 with
+	// X-RateLimit-Reset in Unix seconds. Its secondary limit comes as
+	// Retry-After in seconds; other servers may send an HTTP date. Both
+	// arrive as 403 or 429.
 	h := resp.Header
 	retry := h.Get("Retry-After")
 	if h.Get("X-RateLimit-Remaining") != "0" && retry == "" {

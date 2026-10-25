@@ -47,6 +47,9 @@ func (u *Updater) source() Source {
 // gitHub is the default Source: the GitHub Releases API at u.API.
 type gitHub struct{ u *Updater }
 
+// Latest asks /releases/latest, which GitHub answers with the release
+// marked latest (by default the most recently published one that is
+// neither a draft nor a prerelease), not the highest version.
 func (g gitHub) Latest(ctx context.Context) (*Release, error) {
 	var v ghRelease
 	if err := g.u.getJSON(ctx, "/releases/latest", "", &v); err != nil {
@@ -76,7 +79,9 @@ func (g gitHub) ByTag(ctx context.Context, version string) (*Release, error) {
 
 // Releases lists the newest 100 releases, drafts left out. Pinning to a
 // line older than that needs an exact version, which ByTag finds at any
-// age.
+// age. GitHub shows drafts only to a token with push access, such as a
+// release job's own, so they are dropped here rather than trusted to be
+// absent.
 func (g gitHub) Releases(ctx context.Context) ([]*Release, error) {
 	var vs []ghRelease
 	if err := g.u.getJSON(ctx, "/releases?per_page=100", "", &vs); err != nil {
@@ -157,6 +162,8 @@ func (u *Updater) toCache(archive, name, sum string) {
 	if u.CacheDir == "" {
 		return
 	}
+	// Private to the user. A link shares the archive's inode, so it keeps
+	// the 0600 mode CreateTemp gave the download.
 	if err := os.MkdirAll(u.CacheDir, 0o700); err != nil {
 		return
 	}

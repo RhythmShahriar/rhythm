@@ -62,6 +62,8 @@ func (u *Updater) getJSON(ctx context.Context, path, want string, v any) error {
 		return netError(req, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+	// GitHub also answers 404 for a repository that doesn't exist or that
+	// the token can't see, so a wrong Repo lands here too.
 	if resp.StatusCode == http.StatusNotFound {
 		return &ErrNoRelease{Repo: u.Repo, API: api, Version: want, Err: &StatusError{Code: resp.StatusCode}}
 	}

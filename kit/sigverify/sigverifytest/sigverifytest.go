@@ -287,8 +287,11 @@ type material struct {
 	rekor  map[string]*root.TransparencyLog
 }
 
+// FulcioCertificateAuthorities returns the test CA, which
+// BaseTrustedMaterial leaves out.
 func (m *material) FulcioCertificateAuthorities() []root.CertificateAuthority {
 	return []root.CertificateAuthority{m.fulcio}
 }
 
+// RekorLogs returns the test log, keyed by its hex log ID.
 func (m *material) RekorLogs() map[string]*root.TransparencyLog { return m.rekor }
