@@ -20,7 +20,7 @@
 
 ## Documentation
 
-Everything about rhythm and its tools lives in the **[documentation wiki](https://github.com/RhythmShahriar/rhythm/wiki)**: installing and updating, every Tuner, Soundcheck and Echo feature, CI, writing checks and the project's policies.
+Everything about rhythm and its tools lives in the **[documentation wiki](https://github.com/RhythmShahriar/rhythm/wiki)**: installing and updating, every Tuner, Soundcheck, Echo, Roadie and Sightread feature, CI, writing checks and the project's policies.
 
 ## Install
 
@@ -36,7 +36,7 @@ curl -fsSL https://rythm.sh/install | sh
 irm https://rythm.sh/install.ps1 | iex
 ```
 
-This installs `rhythm`, Tuner, Soundcheck and Echo to `~/.local/bin` (`/usr/local/bin` as root; `%LOCALAPPDATA%\Programs\rhythm` on Windows, added to your PATH). Every download is checked against the release's `checksums.txt`. When [cosign](https://docs.sigstore.dev/) is installed, or the GitHub CLI and you're logged in, the installer also checks that `checksums.txt` was signed for this repository and tag (see [Verify a release](#verify-a-release)). Without either it says the signature wasn't checked; install one of them to have it checked before anything runs.
+This installs `rhythm`, Tuner, Soundcheck, Echo, Roadie and Sightread to `~/.local/bin` (`/usr/local/bin` as root; `%LOCALAPPDATA%\Programs\rhythm` on Windows, added to your PATH). Every download is checked against the release's `checksums.txt`. When [cosign](https://docs.sigstore.dev/) is installed, or the GitHub CLI and you're logged in, the installer also checks that `checksums.txt` was signed for this repository and tag (see [Verify a release](#verify-a-release)). Without either it says the signature wasn't checked; install one of them to have it checked before anything runs.
 
 <details>
 <summary>Installer options</summary>
@@ -45,7 +45,7 @@ This installs `rhythm`, Tuner, Soundcheck and Echo to `~/.local/bin` (`/usr/loca
 |---|---|
 | `RHYTHM_INSTALL_DIR` | install somewhere else |
 | `RHYTHM_VERSION` | install a specific version of rhythm, e.g. `0.5.0` |
-| `RHYTHM_TOOLS` | tools to install alongside, separated by spaces or commas (default: the tools rhythm installs on a fresh setup, today `tuner soundcheck echo`). `none` installs no tool. `tool@version` pins one, e.g. `tuner@0.3.1` or `tuner@0.3` for the newest 0.3.x. Every name is checked before any tool is downloaded; a tool that fails doesn't stop the others (the installer then exits 1) |
+| `RHYTHM_TOOLS` | tools to install alongside, separated by spaces or commas (default: the tools rhythm installs on a fresh setup, today `tuner soundcheck echo roadie sightread`; a pinned rhythm older than 0.9.0 installs `tuner soundcheck echo`). `none` installs no tool. `tool@version` pins one, e.g. `tuner@0.3.1` or `tuner@0.3` for the newest 0.3.x. Every name is checked before any tool is downloaded; a tool that fails doesn't stop the others (the installer then exits 1) |
 | `GITHUB_TOKEN` | sent to `api.github.com` only, to lift GitHub's limit of 60 anonymous requests an hour (shared CI runners hit it) |
 | `RHYTHM_GITHUB_API` | a GitHub API mirror; it must be a plain `https` base URL (plain `http` only for `127.0.0.1`, `::1` and `localhost`), with no user info, `?` or `#` |
 | `RHYTHM_GITHUB_TOKEN` | a token for that mirror; sent to the `RHYTHM_GITHUB_API` host and used instead of `GITHUB_TOKEN` |
@@ -56,12 +56,14 @@ This installs `rhythm`, Tuner, Soundcheck and Echo to `~/.local/bin` (`/usr/loca
 ```sh
 curl -fsSL https://rythm.sh/install | RHYTHM_INSTALL_DIR=/opt/bin RHYTHM_TOOLS=none sh
 curl -fsSL https://rythm.sh/install | RHYTHM_TOOLS='tuner@0.3.1,soundcheck' sh
+curl -fsSL https://rythm.sh/install | RHYTHM_TOOLS='sightread roadie' sh
 curl -fsSL https://rythm.sh/install | RHYTHM_VERSION=0.5.0 sh
 curl -fsSL https://rythm.sh/install | RHYTHM_LOCKED=1 sh    # in a folder with rhythm.lock
 ```
 
 ```powershell
 $env:RHYTHM_TOOLS = 'none'; irm https://rythm.sh/install.ps1 | iex
+$env:RHYTHM_TOOLS = 'sightread,roadie'; irm https://rythm.sh/install.ps1 | iex
 ```
 
 On Windows, `RHYTHM_TOOLS = 'none'` is the way to install no tools: Windows PowerShell 5.1 can't set a variable to an empty value. A pinned older `rhythm` installs the tools it knows and skips the rest with a warning.
@@ -81,13 +83,17 @@ The action installs rhythm with the installer from the same tag, then the tools 
 
 ## Tools
 
-Three questions, one for each tool: is my site safe, did my change break anything and is it still saying what it should?
+The Rhythm set: five questions, one for each tool. Is my site safe? Did my change break anything? Is it still saying what it should? Is my staging a safe copy of production? What will this update really change?
 
-| Tool | What it does | |
-|---|---|---|
-| **[tuner](https://github.com/RhythmShahriar/tuner)** | Finds what's out of tune in WordPress &amp; PHP sites: leaked secrets, exposed files, known CVEs, weak configuration | `rhythm tuner scan ./your-site` |
-| **[soundcheck](https://github.com/RhythmShahriar/soundcheck)** | Did your change break anything? Snapshots a whole site in a real browser, then shows what broke after an update or deploy: PHP and JS errors, dead buttons, forms, cache leaks, layout and speed | `rhythm soundcheck snapshot http://localhost:8080` |
-| **[echo](https://github.com/RhythmShahriar/echo)** | Is your site still saying what it should? Captures every email, SMS, webhook and API call it sends, seals staging so nothing reaches real people and shows what changed after an update. WordPress, Laravel, Next.js | `rhythm echo up` |
+| Tool | What it does | Try it | Docs |
+|---|---|---|---|
+| **[tuner](https://github.com/RhythmShahriar/tuner)** | Is my site safe? Finds what's out of tune in WordPress &amp; PHP sites: leaked secrets, exposed files, known CVEs, weak configuration | `rhythm tuner scan ./your-site` | [Tuner](https://github.com/RhythmShahriar/rhythm/wiki/Tuner) |
+| **[soundcheck](https://github.com/RhythmShahriar/soundcheck)** | Did your change break anything? Snapshots a whole site in a real browser, then shows what broke after an update or deploy: PHP and JS errors, dead buttons, forms, cache leaks, layout and speed. `--eaa` gathers accessibility evidence for the European Accessibility Act: an axe baseline, a keyboard walkthrough and an accessibility statement draft | `rhythm soundcheck snapshot http://localhost:8080` | [Soundcheck](https://github.com/RhythmShahriar/rhythm/wiki/Soundcheck) |
+| **[echo](https://github.com/RhythmShahriar/echo)** | Is your site still saying what it should? Captures every email, SMS, webhook and API call it sends, seals staging so nothing reaches real people and shows what changed after an update. `consent` checks the cookie banner: what fires with no click, after Accept and after Reject, plus Consent Mode v2. WordPress, Laravel, Next.js | `rhythm echo up` | [Echo](https://github.com/RhythmShahriar/rhythm/wiki/Echo) |
+| **[roadie](https://github.com/RhythmShahriar/roadie)** | Is my staging a safe copy of production? Copies a production database to staging with every customer pseudonymised, live keys swapped or blanked and side effects off, then verifies the copy and signs a report | `rhythm roadie demo` | [Roadie](https://github.com/RhythmShahriar/rhythm/wiki/Roadie) |
+| **[sightread](https://github.com/RhythmShahriar/sightread)** | What will this update really change? Diffs each plugin, theme, Composer and npm update against its official source before you install it and ranks what is new, without running its code | `rhythm sightread all ./your-site` | [Sightread](https://github.com/RhythmShahriar/rhythm/wiki/Sightread) |
+
+Add any of them later by name or short name: `rhythm install sightread roadie` or `rhythm install sr ro`.
 
 More are on the way. Each lives in its own repository and releases on its own schedule; `rhythm <tool>` runs the `rhythm-<tool>` binary, the same extension model as `git` and `gh`. Any other `rhythm-<name>` program on your PATH runs as `rhythm <name>` too.
 
@@ -95,7 +101,7 @@ More are on the way. Each lives in its own repository and releases on its own sc
 
 | Command | What it does |
 |---|---|
-| `rhythm <tool> [args]` | run a tool, by name or short name (`rhythm t scan …`, `rhythm sc compare`, `rhythm e watch`) |
+| `rhythm <tool> [args]` | run a tool, by name or short name (`rhythm t scan …`, `rhythm sc compare`, `rhythm e watch`, `rhythm ro demo`, `rhythm sr all .`) |
 | `rhythm help [tool\|command]` | help for rhythm, a tool (`rhythm help tuner` shows Tuner's own commands and flags) or a command |
 | `rhythm install <tool>... [flags]` | download tools. Names may be comma lists and `tool@version`. `--defaults` adds the tools a fresh setup gets, `--dry-run` checks the names without installing, `--locked` installs exactly what `rhythm.lock` says, `--force` reinstalls, `--quiet` prints only the Installed lines and errors, `--dir` picks the folder, `--from <bundle>` installs from an offline bundle, `--skip-signature` installs without the signature check (with a warning), `--cache` keeps verified archives for reuse |
 | `rhythm update [tool...] [flags]` | update rhythm, the installed tools and their data, or only the ones named. `--check` only reports, `--self-only` updates rhythm alone, `--no-data` skips the data refresh, `--min-age 3d` skips releases younger than that, `--json` (with `--check`) prints a report |
@@ -270,7 +276,7 @@ cosign verify-blob --bundle checksums.txt.sigstore.json \
 sha256sum --ignore-missing -c checksums.txt   # macOS: shasum -a 256 --ignore-missing -c checksums.txt
 ```
 
-Replace `<version>` with the release you downloaded, e.g. `refs/tags/v0.5.0`. For a tool, use its repository: `RhythmShahriar/tuner`, `RhythmShahriar/soundcheck` or `RhythmShahriar/echo`. All four flags matter. `--certificate-identity` names the shared release workflow, which any public repository can call, so on its own it would accept a signature made for someone else's project. The repository and ref flags pin the run to this project and this tag.
+Replace `<version>` with the release you downloaded, e.g. `refs/tags/v0.5.0`. For a tool, use its repository: `RhythmShahriar/tuner`, `RhythmShahriar/soundcheck`, `RhythmShahriar/echo`, `RhythmShahriar/roadie` or `RhythmShahriar/sightread`. All four flags matter. `--certificate-identity` names the shared release workflow, which any public repository can call, so on its own it would accept a signature made for someone else's project. The repository and ref flags pin the run to this project and this tag.
 
 Releases published with GitHub artifact attestations can also be checked with the GitHub CLI, for `checksums.txt` or any archive:
 
