@@ -35,6 +35,8 @@ compat/html          notice   email                                             
 compat/spam          notice   email                                                  What SpamAssassin scores an email, when up runs with --spamassassin.
 ```
 
+`rhythm echo checks` also lists the 21 cookie consent checks (`consent/before-choice`, `consent/after-reject` and the rest) under the channel `consent`. They run in `rhythm echo consent`, not on messages; the same `checks:` map tunes them; see [Consent checks](Echo-Consent-Checks).
+
 These run on every message an action sends and, since 1.1, on every capture: the live log of `up`, `watch`, Echo Inbox and the API show the same findings as a run. Comparisons add their own checks (`message/missing`, `message/text`, `message/attachment-lost` and the others in [Reading a comparison](Echo-Actions-And-Compare#the-classes)); `expect:` adds `expect/unmet`.
 
 ## Tuning a check
@@ -118,6 +120,9 @@ rhythm echo: /tmp/t1/.echo/config.yaml: line 2: rule "send/failed": that is a bu
 ```
 
 ## Testing rules
+
+`checks --test` also tries the fixtures of your own consent trackers (`consent: trackers:`); see [Custom trackers](Echo-Consent-Checks#custom-trackers).
+
 
 Every rule should have one fixture it matches and one it doesn't, the same as Echo's built-in checks. `checks --test` tries them:
 

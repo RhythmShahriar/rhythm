@@ -1,4 +1,4 @@
-Every Echo setting for a project lives in `.echo/config.yaml`. This page covers how commands find it, every key with its default, the environment variables Echo and its connectors read and what's kept in the `.echo` folder.
+Every Echo setting for a project lives in `.echo/config.yaml`. This page covers how commands find it, every key with its default, the `consent:` block for cookie consent checks, the environment variables Echo and its connectors read and what's kept in the `.echo` folder.
 
 ## The config file
 
@@ -105,6 +105,7 @@ timeout: 30s            # longest wait per action (at least quiet, at most 1m)
 | `rules` | `[]` | Checks of your own. See [Checks and rules](Echo-Checks-And-Rules#rules-of-your-own). |
 | `inbox` | memory | `{store, keep, keep_for}`: keep what `up` catches on disk. See [Echo Inbox](Echo-Inbox#keeping-the-inbox-across-restarts). |
 | `relay` | none | `{allow, url}`: the client sign-off relay. `url` is better left to `RHYTHM_ECHO_RELAY`. See [Releasing an email](Echo-Inbox#releasing-an-email-for-sign-off). |
+| `consent` | | The cookie consent checks' settings. See [consent](#consent). |
 | `hub` | | Reserved; accepted and ignored. |
 | `actions` | `[]` | What `snapshot`, `compare` and `run` run. |
 
@@ -126,6 +127,84 @@ Durations are Go durations (`1500ms`, `2s`, `1m`) with days too (`14d`, `1d12h`)
 
 Exactly one of `http`, `command` and `replay`. Every field is explained in [Actions and compare](Echo-Actions-And-Compare#actions).
 
+## consent
+
+`rhythm echo consent` reads the `consent:` block when there's a config; it doesn't need one. Its check levels stay in the top-level `checks:` map. `init --consent` adds the block, commented, to an existing config or writes a config with only that block:
+
+```sh
+rhythm echo init --consent           # --force replaces only an existing consent: block
+```
+
+```text
+Wrote .echo/config.yaml with a consent: block; uncomment a key to change its default.
+Then: rhythm echo consent https://staging.shop.test (or list pages under consent: urls).
+```
+
+```yaml
+# Cookie consent checks: rhythm echo consent (rhythm echo consent --help).
+# Every key is optional; uncomment one to change its default.
+consent:
+  # urls: [/, /shop/]                 # pages to check, read against site:; absolute URLs work too
+  # runs: [none, accept, reject]      # add gpc or withdraw, or write +gpc to add it to these
+  # pages: 1                          # more same-site pages after the choice (0 to 10)
+  # settle: 3s                        # how long the network must be quiet after each step (at most 30s)
+  # banner_wait: 10s                  # how long to wait for a banner (at most 60s)
+  # timeout: 90s                      # longest time for one run (at most 10m)
+  # retries: 1                        # tries again for a run that couldn't make its choice (0 to 3)
+  # cmp: auto                         # or the banner to expect: cookiebot, onetrust, cookieyes, complianz...
+  # click: button                     # button, api or button,api
+  # accept_selector: "#accept-all"    # only when the CMP rule doesn't find the Accept button
+  # reject_selector: "#manage >> #reject-all"  # a >> b clicks a, then b
+  # consent_mode: advanced            # advanced, basic or strict
+  # geo: de                           # look like a visitor from this country (language and time zone)
+  # locale: de-DE                     # default the machine's
+  # timezone: Europe/Berlin           # default the machine's
+  # viewport: desktop                 # desktop or mobile
+  # parallel: 3                       # browser runs at once (1 to 8)
+  # exempt: [plausible]               # trackers allowed before consent
+  # headers:                          # values must be ${env:RHYTHM_ECHO_*}, never the secret itself
+  #   Authorization: ${env:RHYTHM_ECHO_STAGING_AUTH}
+  # map_hosts:                        # answer these hosts from another address, for staging
+  #   "*.shop.test": 127.0.0.1:18950
+  # ignore:                           # known issues; each needs a reason and a date within a year
+  #   - check: consent/before-choice
+  #     tracker: hotjar
+  #     reason: "client signs off until the launch"
+  #     until: 2026-11-28
+  # trackers: []                      # your own trackers, the shape of the built-in catalog
+```
+
+| Key | Default | Flag | Description |
+|---|---|---|---|
+| `urls` | `[]` | the URLs | Pages to check when the command names none. Paths are read against `site:`. |
+| `runs` | `[none, accept, reject]` | `--runs` | Add `gpc` (Global Privacy Control, no click) and `withdraw` (Accept, then reopen and Reject). |
+| `pages` | `1` | `--pages` | Same-site pages visited after the choice, `0` to `10`; `0` only reloads. Never a login, cart, checkout, account, `wp-admin` page or a download. |
+| `settle` | `3s` | `--settle` | How long the network must be quiet after each load, scroll and click; at most `30s`. |
+| `banner_wait` | `10s` | `--banner-wait` | How long to wait for a banner; at most `60s`. |
+| `timeout` | `90s` | `--timeout` | The longest time for one run; at most `10m`. |
+| `retries` | `1` | `--retries` | Runs again a run that couldn't make its choice, in a fresh profile; `0` to `3`. |
+| `cmp` | `auto` | `--cmp` | The banner to expect; see [Banners (CMPs)](Echo-Consent-CMPs). |
+| `click` | `button` | `--click` | `button`, `api` or `button,api`. |
+| `accept_selector`, `reject_selector` | none | `--accept-selector`, `--reject-selector` | The buttons, when the rule doesn't find them. |
+| `consent_mode` | `advanced` | `--consent-mode` | `advanced`, `basic` or `strict`; see [Consent Mode](Echo-Consent-Mode#policies). |
+| `geo`, `locale`, `timezone`, `viewport` | none, the machine's, the machine's, `desktop` | the same names | Look like a visitor from elsewhere. |
+| `parallel` | `3` | `--parallel` | Browser runs at once, `1` to `8`. |
+| `exempt` | `[]` | `--exempt` | Trackers allowed before consent, by catalogue ID (`rhythm echo consent trackers`). |
+| `headers` | `{}` | `-H` | Extra headers for same-site requests. Values must be `${env:RHYTHM_ECHO_<NAME>}`; a literal is a usage error. |
+| `map_hosts` | `{}` | `--map-host` | Answer a host (or `*.example.test`) from another address, for staging and the testbed. |
+| `ignore` | `[]` | | Known issues, each with `check`, `reason` and `until` (at most a year ahead), narrowed by `tracker`, `page` and `run`. See [Ignoring a known issue](Echo-Consent-Checks#ignoring-a-known-issue). |
+| `trackers` | `[]` | | Trackers of your own, with fixtures. See [Custom trackers](Echo-Consent-Checks#custom-trackers). |
+
+Flags win over the file. `site:` gives relative `urls` their host; `production:` hosts refuse `--send-hits`. As everywhere in the file, an unknown key is an error that names the closest one:
+
+```text
+rhythm echo: .../cfg/.echo/config.yaml: line 8: consent: page isn't a key; did you mean pages?
+rhythm echo: .../hdr/.echo/config.yaml: line 3: consent: headers: Authorization: use ${env:RHYTHM_ECHO_NAME}, not the value itself; secrets never sit in the config
+rhythm echo: .../hdr/.echo/config.yaml: line 3: consent: ignore: until 2028-01-01 is more than a year away; review it sooner
+rhythm echo: --send-hits on c01.shop.test, which matches "c01.shop.test" under production:. Echo holds tracker hits on production so your analytics stay clean; leave --send-hits off
+rhythm echo: consent: trackers: shop-pixel needs fixtures: match and no_match, each with at least one URL
+```
+
 ## Environment variables
 
 Read by `rhythm-echo`:
@@ -140,6 +219,8 @@ Read by `rhythm-echo`:
 | `RHYTHM_ECHO_LOGIN` | `user:password` for Echo Inbox's viewer sign-in, as `--login`. |
 | `RHYTHM_ECHO_RELAY` | The relay's SMTP account, `smtp://user:pass@host:587` or `smtps://…:465`. |
 | `ECHO_STRIPE_WEBHOOK_SECRET`, `ECHO_WEBHOOK_SECRET`, `ECHO_GITHUB_WEBHOOK_SECRET`, `ECHO_WC_WEBHOOK_SECRET` | Default signing secrets for [replay](Echo-Replay#secrets), per scheme. |
+| `RHYTHM_ECHO_NO_SANDBOX`, `SOUNDCHECK_NO_SANDBOX` | `1` runs consent checks' Chrome without its sandbox, as `--no-sandbox` (needed as root in a container). |
+| `RHYTHM_ECHO_<NAME>` | Values for `consent: headers:` (`${env:RHYTHM_ECHO_<NAME>}`). |
 | `RHYTHM_NO_UPDATE_CHECK` | Any value stops the once-a-day "new release available" check. |
 | `CI` | When set, as CI systems do, the release check is skipped too. |
 | `RHYTHM_GITHUB_API` | GitHub API base for the release check. Default `https://api.github.com`. |
@@ -176,8 +257,12 @@ The installer variables (`RHYTHM_INSTALL_DIR`, `RHYTHM_VERSION`, `RHYTHM_TOOLS`)
 │   ├── before-update/          # run.json, report.html
 │   ├── .incoming-<name>/       # a snapshot being written; moved into place when complete
 │   └── .latest                 # the name compare uses by default
-└── runs/
-    └── 2026-10-25T14-23-14-f6f2df/   # run.json, comparison.json, report.html
+├── runs/
+│   └── 2026-10-25T14-23-14-f6f2df/   # run.json, comparison.json, report.html
+└── consent/
+    ├── 2026-10-29T02-17-26-f6c5e0/   # consent.json, manifest.json, report.html, events/, evidence/
+    ├── baselines/<name>/             # consent.json
+    └── detect/                       # consent detect screenshots
 ```
 
 | What | Where |
@@ -185,6 +270,8 @@ The installer variables (`RHYTHM_INSTALL_DIR`, `RHYTHM_VERSION`, `RHYTHM_TOOLS`)
 | Settings | `.echo/config.yaml` |
 | Snapshots | `.echo/snapshots/<name>/`, never pruned |
 | Runs and comparisons | `.echo/runs/<date-time>-<id>/`, the 20 newest; two runs in the same second get folders of their own |
+| Consent results | `.echo/consent/<date-time>-<id>/` (the time in UTC), kept until `rhythm echo consent prune`; see [Evidence](Echo-Consent-Evidence#the-folder) |
+| Consent baselines | `.echo/consent/baselines/<name>/`, never pruned |
 | The latest snapshot's name | `.echo/snapshots/.latest`; when it's missing or names a deleted snapshot, the newest snapshot is used. An older `LATEST` file is moved to `.latest` once. |
 
 The folders are `0700` and the files in them `0600`, readable by you only; `config.yaml` stays `0644`, since it's meant to be shared. Runs are stored as JSON with the schema `rhythm-echo/v1`; a run or snapshot taken by Echo 1.0 still compares. Inside a git repository, the first command that writes there adds this block to `.git/info/exclude`, so captured messages are never committed by accident:
@@ -196,7 +283,7 @@ The folders are `0700` and the files in them `0600`, readable by you only; `conf
 /.echo/snapshots/.incoming-*
 ```
 
-An exclude file an older version wrote gets only the line it lacks. The folder is the one holding the config that was found, or `--store <dir>`.
+An exclude file an older version wrote gets only the line it lacks. Consent results aren't in the block in 1.2.0: add `/.echo/consent/` to `.gitignore` unless you mean to commit them. `consent` needs no config; without one its results go to `./.echo` in the folder you run it from. The folder is the one holding the config that was found, or `--store <dir>`.
 
 ### Per user
 

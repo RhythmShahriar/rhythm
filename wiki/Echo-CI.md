@@ -1,4 +1,4 @@
-Run Echo on every pull request or deploy and fail the pipeline when a message stops being sent. This page covers the GitHub Action with its modes, inputs and outputs, the job summary and the pull request comment, starting Echo for Soundcheck with `mode: up`, comparing with a baseline, the reports and other CI systems.
+Run Echo on every pull request or deploy and fail the pipeline when a message stops being sent. This page covers the GitHub Action with its modes, inputs and outputs (`mode: consent` for the cookie banner too), the job summary and the pull request comment, starting Echo for Soundcheck with `mode: up`, comparing with a baseline, the reports and other CI systems.
 
 Echo has to run where the site's connector can reach it. In CI that usually means the site runs in the job too, with Docker Compose, `php artisan serve`, `next start` or similar. Its connector points at `http://127.0.0.1:8025`. To check a staging server, run `rhythm echo up` on that server and its actions from there.
 
@@ -17,7 +17,7 @@ jobs:
       - name: Start the site
         run: docker compose up -d --wait        # your staging stack, with Echo's connector
 
-      - uses: RhythmShahriar/echo@v1.1.1
+      - uses: RhythmShahriar/echo@v1.2.0
         with:
           mode: run
 ```
@@ -30,7 +30,7 @@ The Action runs on Linux and macOS runners (`amd64` or `arm64`); on Windows it s
 - with `pr-comment: true`, one comment on the pull request, updated on later runs;
 - an error annotation and a failed job when the result meets `fail-on`.
 
-Pin the Action to a release tag (`@v1.1.1`) or to that tag's commit SHA: it then installs that same Echo release. Used by `@v1`, a branch or another commit, it installs the latest release and warns that a new release could change your build; `version` sets it explicitly.
+Pin the Action to a release tag (`@v1.2.0`) or to that tag's commit SHA: it then installs that same Echo release. Used by `@v1`, a branch or another commit, it installs the latest release and warns that a new release could change your build; `version` sets it explicitly.
 
 ### Modes
 
@@ -41,22 +41,26 @@ Pin the Action to a release tag (`@v1.1.1`) or to that tag's commit SHA: it then
 | `compare` | Runs the actions again and compares with the latest snapshot. |
 | `up` | Starts Echo and leaves it running for later steps, such as Soundcheck with `--echo`. Writes a short summary saying where Echo runs. |
 | `stop` | Stops the Echo a `mode: up` step started and reports the latest run in `working-directory`, like the other modes. |
+| `consent` | Checks cookie consent in the runner's Chrome (no choice, Accept and Reject) on the pages in `site`. Doesn't start Echo. See [Consent in CI](Echo-Consent-CI). |
 
 ### Inputs
 
 | Input | Default | Description |
 |---|---|---|
-| `mode` | `run` | `up`, `snapshot`, `compare`, `run` or `stop`. Anything else exits `2` with `mode must be snapshot, compare, run, up or stop, not "<mode>"`. |
+| `mode` | `run` | `up`, `snapshot`, `compare`, `run`, `stop` or `consent`. Anything else exits `2` with `mode must be snapshot, compare, run, up, stop or consent, not "<mode>"`. |
 | `working-directory` | `.` | The folder with `.echo/`, relative to the workspace, such as `sites/shop` in a monorepo. |
 | `config` | `""` | A config file relative to `working-directory`, passed as `--config`. |
 | `name` | `ci` | Snapshot name, for mode `snapshot`. |
-| `fail-on` | `broke` for `compare`, `error` otherwise | Fail on changes at or above `broke`, `new` or `changed`, or on issues at or above `error`, `warning` or `notice`. `none` never fails. Any case. |
+| `fail-on` | `broke` for `compare` (and `consent` with `--against` in `args`), `error` otherwise | Fail on changes at or above `broke`, `new` or `changed`, or on issues at or above `error`, `warning` or `notice`. `none` never fails. Any case. |
 | `seal` | `"true"` | `"true"` seals Echo: nothing leaves, Echo answers for every service. `"false"` observes: everything is recorded and sent for real. Anything else fails the step with `seal must be true or false, not "…"` (exit `2`). |
 | `listen` | `127.0.0.1:8025` | The API address. Use `0.0.0.0:8025` when the site runs in a service container; a token is then generated (the `token` output). |
 | `smtp` | `127.0.0.1:1025` | The SMTP sink address, or `off`. Use `0.0.0.0:1025` for a site in a service container; the sink then asks for the token as the SMTP password (any username). |
-| `args` | `""` | Extra flags for the command, split like a shell would (quotes group words) but never run through one, e.g. `--action 'Contact form' --verbose`. An unclosed quote is a usage error. |
-| `version` | the Action's own release | Echo version to install, e.g. `1.1.1`, or `latest`. |
-| `upload` | `"false"` | Upload the HTML and JUnit reports as the `echo-report` artifact. Off by default: the HTML report holds every captured recipient, subject and body. Anyone can download a public repository's artifacts. The Action warns when it's on in a public repository. |
+| `args` | `""` | Extra flags for the command, split like a shell would (quotes group words) but never run through one, e.g. `--action 'Contact form' --verbose`, or for `consent` `--runs +gpc --geo de --against baseline`. An unclosed quote is a usage error. `--show-ids` is refused in mode `consent`. |
+| `site` | `""` | For mode `consent`: the page or pages to check, separated by spaces or new lines. Empty uses `consent: urls` from the config, or `--sites` in `args`. |
+| `version` | the Action's own release | Echo version to install, e.g. `1.2.0`, or `latest`. |
+| `upload` | `"false"` | Upload the HTML and JUnit reports as the `echo-report` artifact; for mode `consent`, the evidence folder as `echo-consent`. Off by default: the HTML report holds every captured recipient, subject and body, the consent evidence screenshots of the site. Anyone can download a public repository's artifacts. The Action warns when it's on in a public repository. |
+| `sign` | `"false"` | For mode `consent`: sign `consent.json` with keyless cosign. Needs `permissions: id-token: write`; the repository and workflow name go to the public Rekor log. |
+| `retention-days` | `"14"` | For mode `consent` with `upload`: how many days GitHub keeps the `echo-consent` artifact (1 to 90). |
 | `log` | `"true"` | Upload Echo's log as `echo-log` when the step fails or finds something. |
 | `summary-details` | `"false"` | Show recipients, subjects and before and after values in the summary, the comment and the log. |
 | `pr-comment` | `"false"` | On a pull request, post one comment with what broke and what is new, updated on every later run. Needs `permissions: pull-requests: write`; a pull request from a fork gets a read-only token, so the Action warns and carries on. |
@@ -71,9 +75,12 @@ A token is generated whenever `listen`, or `smtp` when it isn't `off`, is beyond
 | `smtp` | The SMTP sink as the site reaches it (`host:port`), the same way; empty when `smtp` is `off`. |
 | `token` | The token connectors must send when Echo listens beyond loopback; masked in logs. Empty on loopback. |
 | `exit-code` | The command's exit code: `0` ok, `1` `fail-on` hit, `2` usage error (flags or `.echo/config.yaml`), `3` couldn't run, `130` interrupted. |
-| `report` | Path of the standalone HTML report; for `mode: up`, where the later `mode: stop` step writes it. |
+| `report` | Path of the standalone HTML report; for `mode: up`, where the later `mode: stop` step writes it; for `mode: consent`, `report.html` in the evidence folder. |
 | `summary` | Path of a copy of the job summary (Markdown). |
 | `comment-id` | ID of the pull request comment posted or updated. |
+| `json` | For mode `consent`: the path of `consent.json` in the evidence folder. |
+| `before-choice`, `after-reject` | For mode `consent`: how many different trackers fired before the choice and after Reject (trackers, not hits). |
+| `inconclusive` | For mode `consent`: how many runs couldn't make or confirm their choice. |
 
 Later steps on the runner also get `RHYTHM_ECHO_URL` (always on loopback) and `RHYTHM_ECHO_TOKEN` when there's a token. A job summary is written whatever happens: on exit `2` it starts **Echo didn't run: the command line or the config has a mistake (exit 2).**, on `3` **Echo couldn't run (exit 3).**, followed by the error lines and the last 30 lines of Echo's log, masked. On `1`, the reports are written first, then the job fails with `Echo found changes or issues at or above --fail-on <level>. See the job summary.`
 
@@ -142,7 +149,7 @@ The Action edits only a comment its own account wrote; a comment anyone else pos
 A site in a container can't reach the runner's loopback, so let Echo listen on every address, start Echo before the site and give the site the `url`, `smtp` and `token` outputs:
 
 ```yaml
-      - uses: RhythmShahriar/echo@v1.1.1
+      - uses: RhythmShahriar/echo@v1.2.0
         id: echo
         with:
           mode: up
@@ -158,7 +165,7 @@ A site in a container can't reach the runner's loopback, so let Echo listen on e
 
       # …run the actions or Soundcheck…
 
-      - uses: RhythmShahriar/echo@v1.1.1
+      - uses: RhythmShahriar/echo@v1.2.0
         if: always()
         with:
           mode: stop
@@ -176,7 +183,7 @@ Start Echo in `up` mode, then let Soundcheck submit the forms with `--echo`:
       - name: Start the site
         run: docker compose up -d --wait
 
-      - uses: RhythmShahriar/echo@v1.1.1
+      - uses: RhythmShahriar/echo@v1.2.0
         with:
           mode: up
 
@@ -200,7 +207,7 @@ To compare what forms send before and after a deploy in one job, take a Soundche
       - run: docker compose up -d --wait
 
       - name: Snapshot the base
-        uses: RhythmShahriar/echo@v1.1.1
+        uses: RhythmShahriar/echo@v1.2.0
         with:
           mode: snapshot
           name: base
@@ -211,7 +218,7 @@ To compare what forms send before and after a deploy in one job, take a Soundche
       - run: docker compose up -d --wait --build
 
       - name: Compare the pull request
-        uses: RhythmShahriar/echo@v1.1.1
+        uses: RhythmShahriar/echo@v1.2.0
         with:
           mode: compare
 ```
@@ -279,12 +286,28 @@ To keep the whole `.echo/runs/` folder (each run's JSON and HTML), upload it you
 > [!WARNING]
 > Runs and reports hold the messages your site sent, with their content. On a site with real customer data, keep artifacts private and short-lived, or use test data on staging. Reports are written readable by the runner's user only, which an artifact upload is. See [Responsible use](Responsible-Use#what-echo-does).
 
+## Cookie consent
+
+`mode: consent` runs `rhythm-echo consent` instead of the catcher:
+
+```yaml
+      - uses: RhythmShahriar/echo@v1.2.0
+        with:
+          mode: consent
+          site: https://staging.shop.test/ https://staging.shop.test/shop/
+          fail-on: error
+          pr-comment: true
+```
+
+Its summary and comment show tracker names, counts, check titles and page paths, never query strings, cookie values or IDs. [Consent in CI](Echo-Consent-CI) has a real summary, the sites file, baselines and signing.
+
 ## Failing a build
 
 | Result | `--fail-on` values | Default | Example |
 |---|---|---|---|
 | `compare` | `broke`, `new`, `changed`, `none` | `broke` | `new` fails on BROKE or NEW |
-| `run`, `snapshot`, `check`, `headers` | `error`, `warning`, `notice`, `none` | `error` | `warning` fails on errors or warnings |
+| `run`, `snapshot`, `check`, `headers`, `consent` | `error`, `warning`, `notice`, `none` | `error` | `warning` fails on errors or warnings |
+| `consent --against` | `broke`, `new`, `changed`, `none` | `broke` | `new` fails on BROKE or NEW |
 
 `run`, `snapshot` and `compare` also fail when an action fails, unless `--fail-on none`. The exit codes:
 
@@ -293,7 +316,7 @@ To keep the whole `.echo/runs/` folder (each run's JSON and HTML), upload it you
 | `0` | Done; nothing at or above `--fail-on` |
 | `1` | A change or issue at or above `--fail-on`; an action failed; also `doctor` with a failed check and `replay` when the site didn't answer 2xx |
 | `2` | Usage error: a bad flag or value, an unknown action, no config or no snapshot to compare with, a refused replay |
-| `3` | Couldn't run: Echo isn't running, every action failed, the DNS resolver never answered, a report couldn't be written |
+| `3` | Couldn't run: Echo isn't running, every action failed, the DNS resolver never answered, a report couldn't be written; for `consent`, a run that couldn't make or confirm its choice |
 | `130` | Interrupted |
 
 Start with the defaults. CHANGED is often intended (a new subject line), so `changed` suits a team that reviews every message change before release; `--accept <key>` takes one you meant.

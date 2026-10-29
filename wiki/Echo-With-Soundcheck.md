@@ -12,6 +12,8 @@ You need Echo running with the site's [connector](Echo-Install-Connectors) insta
 > [!IMPORTANT]
 > The `submit` level really sends forms. With Echo sealed, the messages they trigger stop at Echo; without it, they go out. Run this on staging. List production under `production` in Soundcheck's config, which it never submits forms on. See [Interactions](Soundcheck-Interactions#the-production-guard).
 
+Echo's [cookie consent checks](Echo-Consent) use the same Chrome as Soundcheck: an installed Chrome, or the Chrome for Testing either tool downloaded once into `~/.cache/rhythm/soundcheck/browser`. Soundcheck's `click` level may click Accept on a banner as it explores a page, so its results say nothing about consent; `rhythm echo consent` checks the banner itself, in profiles of its own.
+
 ## Turning it on
 
 | Where | Value | |
@@ -110,7 +112,7 @@ Something broke - 1 broke, 0 new, 1 changed, 0 slower, 0 fixed - compared with s
 - Changes are named `echo/message/missing`, `echo/message/subject` and so on. They're grouped across pages: a newsletter form in every footer that stops sending is one line, with every page.
 - With several forms on one page, each title starts with the form's name, so their changes don't merge.
 - A form that didn't submit this time isn't compared; the interact module reports why it didn't.
-- Where a form's messages are reported as BROKE, the *Form says sent, but no message went out* notice for the same form is dropped: it's the same news.
+- Where a form's messages are reported as BROKE, the *Form says sent, but no message went out* notice for the same form is dropped: it's the same news. <!-- style:ignore: quotes the notice title -->
 - Soundcheck's fake data (`soundcheck-test+…@example.com`) is "the test submitter" to Echo, so a new address each run isn't a change.
 
 Take the snapshot and the comparison both with `--echo`. Comparing without it notes `modules differ (snapshot [interact echo], now [interact]); only modules in both are compared`. The messages aren't checked.

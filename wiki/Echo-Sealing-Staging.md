@@ -1,4 +1,4 @@
-A staging copy of a live site still has the live site's mailer, SMS gateway, webhooks and API keys. This page explains how Echo seals it so nothing reaches real people: the two modes, what Echo answers for each service, why live payments are refused, the allowlist, what passes through on its own, what happens when Echo is down and the hard seals that close the gaps a connector can't.
+A staging copy of a live site still has the live site's mailer, SMS gateway, webhooks and API keys. This page explains how Echo seals it so nothing reaches real people: the two modes, what Echo answers for each service, why live payments are refused, the allowlist, what passes through on its own, what happens when Echo is down and the hard seals that close the gaps a connector can't. A staging copy made by `rhythm roadie copy` comes sealed already: Roadie installs the WordPress connector in seal mode and writes `WP_ENVIRONMENT_TYPE=staging` (see [Roadie: Kill switch](Roadie-Kill-Switch)).
 
 ## Seal and observe
 

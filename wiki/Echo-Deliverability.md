@@ -260,4 +260,4 @@ Echo recognizes SendGrid, Mailgun, Postmark, Amazon SES, Resend, Brevo, Mailchim
 - The only HTTPS request is the optional `--mta-sts-fetch`, to `https://mta-sts.<domain>/.well-known/mta-sts.txt` on the domain you named, without following redirects.
 
 ---
-<sub>← [Replay](Echo-Replay) · [Home](Home) · [Docker and DDEV](Echo-Docker-And-DDEV) →</sub>
+<sub>← [Replay](Echo-Replay) · [Home](Home) · [Cookie consent](Echo-Consent) →</sub>
