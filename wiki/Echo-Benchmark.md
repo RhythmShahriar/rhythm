@@ -1,4 +1,4 @@
-How well does Echo catch what goes wrong with what real sites send and with the environment around it? How does it compare with a mail catcher? This page describes the benchmark: a testbed of 20 broken site scenarios on WordPress, Laravel, Next.js and plain PHP and 15 environment scenarios, how each one is run and judged and the results. **Echo caught 20 of 20 site scenarios and 14 of 15 environment scenarios**; the one left (e13) needs a Windows machine and wasn't run.
+How well does Echo catch what goes wrong with what real sites send and with the environment around it? How does it compare with a mail catcher? This page describes the benchmark: a testbed of 20 broken site scenarios on WordPress, Laravel, Next.js and plain PHP and 15 environment scenarios, how each one is run and judged and the results. **Echo caught 20 of 20 site scenarios and 14 of 15 environment scenarios**; the one left (e13) needs a Windows machine and wasn't run. The cookie consent checks have a testbed of their own, [below](#consent-checks): 25 of 25 broken setups caught and no false alarm in 400 checks of correct ones.
 
 ## The testbed
 
@@ -151,6 +151,35 @@ The per-scenario details, including everything else Echo reported, are in [`docs
 > [!NOTE]
 > We wrote both Echo and the testbed, so read this as a regression suite with a scoreboard, not an independent review: every scenario is something Echo was built to catch. Each one is still a real failure mode, in a real WordPress, Laravel or Next.js app. It passes only when Echo reports the expected change through its normal commands. The scenarios, the expectations and the harness are open. Rerun it and add scenarios where you think it falls short.
 
+## Consent checks
+
+Echo 1.2's cookie consent checks have a testbed of their own: 40 small shops, each a few pages with a cookie banner and the tags a real shop loads. 25 are broken in one way each (GA4 before consent, a Meta Pixel that ignores Consent Mode, Reject reported as granted, a choice not kept, a server-side event after Reject), 15 are correct setups that must pass with no error and no warning, lookalikes included. Every tracker and CMP host is served by the testbed itself and a sink counts any hit that gets through.
+
+Go mode, Chrome 153, 16 CPUs, 2026-10-28:
+
+| Measure | Result | Target |
+|---|---|---|
+| Broken scenarios caught | 25 of 25 | 25 of 25 |
+| False alarms on correct sites | 0 in 400 checks | 0 |
+| Flakes (10 rounds of every correct state) | 0 | 0 |
+| Accept and Reject clicks verified | 880 of 880 (100%) | 100% |
+| Tracker hits that reached the sink (held mode) | 0 | 0 |
+| Time per page | 15.0 s p50, 25.6 s p95 | under 25 s and 45 s |
+| `consent detect`, slowest | 4.5 s | under 15 s |
+| 50 sites, `--parallel 6` | 5.6 min | under 15 min |
+| Echo's peak memory (Chrome excluded) | 116.5 MiB | under 200 MB |
+
+Environment probes: 17 of 18 caught (a site that's down, no Chrome, a bot wall, Ctrl-C mid-run, every CPU busy, a request storm, hostile text in the banner, secrets in the URL and others); e16, private addresses on the page, needs the sealed Docker testbed and wasn't run.
+
+How to read it: Cookiebot, OneTrust, Usercentrics, Didomi, iubenda and Borlabs (and Complianz and CookieYes in Go mode) are replicas of public markup captured on 2026-10-26, not the vendors' code; Klaro, orestbida cookieconsent and, in Docker mode, the Complianz and CookieYes WordPress plugins are the real thing. Google's and Meta's tags are stand-ins written to community-documented behaviour. We wrote Echo and the testbed, so read it as a regression suite with a scoreboard. The sealed Docker run (the benchmark of record, with the binary size check and `make reproduce`) and the reference columns for DuckDuckGo autoconsent and the EDPS Website Evidence Collector weren't part of this run. The full tables are in [`docs/benchmark-consent.md`](https://github.com/RhythmShahriar/echo/blob/master/docs/benchmark-consent.md); the scenarios are in the [testbed README](https://github.com/RhythmShahriar/echo/blob/master/testbed/consent/README.md).
+
+```sh
+make build
+go run -tags testbed ./testbed/consent/bench -bin bin/rhythm-echo     # Go mode, no Docker
+make -C testbed/consent up && make bench-consent                      # sealed Docker mode
+make -C testbed/consent reproduce                                    # two full runs, compared
+```
+
 ## Run it yourself
 
 You need Docker with Compose v2 and Go.
@@ -168,4 +197,4 @@ make -C testbed down                                                         # t
 The first `up` takes a few minutes, later ones about 30 s. The benchmark starts its own Echo on `0.0.0.0:18860`–`18862` with the token `make up` wrote (the containers reach it through the testbed's gate) and a fixture DNS server on `127.0.0.1:18870` for the deliverability scenarios. The local environment probes run their own Echo and fixtures on `127.0.0.1:23200`–`23239`. The version skew scenario builds Echo v1.0.0 from its git tag, so its first run needs the Go module cache or the network. It keeps each run in `testbed/bench/work/<id>/`; `work/results.json` has every result. `-tools none` skips the other tools, `-bin` benchmarks another binary. The [testbed README](https://github.com/RhythmShahriar/echo/blob/master/testbed/README.md) has the details, including how to add a scenario. The testbed is also Echo's end-to-end test suite; see [Contributing](Contributing#echo-and-its-connectors).
 
 ---
-<sub>← [FAQ and troubleshooting](Echo-FAQ) · [Home](Home) · [Responsible use](Responsible-Use) →</sub>
+<sub>← [FAQ and troubleshooting](Echo-FAQ) · [Home](Home) · [Roadie overview](Roadie) →</sub>

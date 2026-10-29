@@ -1,4 +1,4 @@
-Echo answers one question: **is my site still saying what it should?** It captures every email, SMS, webhook and API call a site sends, seals staging so none of it reaches real people and compares what each form, order or sign-up sends before and after a change. This page explains where Echo fits, what it catches and how it works.
+Echo answers one question: **is my site still saying what it should?** It captures every email, SMS, webhook and API call a site sends, seals staging so none of it reaches real people and compares what each form, order or sign-up sends before and after a change. Since 1.2 it also checks the cookie banner: does Reject really reject? This page explains where Echo fits, what it catches and how it works.
 
 ```sh
 rhythm echo up                                   # start Echo: staging is sealed
@@ -6,9 +6,10 @@ rhythm echo install wordpress /var/www/staging   # connect the site
 rhythm echo snapshot --name before-update        # what each action sends now
 # …update plugins, deploy…
 rhythm echo compare                              # what changed
+rhythm echo consent https://staging.shop.test    # cookie banner: no choice, Accept, Reject
 ```
 
-Echo ships as its own binary (`rhythm-echo`) and as a container image (`ghcr.io/rhythmshahriar/echo`). You normally run it through `rhythm echo` (or the short alias `rhythm e`): `rhythm echo` and `rhythm-echo` are the same command. The installer sets it up along with Tuner and Soundcheck; if you see `rhythm: echo isn't installed`, run `rhythm install echo` (rhythm v0.5.0 or later). See [Install](Install). Run `rhythm echo` on its own in a terminal and it asks what to do: start Echo, connect a site, snapshot, compare.
+Echo ships as its own binary (`rhythm-echo`) and as a container image (`ghcr.io/rhythmshahriar/echo`). You normally run it through `rhythm echo` (or the short alias `rhythm e`): `rhythm echo` and `rhythm-echo` are the same command. The installer sets it up along with the other Rhythm tools; if you see `rhythm: echo isn't installed`, run `rhythm install echo` (rhythm v0.5.0 or later). See [Install](Install). Run `rhythm echo` on its own in a terminal and it asks what to do: start Echo, connect a site, snapshot, compare.
 
 > [!IMPORTANT]
 > Use Echo on sites you own or are authorized to test. Captured messages hold personal data: they stay on your machine, with credentials masked. Their content isn't masked. Echo seals by default; observe mode really sends. See [Responsible use](Responsible-Use).
@@ -17,11 +18,14 @@ Echo ships as its own binary (`rhythm-echo`) and as a container image (`ghcr.io/
 
 | Tool | Asks | Looks at |
 |---|---|---|
+| [rhythm](Command-Reference) | Which tools do I have? | installs, updates and runs the set as `rhythm <tool>` |
 | [Tuner](Tuner) | Is my site safe? | what an attacker can find |
-| [Soundcheck](Soundcheck) | Did my change break anything? | what visitors see and do |
-| **Echo** | **Is my site still saying what it should?** | **everything the site sends** |
+| [Soundcheck](Soundcheck) | Did my change break anything? | what visitors see and do, by mouse and by keyboard |
+| **Echo** | **Is my site still saying what it should?** | **everything the site sends and what fires before consent** |
+| [Roadie](Roadie) | Is my staging a safe copy of production? | real people, live keys and side effects in the copy |
+| [Sightread](Sightread) | What will this update really change? | the code an update brings |
 
-The three work on the same change. Tuner tells you a plugin has a known vulnerability, so you update it. Soundcheck tells you the update broke the menu on 34 pages. Echo tells you the contact form still says "sent" while the office no longer gets the email. Soundcheck and Echo also work together: `rhythm soundcheck compare --echo` submits the real forms and compares what each one sent. See [With Soundcheck](Echo-With-Soundcheck).
+The tools work on the same change. Tuner tells you a plugin has a known vulnerability, so you update it. Soundcheck tells you the update broke the menu on 34 pages. Echo tells you the contact form still says "sent" while the office no longer gets the email. Soundcheck and Echo also work together: `rhythm soundcheck compare --echo` submits the real forms and compares what each one sent. See [With Soundcheck](Echo-With-Soundcheck).
 
 ## What it catches
 
@@ -30,17 +34,20 @@ The three work on the same change. Tuner tells you a plugin has a known vulnerab
 | 📭 **Lost messages** | The admin notification that stopped, the autoresponder an update removed, the SMS a gateway change broke, the Slack alert, the GA4 purchase event, the webhook Zapier no longer receives, the queued mail stuck in a job, the PDF invoice no longer attached. | [Actions and compare](Echo-Actions-And-Compare) |
 | ✍️ **Wrong content** | Unfilled placeholders (`{first_name}`, `*\|FNAME\|*`, `[your-name]`), PHP warnings printed into emails, links to `localhost`, garbled encoding, emails Gmail clips, CSS Outlook drops, SMS that cost several parts, payloads that lost fields or changed values, text you said should never appear (an old phone number). | [Messages and checks](Echo-Messages-And-Checks) |
 | 🔒 **Staging that talks to real people** | Sealed by default: email, SMS, WhatsApp, chat, webhooks, analytics and push are answered by Echo instead. Live-mode calls to Stripe, PayPal, Adyen, Braintree, Square, Authorize.net, Mollie and Razorpay get the gateway's own refusal in every mode. In observe mode, real recipients outside your allowlist are flagged. | [Sealing staging](Echo-Sealing-Staging) |
+| 🍪 **Cookie consent** | Trackers that fire before the visitor chooses or after Reject: GA4, Google Ads, the Meta Pixel that ignores Consent Mode, TikTok, Clarity, Hotjar and 40 more. Consent Mode `gcs` and `gcd` read from the wire, a Reject that only hides the banner, a choice not kept on the next page, GPC ignored. Hits are held in the browser, so it's safe on production. Evidence, not a legal compliance guarantee. | [Cookie consent](Echo-Consent) |
 | 📬 **Deliverability** | SPF (with the 10-lookup limit), DKIM keys, DMARC policy and alignment for the service you actually send through, MX, MTA-STS, TLS-RPT and BIMI, plus what a received email's headers say. Never sends anything. | [Deliverability](Echo-Deliverability) |
 
-Echo recognizes 53 services out of the box, from SendGrid, Mailgun, Postmark, Resend, SES and the Gmail and Microsoft Graph APIs to Twilio, Vonage, WhatsApp Cloud, Slack, Teams, GA4, Segment, Meta, FCM, APNs, Stripe, HubSpot, Klaviyo and Zapier. `rhythm echo providers` lists them. Anything else is recorded as a generic webhook or request. The full list is in [Messages and checks](Echo-Messages-And-Checks#recognized-services).
+Echo recognizes 54 services out of the box, from SendGrid, Mailgun, Postmark, Resend, SES and the Gmail and Microsoft Graph APIs to Twilio, Vonage, WhatsApp Cloud, Slack, Teams, GA4, Segment, Meta, FCM, APNs, Stripe, HubSpot, Klaviyo and Zapier. `rhythm echo providers` lists them. Anything else is recorded as a generic webhook or request. The full list is in [Messages and checks](Echo-Messages-And-Checks#recognized-services).
 
 ## When to use it
 
 - **On every staging site, all the time.** `rhythm echo up` with the connector installed means a staging copy of production can't email customers, text them, or post orders to the live CRM. [Echo Inbox](Echo-Inbox) shows everything it caught.
+- **On a staging copy of production.** `rhythm roadie copy` makes the copy with every customer pseudonymised and installs Echo's connector in seal mode, so the copy's mail comes to Echo. See [Roadie](Roadie).
 - **In place of Mailpit.** The image drops in where Mailpit runs (Docker Compose, DDEV, Lando and Sail) and answers Mailpit's API. See [Docker and DDEV](Echo-Docker-And-DDEV).
 - **Before and after a change.** Plugin and theme updates, a new SMTP plugin, a PHP upgrade, a deploy. Snapshot what each action sends, make the change, compare.
 - **In end-to-end tests.** `code=$(rhythm echo latest --to ann@shop.test --code)` gives a test the sign-in code just sent; Playwright and Cypress have helpers. A coding agent gets the same through Echo's [MCP server](Echo-MCP).
 - **For inbound webhooks.** `rhythm echo replay payment_intent.succeeded` sends a signed Stripe test event to staging and shows the order email and SMS it triggers. See [Replay](Echo-Replay).
+- **For the cookie banner.** `rhythm echo consent https://shop.example` clicks the banner three ways in a real browser and shows every tracker that fired before the choice or after Reject. It needs no running Echo and holds every tracking hit, so it's safe on production too. See [Cookie consent](Echo-Consent).
 - **For deliverability.** `rhythm echo check yoursite.com` checks the DNS records for the sender you use, on production too, since it only reads DNS.
 - **In CI.** Fail a pull request when a message stops being sent. See [CI](Echo-CI).
 - **Across an agency's client sites.** One [hub](Echo-Hub-And-Reports) for every staging site, [update windows](Echo-Schedule) that snapshot, update and compare each site, plus a branded report for each client.
@@ -89,6 +96,7 @@ The catcher keeps captured messages in memory (up to the newest 10,000) and forg
 | Swap Mailpit for Echo in Docker, DDEV, Lando or Sail | [Docker and DDEV](Echo-Docker-And-DDEV) |
 | Watch many client sites from one Echo | [Agency hub and reports](Echo-Hub-And-Reports) |
 | Let a coding agent read what the site sent | [MCP server](Echo-MCP) |
+| Check that the cookie banner's Reject really rejects | [Cookie consent](Echo-Consent) |
 | Wire it into CI | [CI](Echo-CI) |
 | Look up a flag | [CLI reference](Echo-CLI-Reference) |
 | Fix a problem | [FAQ and troubleshooting](Echo-FAQ) |

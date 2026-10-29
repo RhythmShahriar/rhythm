@@ -344,6 +344,7 @@ The report shows each action with its messages: emails rendered in a sandboxed f
 - **Test real forms.** Run Soundcheck with `--echo`: [With Soundcheck](Echo-With-Soundcheck).
 - **Async mail.** If messages are sent by WP-Cron, Action Scheduler or a queue, keep a `flush:` command so they go out during the action: [Actions and compare](Echo-Actions-And-Compare#flush-queued-work).
 - **Want this in CI?** See [CI](Echo-CI).
+- **The cookie banner too.** `rhythm echo consent https://staging.shop.test` checks that Reject really rejects; it needs no running Echo. See [Cookie consent](Echo-Consent).
 
 ---
 <sub>← [Echo overview](Echo) · [Home](Home) · [Connectors](Echo-Install-Connectors) →</sub>

@@ -1,4 +1,4 @@
-Every Echo command and flag, its exit codes, the JSON every command writes, the environment variables it reads and where it keeps files. Verified against rhythm-echo 1.1.1.
+Every Echo command and flag, its exit codes, the JSON every command writes, the environment variables it reads and where it keeps files. Verified against rhythm-echo 1.1.1; the consent commands and the changed help lines against rhythm-echo 1.2.0.
 
 Echo is the `rhythm-echo` binary. `rhythm echo …` runs it, as does `rhythm-echo …` directly: they're the same command. This page uses the `rhythm echo` form.
 
@@ -24,7 +24,13 @@ Echo is the `rhythm-echo` binary. `rhythm echo …` runs it, as does `rhythm-ech
 | `rhythm echo release <id> --to <address>` | | Send one caught email to a client through the relay. |
 | `rhythm echo check <domain>` | | DNS deliverability checks for the domain you send from. |
 | `rhythm echo headers <file.eml \| ->` | | Check a received email's authentication and route. |
-| `rhythm echo init [--stack s] [--force]` | | Write `.echo/config.yaml` with an action for this stack. |
+| `rhythm echo consent <url>… [flags]` | | Check cookie consent in a real browser: no choice, Accept and Reject. See [Cookie consent](Echo-Consent). |
+| `rhythm echo consent detect <url>` | | Find the banner and the buttons Echo would click; no verdict. |
+| `rhythm echo consent report [<id> \| latest]` | | Show a saved consent result again. |
+| `rhythm echo consent verify <folder \| file> [--key <file>]` | | Check an evidence folder's hashes and signature. |
+| `rhythm echo consent cmps`, `consent trackers` | | The consent banners Echo knows how to click; the trackers it recognizes. |
+| `rhythm echo consent prune [--keep <n>]` | | Delete old consent results, keeping the newest `n` (default 20) and every baseline. |
+| `rhythm echo init [--stack s] [--force]` | | Write `.echo/config.yaml` with an action for this stack; `--consent` adds a commented `consent:` block instead. |
 | `rhythm echo providers` | | List the services Echo recognizes, by channel. |
 | `rhythm echo checks [--test]` | | List the checks and the config's rules; `--test` tries the rules' fixtures. |
 | `rhythm echo ca [--pem \| --untrust]` | | Print the proxy CA certificate's path (creating it if needed), the certificate, or how to stop trusting it. |
@@ -34,10 +40,10 @@ Echo is the `rhythm-echo` binary. `rhythm echo …` runs it, as does `rhythm-ech
 | `rhythm echo conformance [--listen a]` | | A strict stand-in Echo for a connector's end-to-end test. See [Conformance kit](Echo-Conformance). |
 | `rhythm echo sendmail [-t] [-i] [-f from] [rcpt…]` | | A `sendmail` stand-in for `sendmail_path`; reads the message on stdin and hands it to Echo. |
 | `rhythm echo update` | | Nothing to refresh; exits `0`, so `rhythm update` can call it. |
-| `rhythm echo version` | `-v`, `--version` | Print the version: `rhythm-echo 1.1.1`. |
+| `rhythm echo version` | `-v`, `--version` | Print the version: `rhythm-echo 1.2.0`. `version --json` gives name, version, commit and kit version. |
 | `rhythm echo help [command]` | `-h`, `--help` | Print the help text, or one command's. |
 
-Running `rhythm echo` with no command on a terminal asks what to do: a menu offers the likeliest next step first (start Echo, or watch when it's already running; compare with the latest snapshot; take a snapshot; run the actions; show the last result; connect a site; doctor; `init` when there's no config), asks the follow-up questions, then runs that command. Piped or in CI it prints the help instead.
+Running `rhythm echo` with no command on a terminal asks what to do: a menu offers the likeliest next step first (start Echo, or watch when it's already running; compare with the latest snapshot; take a snapshot; run the actions; show the last result; connect a site; doctor; `init` when there's no config; check cookie consent on a page, with the URL prefilled from `site:`), asks the follow-up questions, then runs that command. Piped or in CI it prints the help instead.
 
 `rhythm echo <command> --help` (or `-h`, or `rhythm echo help <command>`, aliases too) prints only that command: its usage, its flags and its exit codes. Each command takes only the flags it reads; any other is refused before anything runs:
 
@@ -295,6 +301,281 @@ cat received.eml | rhythm echo headers -
 
 Both exit `1` on an error by default and `3` when the DNS resolver never answers. See [Deliverability](Echo-Deliverability).
 
+### consent
+
+```sh
+rhythm echo consent https://staging.shop.test                     # no choice, Accept and Reject
+rhythm echo consent --runs +gpc,+withdraw --geo de https://shop.example
+rhythm echo consent https://staging.shop.test --save baseline     # keep it as the baseline
+rhythm echo consent --against baseline --fail-on broke            # pages from consent: urls
+rhythm echo consent --sites sites.yaml --parallel 6               # every site in a Soundcheck-style file
+rhythm echo consent detect https://staging.shop.test              # the banner and buttons, no verdict
+rhythm echo consent report latest --md                            # a saved result again
+rhythm echo consent verify .echo/consent/<id> --key team.pub      # hashes and signature
+```
+
+`consent` needs no `.echo/config.yaml` and no running Echo. Every page, flag and output is explained in [Cookie consent](Echo-Consent) and the pages it links. Its help, in full:
+
+```text
+rhythm echo consent: check cookie consent with no choice, Accept and Reject
+
+Does Reject really reject? Echo clicks your cookie banner three ways and shows
+every tracker that fired before the choice or after Reject, with Consent Mode
+decoded from the wire.
+
+Usage:
+  rhythm echo consent [<url>...] [flags]
+
+What to check:
+      --runs <list>          none, accept, reject, gpc, withdraw (default
+                             none,accept,reject); +gpc or +withdraw adds to the
+                             default
+      --pages <n>            after the choice, visit this many more same-site
+                             pages (default 1; 0 only reloads; at most 10)
+      --settle <d>           how long the network must be quiet after each step
+                             (default 3s, at most 30s)
+      --banner-wait <d>      how long to wait for a banner (default 10s, at most
+                             60s)
+      --timeout <d>          longest time for one run (default 90s, at most 10m)
+      --retries <n>          run an inconclusive run again in a fresh browser
+                             (default 1; 0 to 3)
+      --cmp <name>           auto (default) or the banner to expect: cookiebot,
+                             onetrust, cookieyes, complianz, usercentrics,
+                             borlabs, didomi, iubenda, generic (rhythm echo
+                             consent cmps lists them)
+      --accept-selector <sel>
+                             the Accept button, overriding the rule; a >> b
+                             clicks a then b, host::shadow button enters a
+                             shadow root
+      --reject-selector <sel>
+                             the Reject button, same syntax, e.g. "#settings >>
+                             #reject-all"
+      --click <how>          button (default), api or button,api (the API when
+                             no button is found)
+      --consent-mode <policy>
+                             advanced (default: cookieless pings are a notice),
+                             basic (they count as hits) or strict (tracker
+                             scripts count too)
+      --exempt <tracker>     a tracker allowed before consent, by catalog id
+                             (repeatable)
+      --geo <cc>             look like a visitor from this country, e.g. de:
+                             language and time zone, never the IP address
+      --locale <tag>         browser locale and Accept-Language, e.g. de-DE
+                             (default the machine's)
+      --timezone <tz>        IANA time zone, e.g. Europe/Berlin (default the
+                             machine's)
+      --viewport <v>         desktop (default, 1366x900) or mobile (390x844,
+                             touch)
+      --echo[=<url>]         also ask Echo (RHYTHM_ECHO_URL, else
+                             http://127.0.0.1:8025) what the site sent
+                             server-side during each run
+      --send-hits            send tracker hits for real instead of holding them
+                             in the browser; refused on a production: host
+      --sites <file>         check every site in a Soundcheck-style sites.yaml
+      --parallel <n>         browser runs at once (default 3; 1 to 8)
+      --map-host <host=addr> answer host (or *.example.test) from addr instead
+                             of the network, e.g. *.shop.test=127.0.0.1:18950
+                             (repeatable)
+      --map-only             refuse every host --map-host doesn't cover
+
+Compare:
+      --save <name>          also keep this result as the baseline <name>
+      --against <name|path|last>
+                             compare with a baseline, a consent.json, a result
+                             folder or the previous result (last)
+      --accept <key>         take this change (its key from -v) as intended
+                             (repeatable)
+
+Requests and browser:
+  -H, --header <h>           extra header for same-site requests, "Name: value";
+                             the value may be @file or env:NAME (repeatable)
+      --cookie <c>           a cookie for the site, name=value; the value may be
+                             @file or env:NAME (repeatable)
+  -A, --user-agent <ua>      the User-Agent (default the browser's own, without
+                             Headless, plus rhythm-echo-consent/<version>)
+      --proxy <url>          send the browser's traffic on through this proxy,
+                             e.g. one in the EU
+  -k, --insecure             don't verify TLS; only for loopback or private
+                             sites
+      --insecure-public      with -k, allow it for a public site too
+      --follow-host          keep going when the start page redirects to another
+                             host
+      --browser <path>       the Chrome or Chromium to use
+      --no-download          never download Chrome for Testing
+      --no-sandbox           run Chrome without its sandbox (needed as root;
+                             also RHYTHM_ECHO_NO_SANDBOX=1); only for sites you
+                             trust
+      --show-browser         show the browser window (one run at a time)
+
+Output:
+      --json --md --junit --html
+                             the report on stdout, one format at a time
+  -o, --output <file>        also write a report to a file, its format from
+                             .json .md .xml or .html (repeatable)
+      --har                  keep one masked HAR per run in the evidence folder
+      --no-screenshots       take no screenshots
+      --show-ids             keep tracking and client IDs unmasked (not with
+                             Markdown or JUnit)
+      --sign-key <file>      sign consent.json with this ed25519 private key
+                             (mode 0600)
+      --open                 open the HTML report when done
+  -q, --quiet                only the verdict and what failed
+      --plain                no color or glyphs (screen readers, logs)
+      --no-color             no color
+  -v, --verbose              add every run's timeline and the change keys
+      --live                 print each tracker hit on stderr as it happens
+      --fail-on <level>      exit 1 at or above error (the default), warning or
+                             notice; with --against broke (the default), new or
+                             changed; none: never
+
+Settings:
+      --config <file>        settings (default the nearest .echo/config.yaml;
+                             optional)
+      --store <dir>          where results are kept (default the config's
+                             folder, else ./.echo)
+
+Subcommands (rhythm echo consent <subcommand> --help lists each one's flags):
+  detect <url>               find the banner and the buttons to click; no
+                             verdict
+  report [<id>|latest]       show a saved consent result again
+  verify <folder|file> [--key <file>]
+                             check an evidence folder's hashes and signature
+  cmps [--json]              the consent banners Echo knows how to click
+  trackers [--json]          the trackers Echo recognizes
+  prune [--keep <n>]         delete old consent results, keeping the newest n
+                             (default 20) and every baseline
+
+Exit codes:
+  0    every run made and confirmed its choice (or the page needed none) and no
+       issue is at or above --fail-on
+  1    an issue at or above --fail-on (with --against: a change at or above it);
+       wins over 3
+  2    usage error: wrong flags, a bad URL, an unknown consent: key or check
+       ID, a literal header value in the config, a missing baseline,
+       --send-hits on a production: host, --show-ids with Markdown or JUnit,
+       an invalid selector
+  3    couldn't check: no Chrome, the site didn't answer, a TLS error without
+       -k, a bot wall, a redirect loop, a run that couldn't make its choice
+       and nothing at or above --fail-on, a report that couldn't be written
+  130  interrupted: finished runs are kept and the result is complete: false
+
+Examples:
+  rhythm echo consent https://staging.shop.test
+  rhythm echo consent --runs +gpc --geo de https://shop.example
+  rhythm echo consent --against baseline --fail-on broke
+
+What a pass means. In these runs, from this machine, with this browser and these
+settings, no tracker on Echo's list sent a request or set a cookie before the
+visitor chose or after Reject. It does not mean the site complies with the GDPR,
+ePrivacy, CCPA/CPRA or any other law. Evidence, not legal advice.
+
+One visitor, one place. Banners differ by country, language and device.
+Geo-targeted banners may not show to a CI runner in the US; Echo can set the
+browser's language and time zone (`--geo`) but not its IP address. Run it from
+the region that matters, or through a proxy there.
+
+Blind spots. Trackers that are not on the list; server-side tagging on your own
+domain when its requests don't look like GA4 or Meta; fingerprinting without
+network requests; tags that wait longer than the settle time or need more
+interaction than a scroll and one more page; sites that hide tags from automated
+browsers.
+
+Consent Mode advanced. Google says its tags in advanced mode "send measurements
+without cookies" while consent is denied. Whether that is acceptable before
+consent is disputed. Echo reports these pings as `consent/cookieless-ping` under
+the default policy `advanced`; `--consent-mode basic` or `strict` counts them as
+hits.
+
+gcd is unofficial. Google doesn't document the `gcd` parameter. Echo shows the
+raw value next to a reading based on community documentation and treats letters
+it doesn't know as unknown.
+
+Pseudonymised, not anonymised. Masked or hashed identifiers in reports can still
+be personal data. Treat reports like logs.
+
+What leaves the machine. Requests to the site and to the scripts it loads (which
+shows this machine's IP address to those servers). No tracking hits unless
+`--send-hits`. Nothing goes to Rhythm. The update check contacts GitHub
+(`RHYTHM_OFFLINE=1` turns it off).
+
+Banners Echo can't handle are reported as "couldn't check" (exit 3), never as a
+pass. Tested CMPs and the dates their fixtures were captured are in the
+benchmark.
+
+A signature proves who made the evidence file and that it hasn't changed. It
+doesn't prove the site behaves the same for every visitor, region or day.
+Keyless signing in the Action writes the repository and workflow name to the
+public Rekor log.
+
+rhythm echo help lists every command.
+```
+
+The first word that isn't a flag picks a subcommand (`detect`, `report`, `verify`, `cmps`, `trackers`, `prune`); anything else is a URL. A subcommand's name later on the line is refused, so a host called `report` is written as a URL:
+
+```text
+rhythm echo: consent "report": report is a subcommand; put it first (rhythm echo consent report), or write the host as a URL (http://report/)
+```
+
+Each subcommand has its own `--help` listing only the flags it reads:
+
+| Subcommand | Flags | Exit codes |
+|---|---|---|
+| `detect <url>` | `--banner-wait`, `--cmp`, `--accept-selector`, `--reject-selector`, `--geo`, `--locale`, `--timezone`, `--viewport`, `--map-host`, `--map-only`, the request and browser flags, `--json`, `-q`, `--plain`, `--no-color`, `--config`, `--store` | `0` a banner and both buttons found, `1` a banner but a button missing, `2` usage error, `3` no banner or couldn't run, `130` interrupted |
+| `report [<id>\|latest]` | `--against`, `--accept`, `--json`, `--md`, `--junit`, `--html`, `-o`, `--open`, `-q`, `--plain`, `--no-color`, `-v`, `--fail-on`, `--config`, `--store` | as `consent` for that result: `0` ok, `1` findings, `2` usage error, `3` couldn't check |
+| `verify <folder\|file>` | `--key <file>` (the ed25519 public key), `--json`, `-q`, `--plain`, `--no-color` | `0` every file and the signature match, `1` a hash or the signature doesn't match, `2` usage error, `3` a file is missing or unreadable |
+| `cmps` | `--json`, `-q`, `--plain`, `--no-color` | `0` ok, `2` usage error, `3` couldn't run |
+| `trackers` | `--json`, `-q`, `--plain`, `--no-color`, `--config` (to list your own trackers too) | `0` ok, `2` usage error, `3` couldn't run |
+| `prune` | `--keep <n>` (default `20`), `-q`, `--config`, `--store` | `0` ok, `2` usage error, `3` couldn't run |
+
+Usage errors exit `2` before any browser starts:
+
+```text
+rhythm echo: consent needs a page: rhythm echo consent https://staging.shop.test, or list pages under consent: urls in .echo/config.yaml
+rhythm echo: consent "file:///etc/passwd": want an http or https URL
+rhythm echo: consent "not-a-url": not-a-url isn't a URL; did you mean https://not-a-url.example/? A host without a dot needs its scheme: https://not-a-url/
+rhythm echo: --map-host '*.shop.test=...' kept its quotes; use eval, as the testbed section shows: eval "rhythm-echo consent <url> $map"
+rhythm echo: --fail-on "high": want none, error, warning or notice (or broke, new, changed when comparing)
+rhythm echo: --runs "maybe": want none, accept, reject, gpc or withdraw (+gpc adds one)
+rhythm echo: --pages 11: want 0 to 10
+rhythm echo: --exempt "nope": no tracker by that id; rhythm echo consent trackers lists them
+rhythm echo: --show-ids keeps tracking IDs unmasked; it can't be used with Markdown or JUnit output, which are meant to be shared
+rhythm echo: --send-hits on c01.shop.test, which matches "c01.shop.test" under production:. Echo holds tracker hits on production so your analytics stay clean; leave --send-hits off
+rhythm echo: --against "nosuch": no saved consent result by that name in .echo/consent/baselines; rhythm echo consent <url> --save nosuch makes one
+```
+
+A site that doesn't answer is exit `3`:
+
+```text
+rhythm echo: https://down.shop.test/ didn't answer: http://127.0.0.1:39144 (--map-host): dial tcp 127.0.0.1:39144: connect: connection refused. Is the site at the --map-host address running?
+```
+
+With `--json` either kind of stop still writes the envelope to stdout, with `verdict: error`, `complete: false`, `data: null` and the reason in `error` (this one from a real run of a dev build):
+
+```json
+{
+  "schema": "rhythm-echo/v1",
+  "kind": "consent",
+  "tool": "rhythm-echo",
+  "version": "dev",
+  "complete": false,
+  "summary": { "broke": 0, "new": 0, "changed": 0, "fixed": 0, "errors": 0, "warnings": 0, "notices": 0, "pages": 0, "runs": 0, "failed_runs": 0, "inconclusive_runs": 0, "trackers": 0, "before_choice": 0, "after_reject": 0, "held": 0 },
+  "verdict": "error",
+  "data": null,
+  "error": {
+    "exit": 3,
+    "message": "https://c01.shop.test/ didn't answer: http://127.0.0.1:39149 (--map-host): dial tcp 127.0.0.1:39149: connect: connection refused. Is the site at the --map-host address running?"
+  }
+}
+```
+
+`-q` prints the verdict line, the issues and the runs that couldn't make their choice, so a log of an exit `3` says why. The header names the browser on every run (`Browser: Chrome 153.0.8010.52`); `-v` adds a stderr line with its path.
+
+`doctor` adds one line about the browser consent checks will use:
+
+```text
+ok    Chrome for consent checks: found (Chrome 153 at /usr/bin/google-chrome)
+```
+
 ### init, providers, checks
 
 ```text
@@ -302,17 +583,21 @@ rhythm echo init: write .echo/config.yaml with an action for this stack
 
 Usage:
   rhythm echo init [--stack s] [--force]
+  rhythm echo init --consent [--force]
 
 Flags:
       --stack <s>            wordpress, laravel, next, node or php (default: from this
                              folder's files)
-      --force                replace an existing .echo/config.yaml
+      --consent              add a commented consent: block to .echo/config.yaml, or
+                             write a config with only that block
+      --force                replace an existing .echo/config.yaml; with --consent,
+                             replace only its consent: block
 
 Exit codes: 0 ok, 2 usage error or the config exists, 3 couldn't write it.
 rhythm echo help lists every command.
 ```
 
-`init` below another project's config notes `rhythm echo: note: <path> is above this folder; here the new one takes its place`. See [Configuration](Echo-Configuration#the-config-file). `providers` lists the 53 services by channel (`--json` for the list as JSON); see [Messages and checks](Echo-Messages-And-Checks#recognized-services). `checks` lists the checks and your rules, `checks --test` tries the rules' fixtures and exits `1` when one fails; see [Checks and rules](Echo-Checks-And-Rules).
+`init --consent` writes the block shown in [Configuration](Echo-Configuration#consent) and refuses a config that already has one: `rhythm echo: .echo/config.yaml already has a consent: block; pass --force to replace only that block`. `init` below another project's config notes `rhythm echo: note: <path> is above this folder; here the new one takes its place`. See [Configuration](Echo-Configuration#the-config-file). `providers` lists the 54 services by channel (`--json` for the list as JSON); see [Messages and checks](Echo-Messages-And-Checks#recognized-services). `checks` lists the checks and your rules, the 21 consent checks among them (channel `consent`); `checks --test` tries the rules' fixtures and the fixtures of your own consent trackers and exits `1` when one fails; see [Checks and rules](Echo-Checks-And-Rules).
 
 ### ca and sendmail
 
@@ -471,6 +756,10 @@ Each has its own page and its own help (`rhythm echo help hub`): [MCP server](Ec
 | `--pdf` | | Also print it to a PDF beside the HTML (needs Chrome or Chromium); `-o <file>.pdf` writes the PDF there and the HTML beside it. |
 | `--brand-name <name>`, `--brand-logo <file>`, `--brand-color <#hex>` | | The agency's name, logo (PNG, JPEG, GIF, WebP or SVG) and accent color. |
 
+### Consent
+
+`consent` and its subcommands have flags of their own, listed with their defaults in [its help](#consent); [Cookie consent](Echo-Consent) explains them. Flags shared by name keep their meaning: `--accept <key>` takes a change as intended, as on `compare`; the Accept button is `--accept-selector`. `--fail-on` takes `error`, `warning`, `notice` or `none`; with `--against` it takes `broke`, `new`, `changed` or `none`. `-H` and `--cookie` take `@file` or `env:NAME` for the value; a plain value warns that it shows in `ps`.
+
 ## JSON output
 
 Every `--json` (and `-o <file>.json`) writes one envelope, whatever the command:
@@ -501,10 +790,11 @@ Every `--json` (and `-o <file>.json`) writes one envelope, whatever the command:
 
 | Field | Means |
 |---|---|
-| `kind` | `run` (`run`, `snapshot`, `report` of a run), `comparison` (`compare`, `report` of one), `check`, `headers`, `messages` (`ls`, `show`), `snapshots`, `doctor`, `replay`, `latest`, `providers`. |
-| `summary` | The counts, as the reports show them; for a comparison, `actions` is the number of actions compared. |
+| `kind` | `run` (`run`, `snapshot`, `report` of a run), `comparison` (`compare`, `report` of one), `check`, `headers`, `messages` (`ls`, `show`), `snapshots`, `doctor`, `replay`, `latest`, `providers`, `consent` (`consent`, `consent report`), `consent-detect`, `consent-verify`, `consent-catalog` (`consent cmps`, `consent trackers`). |
+| `summary` | The counts, as the reports show them; for a comparison, `actions` is the number of actions compared. A `consent` result adds `pages`, `runs`, `failed_runs`, `inconclusive_runs`, `trackers`, `before_choice`, `after_reject` and `held`, always present; see [Evidence](Echo-Consent-Evidence#the-json-envelope). |
 | `verdict` | `error` when the result is incomplete, `findings` when anything is BROKE, NEW or CHANGED or there's any issue, `ok` otherwise. It doesn't depend on `--fail-on`. |
 | `complete` | `false` when an action failed, a payload was cut to size or the DNS resolver couldn't be reached. |
+| `error` | Only in `consent`, when the check stopped before it had a result (exit `2` or `3`): `{exit, message}`, with `data` null. |
 | `data` | The run, the comparison (with `actions`, the compared run's actions), the DNS report, the message list and so on. Empty lists are `[]`. |
 
 `watch --json` streams one object per line instead. The files Echo stores, `run.json` and `comparison.json`, keep their own shape, which the envelope's `data` carries. JSON Schemas for each kind ship in the Echo repository under `report/schema/`.
@@ -518,8 +808,9 @@ The same codes as Tuner and Soundcheck. The help lists them as:
   1    findings: --fail-on hit, an action failed, a doctor check failed, or the site
        rejected a replay
   2    usage error: a wrong command line, or .echo/config.yaml asks for what isn't there
-  3    couldn't run: Echo not reachable, every action failed, the DNS resolver never
-       answered, a file or network error
+  3    couldn't run or couldn't check (a consent run that couldn't make its choice):
+       Echo not reachable, every action failed, the DNS resolver never answered, a
+       file or network error
   130  interrupted
   sendmail exits with sendmail's codes instead (sysexits: 64 usage, 69 Echo unreachable…)
 ```
@@ -531,6 +822,8 @@ The same codes as Tuner and Soundcheck. The help lists them as:
 | `2` | Usage error, always before any output: a bad flag or value, an unknown command, stack, action, channel, provider, snapshot or message ID, no config, no snapshot yet, a folder that isn't WordPress, a missing signing secret, a refused replay, a config that doesn't load |
 | `3` | Couldn't run: Echo isn't running or another service answers (`no Echo is running at http://127.0.0.1:8025 (start it with: rhythm echo up)`), every action failed, the DNS resolver never answered, a port is taken, a file or network error |
 | `130` | Interrupted; results are partial |
+
+`consent` uses the same codes; its `1` wins over `3` and a run that couldn't make or confirm its choice is `3`, never a pass. See [Cookie consent](Echo-Consent#exit-codes).
 
 `rhythm echo sendmail` uses sendmail's codes instead; see [The sendmail stand-in](Echo-Install-Connectors#the-sendmail-stand-in).
 
@@ -544,8 +837,11 @@ The same codes as Tuner and Soundcheck. The help lists them as:
 | `RHYTHM_ECHO_PRIVATE_NETWORK`, `RHYTHM_ECHO_HOSTNAMES`, `RHYTHM_ECHO_LOGIN`, `RHYTHM_ECHO_RELAY` | For `up`: `--private-network`, `--hostname`, `--login` and the relay's SMTP account. |
 | `ECHO_STRIPE_WEBHOOK_SECRET`, `ECHO_WEBHOOK_SECRET`, `ECHO_GITHUB_WEBHOOK_SECRET`, `ECHO_WC_WEBHOOK_SECRET` | Replay signing secrets. |
 | `RHYTHM_ECHO_SMTP`, `RHYTHM_ECHO_RUN`, `RHYTHM_ECHO_FORCE` | For `sendmail`. |
+| `RHYTHM_ECHO_NO_SANDBOX`, `SOUNDCHECK_NO_SANDBOX` | `1` is `consent --no-sandbox`: Chrome without its sandbox, needed as root in a container. |
+| `RHYTHM_ECHO_<NAME>` | Values for `consent: headers:` in the config (`${env:RHYTHM_ECHO_<NAME>}`). The `env:NAME` form of `-H` and `--cookie` reads any variable. |
+| `RHYTHM_OFFLINE` | Any value skips the release check (kit). |
 | `RHYTHM_NO_UPDATE_CHECK` | Any value stops the once-a-day release check. |
-| `CI` | When set, the release check is skipped too. |
+| `CI` | When set, the release check is skipped too; `consent` shows no once-only notice, no tip and no color. |
 | `RHYTHM_GITHUB_API` | GitHub API base for the release check. Default `https://api.github.com`. |
 | `GITHUB_TOKEN` | Sent with release checks. |
 
@@ -559,9 +855,13 @@ The connectors' variables are in [Configuration](Echo-Configuration#environment-
 | Snapshots | `.echo/snapshots/<name>/` and `.echo/snapshots/.latest` |
 | Runs and comparisons (the 20 newest) | `.echo/runs/<date-time>-<id>/` |
 | A kept inbox | the `--store` folder (or `inbox: store:`) |
+| Consent results | `.echo/consent/<date-time>-<id>/` (the time in UTC, with a `Z`), next to the config or in `./.echo`; never pruned on their own (`consent prune`) |
+| Consent baselines | `.echo/consent/baselines/<name>/consent.json` |
+| `consent detect` screenshots | `.echo/consent/detect/<date-time>-<id>.png` |
+| Chrome for Testing, when downloaded | `~/.cache/rhythm/soundcheck/browser`, shared with Soundcheck |
 | The proxy's CA | `~/.config/rhythm/echo/ca` (Linux), `~/Library/Application Support/rhythm/echo/ca` (macOS), `%AppData%\rhythm\echo\ca` (Windows) |
 | Release check state | `~/.config/rhythm/update-check/rhythm-echo.json` |
-| First-run notice marker | `~/.config/rhythm/seen/echo-authorised-use` |
+| First-run notice markers | `~/.config/rhythm/seen/echo-authorised-use`; for `consent`, `echo-consent-notice` and `echo-consent-tip-save` |
 
 See [The .echo folder](Echo-Configuration#the-echo-folder). The responsible-use notice is shown once per machine; deleting its marker brings it back.
 

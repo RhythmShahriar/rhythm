@@ -213,4 +213,4 @@ Point the site at Echo:
 That was a Laravel project (it has an `artisan` file). For WordPress, plain PHP or an unknown project the third line is a `sendmail_path` for `php.ini`; Next.js and Node get only the two `RHYTHM_ECHO` lines. Only `listen:` and `smtp:` are written into the config; its other lines and comments stay as they were. MailHog and MailDev are named the same way. `doctor` says so too: `FAIL  Echo: http://127.0.0.1:8025 is Mailpit, not Echo; start Echo on a free port (rhythm echo up --listen 127.0.0.1:18025) and set listen: in .echo/config.yaml to it` (exit `3`). When it's Echo itself: `rhythm echo: Echo is already running on 127.0.0.1:8025 (use that one, or stop it first)`.
 
 ---
-<sub>← [Deliverability](Echo-Deliverability) · [Home](Home) · [Agency hub and reports](Echo-Hub-And-Reports) →</sub>
+<sub>← [Evidence](Echo-Consent-Evidence) · [Home](Home) · [Agency hub and reports](Echo-Hub-And-Reports) →</sub>

@@ -7,7 +7,7 @@ Answers to common questions and fixes for common problems with Echo. If yours is
 Mailpit, MailHog, Mailtrap and smtp4dev are good mail catchers. If all you need is an inbox for one app's SMTP mail, use one. Echo has an inbox too ([Echo Inbox](Echo-Inbox)) and does three things they don't:
 
 - **It compares.** A catcher shows you an inbox. Echo records what each action sent, then tells you after an update that the office's copy of the contact form is gone, the SMS now has `{first_name}` in it and the Zapier payload lost a field.
-- **Every channel, not only SMTP.** Most of what a modern site sends isn't SMTP at all: API mailers (SendGrid, Postmark, Resend), SMS, WhatsApp, Slack, webhooks, GA4 and Meta events, payment calls. Echo catches them through the connector or its proxy, recognizes 53 services and answers each one the way the service would, so the site carries on.
+- **Every channel, not only SMTP.** Most of what a modern site sends isn't SMTP at all: API mailers (SendGrid, Postmark, Resend), SMS, WhatsApp, Slack, webhooks, GA4 and Meta events, payment calls. Echo catches them through the connector or its proxy, recognizes 54 services and answers each one the way the service would, so the site carries on.
 - **It seals.** Pointing the mailer at a catcher stops email. It doesn't stop the SMS plugin, the WooCommerce webhook to the live CRM or the purchase event that feeds your ads. Echo's seal covers them and refuses live payment calls in every mode.
 
 `rhythm echo up` also answers Mailpit's API for email (`/api/v1/messages`, `/api/v1/search` and friends), so tests written against Mailpit's API keep working. Its image drops in where Mailpit runs in DDEV, Lando and Sail; see [API](Echo-API#mailpit-style-routes) and [Docker and DDEV](Echo-Docker-And-DDEV).
@@ -141,6 +141,51 @@ Problem titles use the services' display names (`Amazon SES email`, `Zapier webh
 
 Each refusal says which rule it hit; see [Safety rules](Echo-Replay#safety-rules). The most common is a target that resolves to a public address: add the staging URL under `staging:`.
 
+## Cookie consent checks
+
+### Does an "All clear" mean the site complies?
+
+No. It means that in these runs, from this machine, no tracker on Echo's list sent a request or set a cookie before the visitor chose or after Reject. It's evidence, not a legal compliance guarantee: it says nothing about the banner's wording, its categories or your records. See [Honest limits](Echo-Consent#honest-limits).
+
+### "Couldn't check" (exit 3)
+
+A run couldn't make or confirm its choice. The last lines say why and what to try. In order:
+
+1. `rhythm echo consent detect <url>` shows the banner and the buttons Echo would click.
+2. No banner: a longer `--banner-wait`, or the banner shows only in some countries (`--geo de`, `--proxy` in that region).
+3. No button: `--accept-selector` and `--reject-selector`, or `--click button,api` where the CMP has an API (`rhythm echo consent cmps`).
+4. The click didn't take: something covers the button, or the banner hides itself without storing the choice (`state_unchanged`), which Echo never counts as a Reject.
+
+See [When a run can't make its choice](Echo-Consent-CMPs#when-a-run-cant-make-its-choice).
+
+### No Chrome
+
+Consent checks need Chrome or Chromium. Echo uses an installed one, else downloads Chrome for Testing once into `~/.cache/rhythm/soundcheck/browser`. With `--no-download` and no Chrome the check exits `3`. `--browser <path>` picks one; `rhythm echo doctor` says which it found. As root in a container, Chrome needs `--no-sandbox` (or `RHYTHM_ECHO_NO_SANDBOX=1`).
+
+### The banner shows in my browser but not in Echo's
+
+Your browser has your language, your country and maybe a cookie from an earlier visit. Echo's is a new visitor with the machine's language (or `--locale`), from the machine's IP address. Some sites also hide the banner from automated browsers. Echo's User-Agent drops `Headless`; a site that tries harder is a blind spot.
+
+### A tracker fires in Echo but not in my tests
+
+Echo scrolls, visits one more page and reloads in every run, so it sees tags that wait for a scroll or a second page view. The `-v` timeline gives each hit's time and page; `report.html` shows the same on a time line.
+
+### GA4 sends hits before the choice but Echo says "All clear"
+
+Those are Consent Mode advanced cookieless pings (`gcs` `G100`, no cookie), reported as the notice `consent/cookieless-ping` under the default policy. `--consent-mode basic` counts them as errors. See [Consent Mode](Echo-Consent-Mode#policies).
+
+### Will checking production add to our analytics?
+
+No: tracker hits are answered inside the browser and never sent. `--send-hits` sends them and is refused on a host under `production:`.
+
+### "--map-host answered https pages over plain http"
+
+You mapped a host to a plain `http` address (as the testbed does), so TLS wasn't checked; the terminal says `Hosts mapped with --map-host; https pages were answered over plain http, so TLS wasn't checked.` and `consent.json` has `tls_verified: false` with the three notes behind that line. Map to `https://<addr>` to check the certificate against the original host.
+
+### Consent results show up in git status
+
+Echo 1.2.0 adds `.echo/snapshots/` and `.echo/runs/` to `.git/info/exclude` but not `.echo/consent/`. Add `/.echo/consent/` to `.gitignore`.
+
 ## Reporting a bug
 
 Open an issue on the [Echo repository](https://github.com/RhythmShahriar/echo/issues) with:
@@ -148,7 +193,8 @@ Open an issue on the [Echo repository](https://github.com/RhythmShahriar/echo/is
 - `rhythm echo --version`, your OS and the stack and connector (WordPress, Laravel or Node version);
 - the command you ran and its output, with `--plain`;
 - `rhythm echo doctor` output;
-- for a missed or misrecognized message, the request as `rhythm echo show <id>` prints it, with real data removed.
+- for a missed or misrecognized message, the request as `rhythm echo show <id>` prints it, with real data removed;
+- for a consent check, the `-v` output with `--plain` and the last line of `rhythm echo consent cmps` and of `rhythm echo consent trackers` (the rules' and the catalogue's versions).
 
 Use your own test site, never a third-party one.
 

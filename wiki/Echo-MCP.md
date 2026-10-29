@@ -1,4 +1,4 @@
-`rhythm echo mcp` is an [MCP](https://modelcontextprotocol.io) server: it lets a coding agent read what the site sent, get the one-time code from a sign-up email, run your actions, snapshot and compare, the way you do with the CLI. This page covers adding it to an agent, its seven tools, what it masks and how it finds the project.
+`rhythm echo mcp` is an [MCP](https://modelcontextprotocol.io) server: it lets a coding agent read what the site sent, get the one-time code from a sign-up email, run your actions, snapshot and compare, the way you do with the CLI. This page covers adding it to an agent, its eight tools, what it masks and how it finds the project.
 
 ```sh
 claude mcp add echo -- rhythm-echo mcp
@@ -25,6 +25,9 @@ Start Echo first (`rhythm echo up`); the server talks to it like the CLI does. A
 | `snapshot` | Take a snapshot | `name`, `actions` | The snapshot; replaces one of the same name |
 | `compare` | Compare with a snapshot | `snapshot`, `actions` | `verdict`, `snapshot`, `counts`, `changes`, `run` |
 | `check_domain` | Check a sending domain | `domain`, `provider` | SPF, DKIM, DMARC and MX, as `rhythm echo check` |
+| `check_consent` | Check cookie consent on a page | `url`, `runs`, `consent_mode`, `geo` | The `consent` envelope, as `rhythm echo consent --json`: no choice, Accept and Reject in a real browser, tracking hits held, Consent Mode decoded |
+
+`check_consent` needs no running Echo: it loads the page in Chrome and keeps its result under `.echo/consent`, like the CLI. Hits are always held; the MCP server can't send them. Point it only at sites you own or are authorised to test. See [Cookie consent](Echo-Consent).
 
 `compare`'s `verdict` is `Something broke.`, `Something changed.`, `Only fixes: nothing broke or changed.` or `Nothing changed.`. The run tools keep runs and snapshots where the CLI does and run one at a time.
 
