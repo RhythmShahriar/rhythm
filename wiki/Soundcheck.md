@@ -22,7 +22,8 @@ Soundcheck opens every page in headless Chrome (or [Firefox or WebKit](Soundchec
 | 🖱️ **interact** | Forms and controls read from the page, then menus, tabs, accordions and modals clicked to find **dead clicks** and clicks that throw. Opt in to submit forms with test data and to run your own YAML flows. | [Interactions](Soundcheck-Interactions), [Forms and flows](Soundcheck-Forms-And-Flows) |
 | 🗄️ **cache** | Which cache layer serves pages and how often, private pages (cart, checkout, account) served from cache, logged-in content leaking to visitors, cached pages carrying expired WordPress nonces, stale copies. | [Cache](Soundcheck-Cache) |
 | ⚡ **speed** | Lab LCP, CLS, TBT, TTFB, weight and requests per page; slowdowns past a noise floor; site-wide suggestions grouped by cause, including what each plugin costs. | [Speed](Soundcheck-Speed) |
-| ♿ **a11y** (off by default) | axe-core's WCAG 2.0 A and AA rules on every page: missing labels, alt text, contrast. | [Accessibility and SEO](Soundcheck-Accessibility-And-SEO) |
+| ♿ **a11y** (off by default, on with `--eaa`) | axe-core's WCAG 2.1 A and AA rules on every page (2.0 or 2.2 with `--wcag`): missing labels, alt text, contrast; plus fields labeled only by a placeholder, reflow at 320 px and overlay widgets. | [Accessibility and SEO](Soundcheck-Accessibility-And-SEO) |
+| ⌨️ **keyboard** (off by default, on with `--eaa`) | Tab and Shift+Tab through every page, then menus and dialogs by keyboard: keyboard traps, focus lost or invisible, skip links that go nowhere, controls only a mouse can use. Key flows replay a checkout with keys only. | [Keyboard walkthrough](Soundcheck-Keyboard-Walkthrough) |
 | 🔎 **seo** (off by default) | What search engines read: a new `noindex`, a lost canonical, robots.txt or the sitemap broken, Open Graph and structured data gone. | [Accessibility and SEO](Soundcheck-Accessibility-And-SEO#seo) |
 | ✉️ **echo** (with `--echo`) | The emails, SMS and webhooks each form submit sends, through [Echo](Echo). | [With Soundcheck](Echo-With-Soundcheck) |
 | ⚙️ **exec** (when configured) | Your own program on every page, plus your own [error rules](Soundcheck-Error-Rules) in YAML. | [Error rules and exec](Soundcheck-Error-Rules) |
@@ -36,6 +37,7 @@ Soundcheck is built for PHP and WordPress (it knows plugin paths, nonces, form p
 - **In CI.** Fail a pull request or a deploy when something broke. See [CI](Soundcheck-CI).
 - **A one-off health check.** `rhythm soundcheck run yoursite.com` lists the problems a site has right now.
 - **Plugin updates on WordPress.** `rhythm soundcheck wp-update` updates the plugins one by one (or by halves) and names the one that breaks the site. See [WordPress updates](Soundcheck-WP-Update).
+- **Accessibility evidence for the European Accessibility Act.** `rhythm soundcheck snapshot staging.yoursite.com --eaa` runs the a11y and keyboard modules, drafts an accessibility statement and keeps an evidence pack you can sign; later compares show only new accessibility problems. Evidence, not a compliance guarantee. See [EAA mode](Soundcheck-EAA).
 - **Many client sites.** `rhythm soundcheck fleet sites.yaml compare` checks them all and ranks them worst first; `report --client` writes a branded report. See [Fleet and client reports](Soundcheck-Fleet-And-Client-Reports).
 
 Soundcheck isn't a security scanner; that's [Tuner](Tuner). The two complement each other: Tuner looks for what an attacker could use, Soundcheck for what your last change did to visitors.
@@ -78,6 +80,7 @@ Everything Soundcheck records stays in your project, in `./.soundcheck/`: snapsh
 | Control which pages are checked | [Discovery](Soundcheck-Discovery) |
 | Test forms and scripted journeys | [Forms and flows](Soundcheck-Forms-And-Flows) |
 | Check caching and logged-in leaks | [Cache](Soundcheck-Cache) |
+| Gather accessibility evidence for the EAA | [EAA mode](Soundcheck-EAA) |
 | Wire it into CI | [CI](Soundcheck-CI) |
 | Compare every pull request with `main` and comment on it | [CI baselines and PR comments](Soundcheck-CI-Baselines) |
 | Update WordPress plugins safely | [WordPress updates](Soundcheck-WP-Update) |

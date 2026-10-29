@@ -108,8 +108,8 @@ Within a class, changes are sorted by how big they are (how many pages, how much
 6. **Detail.** The evidence, such as the headers that show a page came from the cache (not in this example).
 7. **Fix.** The first line of the suggested fix. The full text is in the HTML, Markdown and JSON reports.
 8. **Lines.** CHANGED, SLOWER and FIXED changes are one line each.
-9. **Accept hint.** Under a CHANGED line of a comparison with a snapshot: the command that makes it part of the snapshot. See [Review and accept](Soundcheck-Review-And-Accept). SLOWER lines show **before → after** in this place.
-10. **Verdict.** `Something broke` (any BROKE), `New problems` (any NEW), `Nothing broke; some pages changed`, or `Nothing changed`. An interrupted run shows INTERRUPTED instead.
+9. **Accept hint.** Under a BROKE, NEW or CHANGED change of a comparison with a snapshot: the command that makes it part of the snapshot. See [Review and accept](Soundcheck-Review-And-Accept). SLOWER lines show **before → after** in this place. (The example was captured with 1.2.0, which showed the hint under CHANGED lines only; since 1.3.0 BROKE and NEW cards end with it too.)
+10. **Verdict.** `Something broke` (any BROKE), `New problems` (any NEW), `Nothing broke; some pages changed`, or `Nothing changed`. An interrupted run shows INTERRUPTED instead. An [EAA mode](Soundcheck-EAA) result never says `all clear`: `Nothing changed; no failures found by these tests`, or `Nothing changed; 1 WCAG criterion has failures` while problems set aside still fail criteria.
 11. **Stats.** What was compared, the number of pages, how many changes were ignored and how long it took.
 12. **Notes**, lines starting with `!`: anything that limits the result, such as a skipped test, pages that failed to load, or two runs made with different settings.
 13. **The HTML report** of this result. With `-o report.html` it names that file instead. A snapshot prints the same line, then the `next:` hint.
@@ -185,13 +185,15 @@ Browser: Chrome 153.0.8010.52 (/usr/bin/google-chrome)
   396 ms → 28 ms
   Lab measurement, one load per page; a page counts when it's faster by more than 25% and at least 300 ms
 
-Something broke - 1 broke, 3 new, 0 changed, 0 slower, 1 fixed - compared with snapshot "before-update" (1m ago), 4 pages · 5s
+Something broke - 1 broke, 3 new, 0 changed, 0 slower, 1 fixed - compared with snapshot "before-update" (1m ago), 4 pages, 5s
 note: cache: skipped the cache leak test; set SOUNDCHECK_USER and SOUNDCHECK_PASSWORD to a test account to run it
 full report: .soundcheck/runs/2026-10-25T15-53-15.778Z/report.html
 tip: add --fail-on broke to make this exit 1 in scripts
 ```
 
-Each page line, such as `[4/4] / 200 1.39s (2 issues)`, shows the progress, the path, the status, how long the visit took and `ok`, the number of issues or `error`. For a run (not a comparison), plain mode lists each issue as `[LEVEL] title - pages` with its source and the detail for issues on one page. Errors and warnings also get the fix. CHANGED lines end with the `accept` hint. `-v` prints the page lines in the normal view too; `-q` prints only the results.
+Each page line, such as `[4/4] / 200 1.39s (2 issues)`, shows the progress, the path, the status, how long the visit took and `ok`, the number of issues or `error`. For a run (not a comparison), plain mode lists each issue as `[LEVEL] title - pages` with its source and the detail for issues on one page. Errors and warnings also get the fix. BROKE, NEW and CHANGED lines end with the `accept` hint. `-v` prints the page lines in the normal view too; `-q` prints only the results.
+
+With the a11y or keyboard module, issues add `wcag:` (the WCAG criteria and EN 301 549 clauses) and, for keyboard issues, `path:` (the last Tab stops) under `source:`. An `--eaa` result adds the `Accessibility:` counts line before the verdict and the evidence note after it. See [EAA mode: read the result](Soundcheck-EAA#4-read-the-result).
 
 ## The HTML report
 
@@ -204,6 +206,8 @@ Every `snapshot`, `run` and `compare` writes `report.html` into its folder under
 - **Notes.** The same notes as the terminal.
 - **All pages.** A table of every page checked: status, issues, LCP, CLS, weight and load time.
 - **Theme.** Light and dark, following your system, with a toggle.
+- **Accessibility tab.** An `--eaa` report has a second tab with the counts, a grid of every WCAG criterion, the issues by criterion and page and each page's keyboard walk. See [EAA mode](Soundcheck-EAA#4-read-the-result).
+- **Content Security Policy.** Since 1.3.0 every report carries a strict CSP: opened from disk it makes no network requests.
 
 Open the latest one with `rhythm soundcheck report --open`, or pass `--open` to `snapshot`, `run` or `compare`. To write it somewhere else, use `--html -o soundcheck.html`.
 

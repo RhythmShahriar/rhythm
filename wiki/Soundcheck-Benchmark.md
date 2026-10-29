@@ -1,6 +1,6 @@
 How well does Soundcheck catch what breaks real WordPress and PHP sites? This page describes the benchmark: a testbed of 48 deliberately broken sites, how each scenario is run and judged, a control pass that checks Soundcheck doesn't cry wolf on a site that didn't change. It also names the tools it can be compared with. The results are published with each release.
 
-**Soundcheck caught 47 of 47 scenarios, with 0 false alarms in 40 compares of an unchanged site.** The run for 1.2.0 was made on 2026-10-24 with a development build of the release. One scenario (s33) needs Echo and wasn't run.
+**Soundcheck caught 47 of 47 scenarios, with 0 false alarms in 40 compares of an unchanged site.** The EAA mode scenarios added in 1.3.0 (s49 to s89) are scored apart: **29 of 29 caught, 0 false alarms**; see [EAA mode](#eaa-mode). The run for 1.2.0 was made on 2026-10-24 with a development build of the release. One scenario (s33) needs Echo and wasn't run.
 
 ## The testbed
 
@@ -128,6 +128,115 @@ The same good and broken states can be checked with three widely used open-sourc
 | [Unlighthouse](https://unlighthouse.dev/) | 0.19.1 | Lighthouse on the scenario's page in both states, desktop | a category score drops by 0.03 or more (performance: 0.10) |
 
 A tool is only expected to catch what it's built for: a link checker won't see a JS error. The 1.2.0 run didn't include them, so their columns in `docs/benchmark.md` read "not run". On the first 20 scenarios, with Soundcheck 1.0.0, BackstopJS caught 12, lychee 4 and Unlighthouse 9.
+
+## EAA mode
+
+The scenarios s49 to s89 test [EAA mode](Soundcheck-EAA). They run with `--eaa` on the same testbed, each with a good and a broken state. Broken ones must be caught; good ones (nothing broken, or a page built to be hard: a native `<dialog>`, focus shown by box-shadow, a visually hidden skip link, 300 old contrast problems) must stay quiet. Each scenario's harness also checks what must never happen: an order placed or a side effect on a GET or on focus, a request to a host outside the testbed, a canary value from the page in any file Soundcheck wrote, or a statement draft that claims the site meets the law.
+
+> Automated and keyboard tests find some accessibility problems, not all. This is evidence for your own review, not a statement that the site meets WCAG, EN 301 549 or the European Accessibility Act.
+>
+> The testbed is written by the same people as the tool. It shows each detector works on a known case, not how much of a real site's accessibility it covers. Deque reports axe-based tests found 57% of issues by count in its own audits; that is a vendor figure counting issues, not success criteria.
+
+**Caught 29 of 29 broken scenarios, with 0 false alarms in 11 good scenarios and 0 in 60 `--eaa` compares of unchanged sites.** One more scenario, s68, waits for the audit of logged-in pages and isn't counted. The run for 1.3.0 was made on 2026-10-28 with a development build of the release.
+
+| # | Scenario | Expected | Soundcheck |
+|---|---|---|---|
+| s49 | Keyboard trap in the checkout's coupon field (broken) | BROKE keyboard/trap in #tb_coupon<br>and exit 1 (keyboard)<br>and no any keyboard/trap in #news<br>harness: orders | **caught** |
+| s50 | Checkout fields lose their labels (broken) | NEW a11y/label (3×) (a11y)<br>and no BROKE<br>harness: statement | **caught** |
+| s51 | Focus lost when the newsletter dialog closes (broken) | NEW keyboard/focus-lost (keyboard)<br>and no any keyboard/trap | **caught** |
+| s52 | Modal dialog stops containing focus (broken) | NEW keyboard/dialog-focus (keyboard) | **caught** |
+| s53 | Dialog opens without taking focus (plain PHP) (broken) | NEW keyboard/dialog-focus (keyboard) | **caught** |
+| s54 | Theme removes every focus outline (broken) | NEW keyboard/no-focus-ring (keyboard) | **caught** |
+| s55 | Skip link points nowhere (broken) | NEW keyboard/skip-link-broken (keyboard) | **caught** |
+| s56 | Menu toggle becomes a div (broken) | NEW keyboard/not-reachable (keyboard) | **caught** |
+| s57 | Custom button ignores Enter and Space (plain PHP) (broken) | NEW keyboard/not-operable (keyboard) | **caught** |
+| s58 | Submenu opens on hover only (broken) | NEW keyboard/menu (keyboard) | **caught** |
+| s59 | Invalid autocomplete tokens in the checkout (broken) | NEW a11y/autocomplete-valid (a11y) | **caught** |
+| s60 | Checkout labels replaced by placeholders (broken) | NEW a11y/placeholder-label (a11y)<br>and no any a11y/label | **caught** |
+| s61 | Place order text too light to read (broken) | NEW a11y/color-contrast in #place_order (a11y) | **caught** |
+| s62 | Pages lose their lang attribute (broken) | NEW a11y/html-has-lang (a11y) | **caught** |
+| s63 | Gallery images lose their alt text (broken) | NEW a11y/image-alt (a11y) | **caught** |
+| s64 | Contact form errors shown by colour only (key flow) (broken) | NEW keyboard/error-not-linked (keyboard) | **caught** |
+| s65 | Cookie banner traps the keyboard (plain PHP) (broken) | BROKE keyboard/trap (keyboard) | **caught** |
+| s66 | Zoom switched off (plain PHP) (broken) | NEW a11y/meta-viewport (a11y) | **caught** |
+| s67 | Web component loses its label in a shadow root (plain PHP) (broken) | NEW a11y/label in  >>>  (a11y) | **caught** |
+| s68 | Account form drops a label; prefilled with canaries (login) (broken) | NEW a11y/label in acc_phone (a11y)<br>harness: canaries, requests | missed |
+| s69 | Promo bar too wide to reflow (plain PHP) (broken) | NEW a11y/reflow (a11y) | **caught** |
+| s70 | Place order reachable only by mouse (key flow) (broken) | BROKE keyboard/flow (keyboard)<br>harness: orders | **caught** |
+| s71 | Select navigates when it gets focus (plain PHP) (broken) | NEW keyboard/context-change (keyboard) | **caught** |
+| s72 | Closed off-canvas menu stays tabbable (plain PHP) (broken) | NEW keyboard/focus-invisible (keyboard) | **caught** |
+| s73 | Accessibility overlay script added (broken) | NEW a11y/overlay (a11y)<br>harness: requests | **caught** |
+| s74 | Page too big and busy for the audits to finish (plain PHP) (broken) | exit 3<br>and warning “not checked” (a11y)<br>and no FIXED | **caught** |
+| s75 | Dialog ignores Escape (plain PHP) (broken) | NEW keyboard/escape (keyboard)<br>and no any keyboard/trap | **caught** |
+| s76 | Focus handler reloads the page (plain PHP) (broken) | any keyboard/trap<br>or warning “keyboard: /a11y/reload-trap.php:” (keyboard) | **caught** |
+| s77 | Native dialog with showModal() (hard good, plain PHP) (good) | nothing at or above NEW<br>and at least 1 widget tested (keyboard)<br>and no any keyboard/trap, any keyboard/focus-lost, any keyboard/dialog-focus | **quiet** |
+| s78 | Custom modal done right (hard good, plain PHP) (good) | nothing at or above NEW (keyboard)<br>and no any keyboard/trap, any keyboard/focus-lost, any keyboard/dialog-focus | **quiet** |
+| s79 | Focus shown without an outline (hard good, plain PHP) (good) | nothing at or above NEW (keyboard)<br>and no any keyboard/no-focus-ring | **quiet** |
+| s80 | Visually hidden skip link that shows on focus (hard good) (good) | nothing at or above NEW (keyboard)<br>and no any keyboard/skip-link, any keyboard/focus-invisible, any keyboard/no-focus-ring | **quiet** |
+| s81 | Page that changes on every load (hard good, plain PHP) (good) | nothing at or above NEW (keyboard)<br>and no NEW | **quiet** |
+| s82 | 300 old contrast problems, nothing changes (hard good, plain PHP) (good) | nothing at or above NEW (a11y)<br>and no NEW, FIXED | **quiet** |
+| s83 | One of 300 old contrast problems fixed (plain PHP) (broken) | FIXED a11y/color-contrast in row-5 (a11y)<br>and no NEW | **caught** |
+| s84 | Frames from the same and another origin (hard good, plain PHP) (good) | nothing at or above NEW (a11y)<br>and no NEW<br>harness: statement, canaries, requests | **quiet** |
+| s85 | Checkout on a busy machine (hard good) (good) | nothing at or above NEW (keyboard)<br>and no NEW, any keyboard/trap<br>harness: stress, orders | **quiet** |
+| s86 | Checkout answers 500 under --eaa (broken) | BROKE health/ (health)<br>harness: statement | **caught** |
+| s87 | Snapshot from Soundcheck 1.2 compared with --eaa (plain PHP) (good) | warning “used the WCAG 2.0 rules”<br>and nothing at or above NEW (a11y)<br>and no NEW a11y/autocomplete-valid | **quiet** |
+| s88 | Page with side effects on GET and on focus (hard good, plain PHP) (good) | nothing at or above NEW (keyboard)<br>and no NEW<br>harness: orders, requests | **quiet** |
+| s89 | Small site with no known accessibility problems (plain PHP) (good) | nothing at or above NEW<br>and at least 1 widget tested (keyboard)<br>and no any a11y/, any keyboard/<br>harness: statement, requests | **quiet** |
+
+**caught**: a broken scenario's problem was reported · **quiet**: a good scenario got no report it rules out · missed: s68 needs the audit of logged-in pages, which 1.3.0 doesn't do.
+
+### False alarms and determinism
+
+Every scenario good, each round an `--eaa` snapshot and two compares with nothing changed. On a scenario's own pages an accessibility warning or error in the snapshot itself counts too.
+
+| Site | Rounds | Compares | Pages | False alarms | Errors |
+|---|---:|---:|---:|---:|---:|
+| wp | 10 | 20 | 17 | 0 | 0 |
+| php | 10 | 20 | 17 | 0 | 0 |
+| s89 | 10 | 20 | 1 | 0 | 0 |
+
+The issue keys of 10 snapshots of the same unchanged pages differed in **0** keys (34 keys on WordPress, none on the clean plain-PHP pages).
+
+### Cost
+
+16 cores, linux/amd64, Chrome 153.0.8010.52, axe-core 4.14.0 (WCAG 2.1 tags), seconds per page, median / p95:
+
+| Measure | wp | php | Target |
+|---|---:|---:|---|
+| Page visit, default run | 2.78 / 2.92 | 2.69 / 4.26 | |
+| Page visit, `--eaa` run | 1.43 / 1.61 | 1.32 / 2.86 | |
+| a11y audit per page | 0.00 / 0.05 | 0.00 / 0.24 | median at most 2 s |
+| Keyboard walk per page | 5.79 / 8.12 **over** | 1.02 / 3.44 | median at most 3 s |
+| Whole `--eaa` run ÷ default run | 0.8× (26 s ÷ 32 s) | 0.6× (21 s ÷ 35 s) | at most 3× |
+| One key flow (s70, `/checkout/`) | 2.2 s | | at most 15 s |
+
+The keyboard walk misses its target on WordPress pages, which have more stops and widgets. An `--eaa` run is still faster than a default run, since it leaves out the visual, interact, cache and speed modules.
+
+### Coverage
+
+Which WCAG A and AA success criteria the tests can find failures of. A criterion with a test still needs a person to judge it: the tests find some failures, never a pass.
+
+| WCAG | Criteria | Automated | Keyboard | Needs a person only |
+|---|---:|---:|---:|---:|
+| 2.1 | 50 | 22 | 7 | 23 |
+| 2.2 | 55 | 23 | 8 | 26 |
+
+Every criterion with the axe-core rules and Soundcheck checks that test it is in the [benchmark file](https://github.com/RhythmShahriar/soundcheck/blob/master/docs/benchmark.md#eaa-mode) and in each statement draft's appendix.
+
+### Other tools
+
+The benchmark also runs Unlighthouse, the axe-core CLI and pa11y on the same states when they are installed. They weren't installed for the 1.3.0 run, so this run has no figures for them.
+
+### Run the EAA scenarios
+
+```sh
+make build
+make -C testbed up
+make -C testbed bench-eaa      # go run -tags testbed ./testbed/bench -only eaa (10 control rounds)
+go run -tags testbed ./testbed/bench -only eaa -tools axe,pa11y,unlighthouse   # also run the other tools
+```
+
+An `-only eaa` run rewrites only the EAA section of `docs/benchmark.md`.
 
 ## Run it yourself
 
