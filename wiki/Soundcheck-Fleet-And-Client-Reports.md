@@ -31,6 +31,7 @@ A site can also name its own settings file and variable prefix:
 | `config` | a settings file for this site, passed as `--config` |
 | `env_prefix` | where this site's variables come from (see below). Default from the name: `acme-shop` reads `ACME_SHOP_…`. |
 | `args` | extra flags for this site |
+| `eaa` | `true` adds `--eaa` to this site's command, unless its args or the fleet's flags already have it. See [EAA mode](#eaa-mode). |
 
 Before the first deploy, snapshot them all; after it, compare them all:
 
@@ -64,6 +65,51 @@ Each site runs in its own folder, `.soundcheck-fleet/<name>/` next to `sites.yam
 | `--plain`, `--no-color` | off | As for every command. |
 
 The exit code is the worst site's. A sites file that doesn't load exits 2 before any site runs.
+
+### EAA mode
+
+`eaa: true` on a site, or `fleet sites.yaml compare --eaa` for every site, runs [EAA mode](Soundcheck-EAA). `--eaa` and `--wcag <version>` on the fleet go to every site's command. Two sites of the testbed's Ledger, the first with a keyboard trap after the snapshot:
+
+```yaml
+sites:
+  - name: ledger
+    url: http://127.0.0.1:39200/a11y/
+    eaa: true
+    args: ["--include", "/a11y/*", "--page", "/a11y/consent.php"]
+  - name: ledger-pricing
+    url: http://127.0.0.1:39200/a11y/wishlist.php
+    eaa: true
+    args: ["--include", "/a11y/wishlist.php"]
+```
+
+```text
+Fleet: taking a snapshot of 2 sites, 2 at a time
+  [1/2] ledger-pricing: No failures found by these tests · 6s
+  [2/2] ledger: No failures found by these tests · 10s
+Worst: ledger (No failures found by these tests)
+Fleet report: .../.soundcheck-fleet/fleet.html
+```
+
+```text
+Fleet: comparing 2 sites, 2 at a time
+  [1/2] ledger-pricing: Nothing changed; no failures found by these tests · 5s
+  [2/2] ledger: Something broke · 1 broke · 13s
+Worst: ledger (Something broke)
+Fleet report: .../.soundcheck-fleet/fleet.html
+```
+
+A clean `--eaa` site never reads `Clean`: a snapshot says `No failures found by these tests` or `<n> WCAG criteria have failures`; a comparison says `Nothing changed; no failures found by these tests` (just `Nothing changed` while accessibility problems are still open). `fleet.html` adds the columns `Open accessibility issues` (with the trend against the site's previous fleet run, such as `↑ up from 9 at the last fleet run`) and `Criteria with failures`; each site links its `Statement draft`. A site without `--eaa` has empty cells there, not 0. `fleet.json` gains, per site:
+
+```json
+"eaa_open": 1,
+"criteria_failed": 1,
+"eaa_trend": "up",
+"eaa_before": 0,
+"statement": "ledger/.soundcheck/runs/2026-10-28T19-34-24.517Z/eaa/statement-draft.md",
+"label": "Something broke"
+```
+
+`label` is the wording above; `verdict` stays `clean` for a clean site. Each site's run writes its own statement draft in its folder.
 
 ### Variables and logins per site
 
@@ -115,7 +161,26 @@ Without `-o` the HTML goes to stdout. For a fleet site, run it in that site's fo
 - **What we found**: up to eight changes such as `Stopped working · Page not found (404) · On /about.php`, with Before and After pictures for visual changes;
 - **Fixed since last time**, then the footer `Prepared by Acme Web & Co · hello@acme.test`.
 
-It never shows file paths, stack traces, selectors, check ids or fix hints: those are for you, in the normal report. UNSTABLE changes are left out. A run (not a comparison) gets `We found errors on the site`, `The site works, with a few warnings` or `Everything works`.
+It never shows file paths, stack traces, selectors, check ids or fix hints: those are for you, in the normal report.
+
+For a result made with [`--eaa`](Soundcheck-EAA), **What we checked** says `Accessibility evidence: WCAG 2.1 AA automated rules and a keyboard walkthrough of 21 pages` instead of `Accessibility basics`. An **Accessibility** section follows, in plain words. From the EAA walk-through, after the trap was fixed and the wishlist control ignored:
+
+```text
+Accessibility
+We tested the site against the WCAG 2.1 A and AA criteria with automated rules and by using it with the keyboard alone.
+0  Open accessibility problems
+1  Criteria with failures
+26 Criteria with none found by these tests
+23 Criteria a person needs to check
+Criteria with failures
+2.1.1 Keyboard (1 problem on 1 page)
+What still needs a person (23 criteria)
+These tests can't judge these criteria; someone needs to check them by hand.
+...
+Automated and keyboard tests find some accessibility problems, not all. This is evidence for your own review, not a statement that the site meets WCAG, EN 301 549 or the European Accessibility Act.
+```
+
+(the page's text, without its layout). Problems set aside by ignore rules aren't open, though their criteria still count. Pages the tests couldn't finish are named (`We couldn't finish the accessibility tests on /catalog/, so that page needs checking again.`) and the report is titled `This check is partial`; `Everything works` is never shown then. UNSTABLE changes are left out. A run (not a comparison) gets `We found errors on the site`, `The site works, with a few warnings` or `Everything works`.
 
 Errors, exit 2:
 

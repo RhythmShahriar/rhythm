@@ -1,4 +1,4 @@
-Every Soundcheck command and flag, its exit codes, the environment variables it reads and where it keeps files. Verified against rhythm-soundcheck 1.2.0.
+Every Soundcheck command and flag, its exit codes, the environment variables it reads and where it keeps files. Verified against rhythm-soundcheck 1.3.0.
 
 Soundcheck is the `rhythm-soundcheck` binary. `rhythm soundcheck …` (or `rhythm sc …`) runs it. So does `rhythm-soundcheck …` directly; this page uses the `rhythm soundcheck` form.
 
@@ -12,21 +12,23 @@ Soundcheck is the `rhythm-soundcheck` binary. `rhythm soundcheck …` (or `rhyth
 | `rhythm soundcheck <url> --against <url> [flags]` | | Check the `--against` site, then `<url>` on the same pages. Compare them now. |
 | `rhythm soundcheck run <url> [flags]` | `check` | Check the site once, with no comparison. |
 | `rhythm soundcheck report [run] [flags]` | | Show a stored result again: the latest run or comparison, a run folder, or a snapshot by name. `--serve` reviews it in the browser; `--client --brand <agency.yaml>` writes a client report. |
-| `rhythm soundcheck accept <id>...` | | Make changes of the latest comparison part of its snapshot. See [Review and accept](Soundcheck-Review-And-Accept). |
+| `rhythm soundcheck statement [run] [flags]` | | Draft an accessibility statement from an `--eaa` run. See [Accessibility statement](Soundcheck-Accessibility-Statement). |
+| `rhythm soundcheck evidence verify\|sign\|keygen` | | Check or sign an `--eaa` run's evidence pack, or make a signing key. See [The evidence pack](Soundcheck-Accessibility-Statement#the-evidence-pack). |
+| `rhythm soundcheck accept <id>...` | | Make changes of the latest comparison part of its snapshot, or with `--ignore` write ignore rules for them. See [Review and accept](Soundcheck-Review-And-Accept). |
 | `rhythm soundcheck review [run]` | | Accept or ignore changes one by one, in the terminal. |
 | `rhythm soundcheck snapshots [--json]` | `ls` | List snapshots. `snapshots delete <name>` (or `rm`) deletes one. |
 | `rhythm soundcheck history` | | Every result so far, with trends. See [History](Soundcheck-History). |
 | `rhythm soundcheck fleet <sites.yaml> snapshot\|compare` | | Snapshot or compare many sites. See [Fleet and client reports](Soundcheck-Fleet-And-Client-Reports). |
 | `rhythm soundcheck wp-update <url> --wp <command>` | | Update WordPress plugins and find the one that breaks the site. See [WordPress updates](Soundcheck-WP-Update). |
 | `rhythm soundcheck rules list\|test [dir]` | | Your own error rules. See [Error rules and exec](Soundcheck-Error-Rules). |
-| `rhythm soundcheck init [--force]` | | Write `.soundcheck/config.yaml` with every setting. |
+| `rhythm soundcheck init [--eaa] [--force]` | | Write `.soundcheck/config.yaml` with every setting; `--eaa` adds `eaa: true`, the `a11y:`, `keyboard:` and `statement:` blocks and a key flow. |
 | `rhythm soundcheck import <file>` | | Write `.soundcheck/config.yaml` from a `backstop.json` or, with `--pages-only`, a Lost Pixel config. See [Import](Soundcheck-Import). |
-| `rhythm soundcheck flows init` | | Write an example flow to `.soundcheck/flows/example.yaml`. |
+| `rhythm soundcheck flows init [--keyboard]` | | Write an example flow to `.soundcheck/flows/example.yaml`; `--keyboard` writes four [key flows](Soundcheck-Keyboard-Walkthrough#key-flows) instead. |
 | `rhythm soundcheck update [--clear]` | | Install or refresh the browser it uses; `--clear` deletes the downloaded Chrome for Testing. |
-| `rhythm soundcheck demo [--keep]` | | Try it on a small built-in site. See [below](#demo). |
+| `rhythm soundcheck demo [--keep] [--eaa]` | | Try it on a small built-in site. See [below](#demo). |
 | `rhythm soundcheck --list-checks` | `list-checks` | Every check each module makes. See [below](#list-checks). |
-| `rhythm soundcheck version` | `-v`, `--version` | Print the version: `rhythm-soundcheck 1.2.0`. |
-| `rhythm soundcheck help [command]` | `-h`, `--help` | Print the help text, or more on `snapshot`, `compare`, `report`, `import`, `accept`, `review`, `history`, `fleet`, `wp-update` or `rules`. |
+| `rhythm soundcheck version` | `-v`, `--version` | Print the version: `rhythm-soundcheck 1.3.0`. A build from source prints `rhythm-soundcheck dev (1.3.0+<commit>)`, the release it is heading for and its commit. |
+| `rhythm soundcheck help [command]` | `-h`, `--help` | Print the help text, or more on `snapshot`, `compare`, `run`, `report`, `import`, `accept`, `review`, `history`, `fleet`, `wp-update`, `rules`, `eaa`, `keyboard`, `statement`, `evidence`, `demo`, `snapshots`, `flows`, `update` or `init` (a command's alias works too). A topic it doesn't have exits 2 with the list: `no help on "x"; topics are ...`. |
 
 Flags may come before or after the site: `rhythm soundcheck run yoursite.com --json` and `rhythm soundcheck run --json yoursite.com` are the same. List flags (`--include`, `--modules`, `--level`…) take comma-separated values and can be repeated.
 
@@ -81,13 +83,34 @@ The `--against` site is discovered and checked first and plays the snapshot's pa
 ### report
 
 ```sh
-rhythm soundcheck report                                    # the latest run or comparison
+rhythm soundcheck report                                    # the latest run or comparison (the latest snapshot when there is none)
 rhythm soundcheck report before-update                      # a snapshot
 rhythm soundcheck report .soundcheck/runs/2026-10-24T02-23-17
 rhythm soundcheck report --md -o soundcheck.md
 ```
 
-Re-renders a stored result without visiting the site, in any format, with `--open` and `--fail-on`. A folder argument wins over a snapshot of the same name. `report --serve` reviews a comparison in the browser ([Review and accept](Soundcheck-Review-And-Accept#review-in-the-browser)); `report --client --brand agency.yaml -o client.html` writes a [client report](Soundcheck-Fleet-And-Client-Reports#client-reports). A stored interrupted result exits 130.
+Re-renders a stored result without visiting the site, in any format, with `--open` and `--fail-on`. A folder argument wins over a snapshot of the same name. `report --serve` reviews a comparison in the browser ([Review and accept](Soundcheck-Review-And-Accept#review-in-the-browser)); `report --client --brand agency.yaml -o client.html` writes a [client report](Soundcheck-Fleet-And-Client-Reports#client-reports).
+
+`report` exits as the stored result did: 130 for an interrupted one, 3 for an `--eaa` result whose tests didn't finish on some pages, 1 when `--fail-on` is met and 0 otherwise. In a script that only wants the file, such as `report --md >> "$GITHUB_STEP_SUMMARY"` in a shell with `set -e`, add `|| true`.
+
+### statement
+
+```sh
+rhythm soundcheck statement -o accessibility-statement.md
+rhythm soundcheck statement before --layout service --html -o information.html
+```
+
+Drafts an accessibility statement from the newest `--eaa` run or snapshot (or the one named), with every place only you can fill in marked `[TO DO]`. Who you are and how visitors reach you come from `statement:` in the config. Flags: `--md`, `--html`, `--json`, `--earl`, `-o <file>` (repeatable, format from the extension), `--layout model|service`, `--wcag 2.1|2.2`, `--config <file>`, `--lang en` and `--force`. Exit codes: `0` written, `2` usage error, `3` no `--eaa` data, an interrupted run or a file that couldn't be read or written. See [Accessibility statement](Soundcheck-Accessibility-Statement).
+
+### evidence
+
+```sh
+rhythm soundcheck evidence verify [run folder|snapshot] [--pub <key>]
+rhythm soundcheck evidence sign [run folder|snapshot] --key <file>
+rhythm soundcheck evidence keygen -o <file>
+```
+
+`verify` checks that every file an `--eaa` run recorded is unchanged and that the chain to earlier `--eaa` runs is whole, then prints the key a signed pack was signed with (`--pub` fails unless it is that key). `sign` signs the pack with an Ed25519 key from `keygen`. Exit codes: `0` verified or signed, `1` verification failed, `2` usage error, `3` can't read. See [The evidence pack](Soundcheck-Accessibility-Statement#the-evidence-pack).
 
 ### snapshots
 
@@ -102,11 +125,11 @@ With none, it prints `No snapshots yet. Take one: rhythm soundcheck snapshot <ur
 ```json
 [
   {
-    "name": "before-update",
-    "created": "2026-10-25T15:52:16Z",
-    "site": "http://127.0.0.1:18931/",
-    "pages": 4,
-    "version": "1.2.0",
+    "name": "before",
+    "created": "2026-10-28T19:38:46Z",
+    "site": "http://127.0.0.1:39200/",
+    "pages": 21,
+    "version": "1.3.0",
     "latest": true
   }
 ]
@@ -116,6 +139,16 @@ With none, it prints `No snapshots yet. Take one: rhythm soundcheck snapshot <ur
 
 `init` writes `.soundcheck/config.yaml` (see [Configuration](Soundcheck-Configuration)); `--force` replaces an existing one. `flows init` writes `example.yaml` into the flows folder and never overwrites it. See [Flows](Soundcheck-Forms-And-Flows#flows).
 
+`init --eaa` writes the same file with `eaa: true`, the `modules:` line commented out and commented `a11y:`, `keyboard:` and `statement:` blocks, plus `.soundcheck/flows/keyboard-checkout.yaml`:
+
+```text
+Wrote .soundcheck/config.yaml. Every setting is optional; edit what you need.
+Wrote .soundcheck/flows/keyboard-checkout.yaml, a key flow to edit; it runs with --level flows.
+Fill in statement: before you run rhythm soundcheck statement.
+```
+
+`flows init --keyboard` writes `keyboard-checkout.yaml`, `keyboard-contact.yaml`, `keyboard-dialog.yaml` and `keyboard-menu.yaml`, keeping any that are already there. See [Key flows](Soundcheck-Keyboard-Walkthrough#key-flows).
+
 ### update
 
 ```text
@@ -123,7 +156,7 @@ $ rhythm soundcheck update
 Browser: installed Chrome at /usr/bin/google-chrome (updated with your system)
 ```
 
-With an installed Chrome, Soundcheck uses it and removes any Chrome for Testing it downloaded earlier (`Removed unused Chrome for Testing <dir>`). Otherwise it downloads the Chrome for Testing this version is pinned to (156.0.8078.47 in 1.2.0), checked against the SHA-256 in the binary. It prints `Browser: Chrome for Testing at <path>`. Ctrl+C stops the download. `rhythm update` runs it after updating the binary.
+With an installed Chrome, Soundcheck uses it and removes any Chrome for Testing it downloaded earlier (`Removed unused Chrome for Testing <dir>`). Otherwise it downloads the Chrome for Testing this version is pinned to (156.0.8078.47 in 1.3.0), checked against the SHA-256 in the binary. It prints `Browser: Chrome for Testing at <path>`. Ctrl+C stops the download. `rhythm update` runs it after updating the binary.
 
 | Flag | Default | Description |
 |---|---|---|
@@ -139,12 +172,26 @@ Serves a small bakery site from the binary on `127.0.0.1`, takes a snapshot, bre
 
 ```text
 Soundcheck demo: a small bakery site at http://127.0.0.1:41033, served by this binary.
-1. Taking a snapshot of it while it works (a few seconds)...
+1. Taking a snapshot of it while it works (the whole demo takes under a minute)...
 2. Breaking it the way an update can: a PHP warning in the footer of every page, a JS error on /, a dead button on /about/, no title on /blog/, /pricing/ answers 404 and the contact form answers 500.
 3. Comparing with the snapshot:
 ```
 
-It ends with `Something broke - 2 broke, 5 new, 2 changed, 0 slower, 0 fixed` and how to try it on your own site. It works in a temporary folder and removes it, unless you pass `--keep`.
+It ends with `Something broke - 2 broke, 5 new, 2 changed, 0 slower, 0 fixed` and how to try it on your own site. The demo's changes show no `accept <id>` lines, since `accept` works on your project's snapshots, not the demo's. It works in a temporary folder and removes it, unless you pass `--keep` (or `--open`), which keeps the folder and prints where it is. `rhythm soundcheck help demo` lists its flags. The site is served on a free port of `127.0.0.1` the binary picks; nothing else is contacted.
+
+`demo --eaa` runs the demo in [EAA mode](Soundcheck-EAA) and adds two breaks, a keyboard trap and a dialog that loses focus:
+
+```text
+2. Breaking it the way an update can: a PHP warning in the footer of every page, a JS error on /, a dead button on /about/, no title on /blog/, /pricing/ answers 404, the contact form answers 500, a keyboard trap in the newsletter field on / and focus lost when the opening hours dialog on /about/ closes.
+...
+Accessibility: 4 of 50 WCAG 2.1 A and AA criteria have failures (1.4.10, 2.1.2,
+2.4.2, 2.4.3 new), 23 had none found by these tests, 23 need a person, 1 page
+not fully tested, open issues 0 to 4
+Something broke - 3 broke, 8 new, 0 changed, 0 slower, 0 fixed - compared with snapshot "working" (just now), 5 pages, 8s
+...
+On your own site, compare shows an id with each change; rhythm soundcheck accept <id> makes a change you expected part of the snapshot.
+With --eaa on your own site, every run also writes a statement draft and an evidence pack; rhythm soundcheck demo --eaa --keep keeps this one's to look at.
+```
 
 ### list-checks
 
@@ -157,7 +204,12 @@ health: on by default
   health/auth-required   error    Password required (401)
   health/status          error    Page returns an error status
 ⋮
-a11y: off unless asked for (+a11y)
+a11y: off unless asked for (+a11y); on with --eaa
+  a11y/label              warning  Form field without a label                     wcag 4.1.2
+  a11y/<axe rule id>      warning  Any failing axe-core rule                      wcag from the rule's tags
+⋮
+keyboard: off unless asked for (+keyboard); on with --eaa
+  keyboard/trap               error    Keyboard focus is trapped                       wcag 2.1.2
 ⋮
 echo: on with --echo
   echo/message/missing  error    Message no longer sent
@@ -166,11 +218,13 @@ echo: on with --echo
 exec: on when the config lists exec: commands, which run with --allow-exec
 ```
 
+The a11y and keyboard checks name the WCAG criterion they fail in a last column: `wcag 2.1.2`, `wcag 2.4.11 with --wcag 2.2`, `advisory` (no criterion) or `wcag from the rule's tags`.
+
 ### The picker
 
 Run `rhythm soundcheck` with no arguments in an interactive terminal to get a short form:
 
-1. **What should Soundcheck do?** Compare with the latest snapshot (offered first when there is one, with its name, site and age), take a snapshot, or check once without comparing.
+1. **What should Soundcheck do?** Compare with the latest snapshot (offered first when there is one, with its name, site and age), take a snapshot, check once without comparing, or `Check accessibility (EAA evidence)`, which runs `snapshot <site> --eaa`.
 2. **Which site?** Skipped for a compare. The form reminds you: "Only check sites you own or are authorised to test."
 3. **Report:** terminal, then open the HTML report (the default); terminal only; or a Markdown file, `soundcheck.md`.
 
@@ -178,7 +232,7 @@ It then runs the matching command. Press Ctrl+C to cancel (exit code 130). When 
 
 ## Flags
 
-These apply to `snapshot`, `compare`, `run` and `--against`. `report` takes the output flags and `--fail-on`. `history`, `accept`, `review`, `fleet`, `wp-update` and `rules` take `--plain` and `--no-color`; their own flags are on their pages.
+These apply to `snapshot`, `compare`, `run` and `--against`; `fleet` passes `--eaa` and `--wcag` to every site. `report` takes the output flags and `--fail-on`. `history`, `accept`, `review`, `fleet`, `wp-update` and `rules` take `--plain` and `--no-color`; their own flags are on their pages.
 
 ### Snapshots
 
@@ -209,7 +263,7 @@ These apply to `snapshot`, `compare`, `run` and `--against`. `report` takes the 
 | `--no-color` | off | No color. |
 | `-v`, `--verbose` | off | Also show the browser used, the slowest pages and every log line; a line per page in place of the progress bar. |
 
-Pick one format flag (`pick one output format, not --json and --md`). Without `-o`, a format flag replaces the live view on stdout. Every run also writes `report.html` into its own folder. See [Reading results](Soundcheck-Reading-Results#other-formats).
+Pick one format flag (`pick one output format, not --json and --md`). Without `-o`, a format flag replaces the live view on stdout. With one `-o` it names that file's format (`--md -o summary.txt`). With several `-o` each file's format comes from its extension and a format flag is refused (exit 2), since it can't also print to stdout: `-o r.json -o r.md` writes both files, `--json -o r.md -o r.xml` stops. For JSON as well, add `-o r.json` and read the file. Every run also writes `report.html` into its own folder. See [Reading results](Soundcheck-Reading-Results#other-formats).
 
 ### What to check
 
@@ -221,11 +275,14 @@ Pick one format flag (`pick one output format, not --json and --md`). Without `-
 | `--exclude <globs>` | none | Skip pages matching, on top of the built-in excludes. |
 | `--page <path>` | none | Check this page too, even if nothing links to it; it gets past `--include`, `robots.txt` and grouping. Repeatable. |
 | `--ignore-robots` | off | Visit pages `robots.txt` disallows (your own site). |
-| `--modules <list>` | `health,visual,interact,cache,speed` | Also `a11y`, `seo` (off unless asked for), `echo` (on with `--echo`) and `exec` (on when the config lists `exec:` commands). `+<list>` adds to the default or config list, e.g. `+a11y,seo`. |
+| `--modules <list>` | `health,visual,interact,cache,speed` | Also `a11y`, `keyboard`, `seo` (off unless asked for), `echo` (on with `--echo`) and `exec` (on when the config lists `exec:` commands). `+<list>` adds to the default or config list, e.g. `+a11y,seo`. |
 | `--skip <list>` | none | Leave these modules out. |
 | `--level <list>` | `inspect,click` | Interaction levels: `inspect`, `click`, `submit`, `flows`. Each includes the ones before it, so `submit` also clicks; `+submit` works too. `submit` sends test data. |
 | `--viewport <list>` | `desktop,mobile` | Viewports to screenshot. |
 | `--quick` | off | A fast pass: `--viewport desktop` and `--modules health,interact`, unless you set those flags. |
+| `--eaa` | off | Accessibility evidence for the European Accessibility Act: modules `health, a11y, keyboard` (a chosen list keeps its modules and gains a11y and keyboard), WCAG 2.1 rules, a statement draft and an evidence pack in the run folder. `--eaa=false` turns off `eaa: true` from the config. Refused on `report`. See [EAA mode](Soundcheck-EAA). |
+| `--wcag <version>` | `2.1` | The a11y rules: `2.0`, `2.1` or `2.2`. A compare uses its snapshot's; a 1.2 snapshot counts as 2.0. `--eaa` takes 2.1 or 2.2. |
+| `--staging` | off | This target is a staging site: [key flows](Soundcheck-Keyboard-Walkthrough#key-flows) marked `keyboard: send` may submit on a public address. |
 | `--no-login` | off | Skip the login (leak test, login flows), even if `SOUNDCHECK_USER` is set. |
 | `--allow-env <name>` | none | Let flows read this variable too (repeatable); otherwise `${env:...}` reads only `SOUNDCHECK_*` ones. |
 | `--allow-host <host>` | none | Let flows open this host too, e.g. a payment page (repeatable). |
@@ -277,7 +334,7 @@ See [CI](Soundcheck-CI).
 | `0` | Done, with nothing at or above `--fail-on` (or `--fail-on` not set). |
 | `1` | A change or issue at or above `--fail-on`. |
 | `2` | Usage error: unknown command or flag, a bad value or config file, a rule that doesn't load, no site, no snapshot to compare with, nothing stored for `report`, an existing file for `init`, `import` or `flows init`. |
-| `3` | The site couldn't be checked (unreachable, no pages found, no browser), or a file couldn't be written. |
+| `3` | The site couldn't be checked (unreachable, no pages found, no browser), or a file couldn't be written. With `--eaa` also: a page's a11y or keyboard tests didn't finish, so the evidence is incomplete (`the accessibility evidence is incomplete: ...`). |
 | `130` | Interrupted (Ctrl+C, SIGHUP or SIGQUIT). An interrupted snapshot keeps the pages it finished for `--resume`; an interrupted compare or run keeps partial results, marked interrupted. |
 
 Usage errors name the flag and what it accepts:
@@ -288,14 +345,19 @@ rhythm soundcheck: pick one output format, not --json and --md
 rhythm soundcheck: --fail-on "broke": want error, warning or notice (or a class like broke when comparing)
 rhythm soundcheck: --confirm: "maybe" isn't on or off
 rhythm soundcheck: --browser: "firefx" isn't chrome, firefox or webkit (did you mean firefox?)
+rhythm soundcheck: unknown flag --eea (did you mean --eaa?)
+rhythm soundcheck: --wcag (a11y.wcag): "2" isn't one of 2.0, 2.1, 2.2
+rhythm soundcheck: --eaa needs Chrome: the keyboard walkthrough and axe use the Chrome DevTools protocol. Drop --browser firefox, or use --modules +a11y without --eaa
 ```
+
+Every `--eaa` usage error is listed on [EAA mode](Soundcheck-EAA#usage-errors).
 
 ## Environment variables
 
 | Variable | Description |
 |---|---|
-| `SOUNDCHECK_USER`, `SOUNDCHECK_PASSWORD` | The test account for the cache leak test and flows with `login: true`. Both must be set. Pages are still checked as a visitor. Never written to reports. |
-| `SOUNDCHECK_NO_SANDBOX` | `1` runs Chrome without its sandbox, like `--no-sandbox`. |
+| `SOUNDCHECK_USER`, `SOUNDCHECK_PASSWORD` | The test account for the cache leak test and flows with `login: true`. Both must be set. Pages are still checked as a visitor. Never written to reports; the statement draft masks the user name. |
+| `SOUNDCHECK_NO_SANDBOX` | `1` runs Chrome without its sandbox, like `--no-sandbox`. Under `--eaa` it isn't enough alone: add `--no-sandbox` to the command. |
 | `SOUNDCHECK_ALLOW_EXEC` | `1` lets exec commands run, like `--allow-exec`. |
 | `SOUNDCHECK_LIGHTHOUSE` | `1` turns on `--lighthouse`. |
 | `SOUNDCHECK_ECHO` | Echo's URL, like `--echo=<url>`. |
@@ -320,9 +382,12 @@ In the project, relative to where you run Soundcheck:
 | Settings | `.soundcheck/config.yaml` |
 | Flows | `.soundcheck/flows/*.yaml` |
 | Snapshots | `.soundcheck/snapshots/<name>/` and `.soundcheck/snapshots/LATEST` |
-| Runs and comparisons (the 20 newest) | `.soundcheck/runs/<date-time>/` |
+| Runs and comparisons (the 20 newest, plus every run with an evidence pack) | `.soundcheck/runs/<date-time>/` |
 | Your error rules | `.soundcheck/rules/*.yaml` |
 | History | `.soundcheck/history.jsonl` |
+| An `--eaa` run's statement draft and evidence pack | `<run or snapshot folder>/eaa/` |
+| An `--eaa` run's keyboard traces and key flow logs | `<run or snapshot folder>/keyboard/` and `keyflows/` |
+| Evidence packs kept by `accept`, a new snapshot of the same name or `snapshots delete` | `.soundcheck/evidence/<sha256>/` |
 | wp-update logs | `.soundcheck/wp-update/<date-time>.txt` and `.md` |
 | A stopped snapshot, for `--resume` | `.soundcheck/.incoming/<name>/` (24 hours) |
 | Fleet results | `.soundcheck-fleet/` next to `sites.yaml` |

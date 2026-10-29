@@ -151,6 +151,56 @@ Forms that are hidden, have a password field, are search forms, comment forms, t
 
 Every value Soundcheck types contains `soundcheck-test`. Search your inbox, CRM, form plugin entries or database for it to find and delete them. With [Echo](Echo) sealing staging, the emails and webhooks those submits trigger never leave: they're in Echo and tied to each form. `--echo` compares them between runs. See [With Soundcheck](Echo-With-Soundcheck).
 
+## EAA mode
+
+### Does a clean `--eaa` run mean my site complies with the EAA?
+
+No. Automated and keyboard tests find some accessibility problems, not all. This is evidence for your own review, not a statement that the site meets WCAG, EN 301 549 or the European Accessibility Act. Of the 50 WCAG 2.1 A and AA criteria the tests look for failures of 27; the other 23 need a person. Even for the 27, only a person can say a criterion is met. That is why a clean result reads `no failures found by these tests` (never `all clear`) and why the statement's status is always a `[TO DO]` for you. See [Honest limits](Soundcheck-EAA#honest-limits).
+
+### Is it an audit or a certification?
+
+No. Soundcheck's EAA mode gives you evidence about your site. It is not an audit, not a certification and not legal advice. A person's review can follow WCAG-EM, the W3C's method; `rhythm soundcheck statement --earl` exports the results for the W3C's WCAG-EM Report Tool so an evaluator can carry on from them. See [EARL for WCAG-EM](Soundcheck-Accessibility-Statement#earl-for-wcag-em).
+
+### Why did the run exit 3 when the site loaded fine?
+
+A page's a11y audit or keyboard walk didn't finish: the page was too big or busy (a runaway script), or the walk took over 60 seconds. The run lists it as `not checked: <path> (<module>: <reason>)` and exits 3, since evidence with a hole in it isn't complete. The statement marks the page not tested and a comparison never calls its issues FIXED. Look at the page in a browser; for a long page, raise `keyboard.max_tabs`. See [When the tests didn't finish](Soundcheck-EAA#when-the-tests-didnt-finish).
+
+### A widget on one of my pages wasn't tested
+
+Menus, dialogs, disclosures and custom controls are tested on the first page of each URL group (by path) and on the pages in `keyboard.pages`. Add the page to `keyboard.pages`, for example `["/cart*", "/checkout*", "/my-account*", "/contact*"]`. On the testbed, a "Save for later" control that ignores Enter and Space on `/a11y/wishlist.php` was only found once the page was in `keyboard.pages`, since `/a11y/` comes first in its group. See [How the walk works](Soundcheck-Keyboard-Walkthrough#how-the-walk-works).
+
+### Will the keyboard walk place orders or send forms?
+
+No. While it has a page, the walk holds every request but GET and HEAD, stops navigations away, refuses downloads and permission prompts and never presses submit controls or anything that looks destructive. Key flows run dry with `keyboard: true`: the step that would send ends the flow with a note such as `stopped at step 3 (would have sent POST /order/)`. Only `keyboard: send` submits, on this machine, a private address or with `--staging`, never on a URL under `production:`. A site that changes data on a GET or on focus can still change, so run it on staging. See [What the walk never does](Soundcheck-Keyboard-Walkthrough#what-the-walk-never-does).
+
+### Does it test pages behind a login?
+
+Pages are checked as a visitor. Key flows with `login: true` run logged in with the test account (`SOUNDCHECK_USER`, `SOUNDCHECK_PASSWORD`); the a11y audit doesn't run on logged-in pages in 1.3. Test your account area by hand and record it under `statement.manual`.
+
+### Can I use Firefox or Safari?
+
+Not for EAA mode: the keyboard walk and axe use the Chrome DevTools protocol, so `--eaa --browser firefox` is refused. In a [Firefox or WebKit](Soundcheck-Browsers) run without `--eaa`, the a11y and keyboard modules don't run: their audits are recorded as `skipped` with the reason `needs Chrome`.
+
+### Is it a screen reader test?
+
+No. The keyboard walkthrough uses Chrome's keyboard events. It is not a screen reader test, not a voice control test and not a test with disabled users. It runs at desktop width only.
+
+### My overlay widget is reported. Doesn't it make the site accessible?
+
+`a11y/overlay` is a notice: overlay widgets don't make a site accessible. Claims that they do have drawn regulators' attention. Fix the problems the other checks report in the site itself.
+
+### What personal data ends up in the reports?
+
+Reports contain what your pages showed. Soundcheck masks form values, credentials and tokens it recognises and emails, phone numbers and card numbers in text it writes. Masking is pattern-based: it is pseudonymised, not anonymised. Screenshots are not masked. Under `--eaa`, tokens in page paths are masked in every output. The statement draft never names the address checked or the test account. Run folders and reports are readable by you only.
+
+### Everything shows as NEW after upgrading to 1.3
+
+A snapshot from 1.2 has no keyboard results and ran the WCAG 2.0 rules. Compared with `--eaa`, keyboard issues are all new (`note: snapshot "before" was taken without --eaa; keyboard issues will all be new. Take a new snapshot with --eaa`), while issues of the 2.1 rules it never ran are put aside, not NEW. Take a new snapshot with `--eaa`.
+
+### Someone could edit the run folder. How do I prove it wasn't?
+
+Sign the evidence pack (`evidence keygen`, then `evidence sign --key`) and publish your public key. `evidence verify --pub <key>` fails when any recorded file changed or the pack was signed with another key. A signed evidence pack proves who produced it and that it wasn't changed afterwards. It doesn't prove the site was in that state for every visitor. See [The evidence pack](Soundcheck-Accessibility-Statement#the-evidence-pack).
+
 ## Reporting a bug
 
 Open an issue at [github.com/RhythmShahriar/soundcheck/issues](https://github.com/RhythmShahriar/soundcheck/issues). Include:
