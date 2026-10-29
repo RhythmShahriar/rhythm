@@ -268,7 +268,7 @@ func TestInstallDryRunChecksEveryName(t *testing.T) {
 	_, latest := allTools()
 	s := newSandbox(t, nil, latest)
 	code, out, errs := runCmd("install", "--dry-run", "tuner", "sondcheck", "nope")
-	want := "rhythm: unknown tool \"sondcheck\"\n  did you mean: rhythm install soundcheck\nrhythm: unknown tool \"nope\"\n  known: echo, soundcheck, tuner\n"
+	want := "rhythm: unknown tool \"sondcheck\"\n  did you mean: rhythm install soundcheck\nrhythm: unknown tool \"nope\"\n  known: echo, roadie, sightread, soundcheck, tuner\n"
 	if code != 2 || out != "" || errs != want {
 		t.Errorf("exit %d\n%q\n%q", code, out, errs)
 	}

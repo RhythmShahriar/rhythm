@@ -11,7 +11,7 @@
     "name": "soundcheck",
     "repo": "RhythmShahriar/soundcheck",
     "aliases": ["sc"],
-    "description": "did my change break anything? whole-site before/after checks",
+    "description": "did my change break anything? whole-site before/after checks, accessibility (EAA)",
     "default_install": true,
     "min_rhythm": ""
   },
@@ -19,8 +19,24 @@
     "name": "echo",
     "repo": "RhythmShahriar/echo",
     "aliases": ["e"],
-    "description": "is my site still saying what it should? every email, SMS and webhook",
+    "description": "is my site still saying what it should? email, SMS, webhooks and cookie consent",
     "default_install": true,
     "min_rhythm": ""
+  },
+  {
+    "name": "roadie",
+    "repo": "RhythmShahriar/roadie",
+    "aliases": ["ro"],
+    "description": "is my staging a safe copy of production? pseudonymised copies, keys and side effects off",
+    "default_install": true,
+    "min_rhythm": "0.9.0"
+  },
+  {
+    "name": "sightread",
+    "repo": "RhythmShahriar/sightread",
+    "aliases": ["sr"],
+    "description": "what will this update really change? diff and rank before you update",
+    "default_install": true,
+    "min_rhythm": "0.9.0"
   }
 ]

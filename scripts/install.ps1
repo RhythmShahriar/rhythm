@@ -499,7 +499,7 @@
     # (tuner@0.3.1) into the tool's name.
     function Get-ToolName([string]$Tool) {
         $Name = $Tool -replace '@.*$', '' -replace '^rhythm-', ''
-        switch ($Name) { 't' { 'tuner' } 'sc' { 'soundcheck' } 'e' { 'echo' } default { $Name } }
+        switch ($Name) { 't' { 'tuner' } 'sc' { 'soundcheck' } 'e' { 'echo' } 'ro' { 'roadie' } 'sr' { 'sightread' } default { $Name } }
     }
     $Known = @()
     if ($Locked) {
@@ -619,6 +619,8 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
                 'tuner' { 'rhythm tuner scan ./your-site' }
                 'soundcheck' { 'rhythm soundcheck snapshot http://localhost:8080' }
                 'echo' { 'rhythm echo up' }
+                'roadie' { 'rhythm roadie demo' }
+                'sightread' { 'rhythm sightread all ./your-site' }
                 default { "rhythm $Name --help" }
             }
             Write-Host "  $Step"

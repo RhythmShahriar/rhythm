@@ -112,6 +112,7 @@ $All = 'tuner:t,soundcheck:sc,echo:e'
 $New = 'dry-run,verify,defaults,pins,locked,skip-signature'
 $Build = Join-Path $Work 'build'
 foreach ($R in @(
+        @('0.9.0', "$All,roadie:ro,sightread:sr", $New, 'yes'),
         @('0.7.0', $All, $New, 'yes'),
         @('0.6.0', $All, 'dry-run', 'yes'),
         @('0.5.0', $All, '', 'yes'),
@@ -142,7 +143,7 @@ foreach ($R in @(
 Copy-Item (Join-Path $Srv 'repos/RhythmShahriar/rhythm/releases/tags/v0.7.0') (Join-Path $Srv 'repos/RhythmShahriar/rhythm/releases/latest')
 # The stand-in fetches each tool's archive before it "installs" the tool, so
 # a case can take one away. Only the request matters, not the bytes.
-foreach ($T in 'tuner', 'soundcheck', 'echo') {
+foreach ($T in 'tuner', 'soundcheck', 'echo', 'roadie', 'sightread') {
     $Out = Join-Path $Srv "dl/$T/v0.1.0"
     New-Item -ItemType Directory -Force -Path $Out | Out-Null
     foreach ($Os in 'windows', 'linux', 'darwin') {
@@ -200,7 +201,7 @@ exit "${FAKE_GH_EXIT:-0}"
 # cases is found once, here.
 $ShellExe = (Get-Command $Shell -CommandType Application | Select-Object -First 1).Source
 $Sep = [IO.Path]::PathSeparator
-# A real gh is left out too: GitHub's runners have one, and the cases that
+# A real gh is left out too: GitHub's runners have one and the cases that
 # want gh put the stand-in first. Windows keeps each in a folder of its
 # own, so those folders go; elsewhere such a folder (often /usr/bin) is
 # replaced by links to everything else in it.
@@ -333,7 +334,7 @@ function Get-Bin([string]$Name) { Join-Path (Join-Path $script:CaseDir 'bin') $N
 function Assert-File([string]$Name) { if (-not (Test-Path (Get-Bin $Name))) { Fail "$Name wasn't installed" } }
 function Assert-NoFile([string]$Name) { if (Test-Path (Get-Bin $Name)) { Fail "$Name was installed" } }
 function Assert-Tools([string[]]$Want = @()) {
-    foreach ($T in 'tuner', 'soundcheck', 'echo') {
+    foreach ($T in 'tuner', 'soundcheck', 'echo', 'roadie', 'sightread') {
         if ($Want -contains $T) { Assert-File "rhythm-$T$Exe" } else { Assert-NoFile "rhythm-$T$Exe" }
     }
 }
@@ -350,7 +351,10 @@ function Assert-Started([string[]]$Want = @()) {
         return
     }
     Assert-NoOut 'Install a tool'
-    $Steps = @{ tuner = '  rhythm tuner scan ./your-site'; soundcheck = '  rhythm soundcheck snapshot http://localhost:8080'; echo = '  rhythm echo up' }
+    $Steps = @{
+        tuner = '  rhythm tuner scan ./your-site'; soundcheck = '  rhythm soundcheck snapshot http://localhost:8080'; echo = '  rhythm echo up'
+        roadie = '  rhythm roadie demo'; sightread = '  rhythm sightread all ./your-site'
+    }
     $WantLines = ($Want | ForEach-Object { $Steps[$_] }) -join '|'
     $Lines = $script:Out -split "`n"
     $At = [Array]::IndexOf($Lines, 'Get started:')
@@ -497,6 +501,30 @@ function Case-path_note {
 }
 
 function Get-Argv { $F = Join-Path $script:CaseDir 'argv.log'; if (Test-Path $F) { @(Get-Content $F) } else { @() } }
+
+# rhythm 0.9.0 added Roadie and Sightread to the defaults; their aliases
+# and first steps work like the others'.
+function Case-new_tools {
+    Invoke-Install @{ RHYTHM_VERSION = '0.9.0'; RHYTHM_TEST_DEFAULTS = 'tuner soundcheck echo roadie sightread' }
+    Assert-Code 0
+    Assert-Out "Installed rhythm 0.9.0 to $(Join-Path $script:CaseDir 'bin')"
+    Assert-Tools 'tuner', 'soundcheck', 'echo', 'roadie', 'sightread'
+    Assert-Started 'tuner', 'soundcheck', 'echo', 'roadie', 'sightread'
+
+    Remove-Item -Recurse -Force (Join-Path $script:CaseDir 'bin'), (Join-Path $script:CaseDir 'argv.log')
+    Invoke-Install @{ RHYTHM_VERSION = '0.9.0'; RHYTHM_TOOLS = 'ro sr roadie' }
+    Assert-Code 0
+    Assert-Tools 'roadie', 'sightread'
+    Assert-Started 'roadie', 'sightread'
+    if (@(Get-Argv | Where-Object { $_ -match '^rhythm install (ro|roadie) ' }).Count -ne 1) { Fail 'roadie was installed more than once' }
+
+    # The latest router doesn't know them yet: a named one stops the install.
+    Remove-Item -Recurse -Force (Join-Path $script:CaseDir 'bin')
+    Invoke-Install @{ RHYTHM_TOOLS = 'tuner sightread' }
+    Assert-Code 1
+    Assert-Out 'rhythm: unknown tool "sightread"'
+    Assert-Tools
+}
 
 function Case-defaults {
     # Unset RHYTHM_TOOLS takes the router's own list of defaults.
@@ -1081,7 +1109,7 @@ function Case-redirect_to_http {
 }
 
 function Case-redirect_followed {
-    # Redirects that stay on https are followed, a relative one too, and
+    # Redirects that stay on https are followed (a relative one too) and
     # no Authorization goes with them.
     Invoke-Install @{ RHYTHM_VERSION = '9.0.8'; RHYTHM_TOOLS = 'none'; RHYTHM_GITHUB_TOKEN = 'mirror-test-secret' } $Hops
     Assert-Code 0
@@ -1110,7 +1138,7 @@ function Case-wow64 {
 }
 
 function Case-user_path_raw {
-    # The user PATH keeps entries written with variables as they are, and
+    # The user PATH keeps entries written with variables as they are and
     # stays REG_EXPAND_SZ.
     if (-not $OnWindows) { Write-Host "skip $($script:Case)"; return }
     $Bin = Join-Path $script:CaseDir 'bin'
@@ -1167,7 +1195,7 @@ function Set-RawUserPath($Value, $Kind) {
 }
 
 if (-not $Cases.Count) {
-    $Cases = 'default', 'none', 'some', 'commas', 'typo', 'tool_fails', 'defaults', 'pins', 'locked', 'path_note',
+    $Cases = 'default', 'none', 'some', 'commas', 'typo', 'tool_fails', 'defaults', 'new_tools', 'pins', 'locked', 'path_note',
     'signature_cosign', 'signature_cosign_fails', 'signature_gh', 'signature_none', 'skip_signature', 'router_verify', 'bad_checksum', 'no_checksums', 'missing_dir', 'relative_dir', 'truncated', 'http_refused', 'http_download_refused', 'redirect_to_http', 'redirect_followed', 'api_not_plain', 'version_checked', 'timeout', 'github_token', 'rhythm_token',
     'rate_limit', 'old_router', 'old_router_named', 'router_without_dry_run', 'router_without_tools_block',
     'unknown_tool', 'running_exe', 'swap_fallback', 'swap_restore', 'readonly_dir', 'wow64', 'user_path_raw'

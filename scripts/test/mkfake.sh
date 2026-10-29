@@ -8,7 +8,7 @@
 # ROOT gets repos/RhythmShahriar/<repo>/releases/{latest,tags/v<version>},
 # the archives under dl/<repo>/v<version>/ and a checksums.txt (with a
 # stand-in checksums.txt.sigstore.json) per release,
-# for rhythm, tuner, soundcheck and echo. server.py serves it and fills in
+# for rhythm, tuner, soundcheck, echo, roadie and sightread. server.py serves it and fills in
 # {{BASE}} in the release JSON.
 #
 # Every binary in an archive is a shell-script stand-in that prints its
@@ -20,6 +20,7 @@
 # did-you-mean lines. A tool named in $RHYTHM_TEST_ALREADY gets rhythm's
 # "is already installed" line instead of an install. The rhythm versions
 # differ the way real releases do:
+#   0.9.0           the same as 0.7.0; also knows roadie and sightread
 #   0.7.0 (latest)  knows tuner, soundcheck and echo; has install --dry-run
 #                   and --quiet; says once that --dir isn't on PATH; has
 #                   verify (which fails when RHYTHM_TEST_VERIFY=fail),
@@ -327,7 +328,7 @@ release() {
 
 all="tuner (t) soundcheck (sc) echo (e)"
 new="dry-run verify defaults pins locked skip-signature"
-for spec in "0.7.0|$all|$new|yes" "0.6.0|$all|dry-run|yes" "0.5.0|$all||yes" \
+for spec in "0.9.0|$all roadie (ro) sightread (sr)|$new|yes" "0.7.0|$all|$new|yes" "0.6.0|$all|dry-run|yes" "0.5.0|$all||yes" \
 	"0.4.0|tuner (t) soundcheck (sc)||yes" "0.3.5|$all||no" \
 	"9.0.1|$all|$new|yes" "9.0.2|$all|$new|yes" "9.0.3|$all|$new|yes" "9.0.4|$all|$new|yes" "9.0.5|$all|$new|yes" \
 	"9.0.6|$all|$new|yes"; do
@@ -338,7 +339,7 @@ EOF
 	router "$root/build/rhythm/$v/rhythm" "$v" "$tools" "$features" "$block"
 done
 
-for v in 0.7.0 0.6.0 0.5.0 0.4.0 0.3.5; do
+for v in 0.9.0 0.7.0 0.6.0 0.5.0 0.4.0 0.3.5; do
 	release rhythm "$v" "{{BASE}}/dl/rhythm/v$v"
 done
 release rhythm 9.0.1 http://example.invalid/dl/rhythm/v9.0.1
@@ -349,7 +350,7 @@ release rhythm 9.0.5 "{{BASE}}/hang/dl/rhythm/v9.0.5"
 release rhythm 9.0.6 "http://example.invalid?@127.0.0.1/dl/rhythm/v9.0.6"
 cp "$root/repos/$owner/rhythm/releases/tags/v0.7.0" "$root/repos/$owner/rhythm/releases/latest"
 
-for t in tuner soundcheck echo; do
+for t in tuner soundcheck echo roadie sightread; do
 	mkdir -p "$root/build/$t/0.1.0"
 	tool "$root/build/$t/0.1.0/rhythm-$t" 0.1.0
 	release "$t" 0.1.0 "{{BASE}}/dl/$t/v0.1.0"

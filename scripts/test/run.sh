@@ -18,8 +18,8 @@ set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 installer=$here/../install.sh
 shell=${RHYTHM_TEST_SH:-sh}
-# The physical path: macOS's temp folder is under /var, a link to
-# /private/var, and the installer runs under env -i, where pwd prints the
+# The physical path: macOS's temp folder is under /var (a link to
+# /private/var) and the installer runs under env -i, where pwd prints the
 # physical path.
 work=$(cd "$(mktemp -d)" && pwd -P)
 server=
@@ -162,7 +162,7 @@ expect_no_out() { ! grep -qF -- "$1" "$cdir/out" || fail "output has: $1"; }
 expect_file() { [ -x "$cdir/bin/$1" ] || fail "$1 wasn't installed"; }
 expect_no_file() { [ ! -e "$cdir/bin/$1" ] || fail "$1 was installed"; }
 expect_tools() {
-	for t in tuner soundcheck echo; do
+	for t in tuner soundcheck echo roadie sightread; do
 		case " $* " in
 		*" $t "*) expect_file "rhythm-$t" ;;
 		*) expect_no_file "rhythm-$t" ;;
@@ -187,6 +187,8 @@ expect_started() {
 		tuner) want="$want  rhythm tuner scan ./your-site|" ;;
 		soundcheck) want="$want  rhythm soundcheck snapshot http://localhost:8080|" ;;
 		echo) want="$want  rhythm echo up|" ;;
+		roadie) want="$want  rhythm roadie demo|" ;;
+		sightread) want="$want  rhythm sightread all ./your-site|" ;;
 		esac
 	done
 	got=$(sed -n '/^Get started:$/,$p' "$cdir/out" | grep '^  rhythm ' | tr '\n' '|')
@@ -315,6 +317,30 @@ case_defaults() {
 	install RHYTHM_TOOLS=tuner
 	expect_code 0
 	! grep -q -- '--defaults' "$cdir/argv.log" || fail "the defaults were asked for with RHYTHM_TOOLS set"
+}
+
+# rhythm 0.9.0 added Roadie and Sightread to the defaults; their aliases
+# and first steps work like the others'.
+case_new_tools() {
+	install RHYTHM_VERSION=0.9.0 RHYTHM_TEST_DEFAULTS='tuner soundcheck echo roadie sightread'
+	expect_code 0
+	expect_out "Installed rhythm 0.9.0 to $cdir/bin"
+	expect_tools tuner soundcheck echo roadie sightread
+	expect_started tuner soundcheck echo roadie sightread
+
+	rm -rf "${cdir:?}/bin" "$cdir/argv.log"
+	install RHYTHM_VERSION=0.9.0 RHYTHM_TOOLS='ro sr roadie'
+	expect_code 0
+	expect_tools roadie sightread
+	expect_started roadie sightread
+	[ "$(grep -cE '^rhythm install (ro|roadie) ' "$cdir/argv.log")" = 1 ] || fail "roadie was installed more than once"
+
+	# The latest router doesn't know them yet: a named one stops the install.
+	rm -rf "${cdir:?}/bin"
+	install RHYTHM_TOOLS='tuner sightread'
+	expect_code 1
+	expect_out 'rhythm: unknown tool "sightread"'
+	expect_tools
 }
 
 case_pins() {
@@ -1060,7 +1086,7 @@ case_readme_links() {
 	check_links "$cdir/README.md" || fail "a good README failed"
 }
 
-cases=${*:-default none some commas typo tool_fails defaults pins locked path_hint path_hint_quote path_hint_macos path_ok
+cases=${*:-default none some commas typo tool_fails defaults new_tools pins locked path_hint path_hint_quote path_hint_macos path_ok
 signature_cosign signature_cosign_fails signature_gh signature_none skip_signature router_verify bad_checksum no_checksums missing_dir relative_dir unwritable_dir truncated proto http_refused http_download_refused redirect_to_http api_not_plain version_checked timeout github_token
 rhythm_token rate_limit old_router old_router_named router_without_dry_run
 router_without_tools_block unknown_tool readme readme_commands readme_links}

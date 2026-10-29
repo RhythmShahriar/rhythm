@@ -91,7 +91,7 @@ func cmdConfig(args []string, stdout, stderr io.Writer) int {
 
 // noSelfPrompt are the commands after which rhythm never offers to
 // update itself: update does it already, uninstall may have removed
-// rhythm, version and completion are read by scripts and shells, and
+// rhythm, version and completion are read by scripts and shells and
 // config may be turning the prompt off.
 var noSelfPrompt = map[string]bool{"update": true, "uninstall": true, "version": true, "completion": true, "config": true}
 

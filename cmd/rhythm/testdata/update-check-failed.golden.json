@@ -24,6 +24,28 @@
       "skipped_newer": null
     },
     {
+      "name": "rhythm-roadie",
+      "current": "0.1.0",
+      "latest": "0.2.0",
+      "path": "$SANDBOX/bin/rhythm-roadie",
+      "outdated": true,
+      "signed": "",
+      "managed_by": "",
+      "error": "",
+      "skipped_newer": null
+    },
+    {
+      "name": "rhythm-sightread",
+      "current": "0.1.0",
+      "latest": "0.2.0",
+      "path": "$SANDBOX/bin/rhythm-sightread",
+      "outdated": true,
+      "signed": "",
+      "managed_by": "",
+      "error": "",
+      "skipped_newer": null
+    },
+    {
       "name": "rhythm-soundcheck",
       "current": "0.1.0",
       "latest": "",

@@ -12,7 +12,7 @@ import (
 )
 
 func TestLookupTool(t *testing.T) {
-	for in, want := range map[string]string{"tuner": "tuner", "t": "tuner", "sc": "soundcheck", "e": "echo", "echo": "echo"} {
+	for in, want := range map[string]string{"tuner": "tuner", "t": "tuner", "sc": "soundcheck", "e": "echo", "echo": "echo", "ro": "roadie", "sr": "sightread", "sightread": "sightread"} {
 		if got, ok := lookupTool(in); !ok || got.Name != want {
 			t.Errorf("lookupTool(%q) = %q, %v; want %q", in, got.Name, ok, want)
 		}
@@ -23,7 +23,7 @@ func TestLookupTool(t *testing.T) {
 }
 
 func TestToolNames(t *testing.T) {
-	want := []string{"echo", "soundcheck", "tuner"}
+	want := []string{"echo", "roadie", "sightread", "soundcheck", "tuner"}
 	if got := toolNames(); !slices.Equal(got, want) {
 		t.Errorf("toolNames() = %v", got)
 	}

@@ -261,6 +261,8 @@ main() {
 		tuner) echo "rhythm tuner scan ./your-site" ;;
 		soundcheck) echo "rhythm soundcheck snapshot http://localhost:8080" ;;
 		echo) echo "rhythm echo up" ;;
+		roadie) echo "rhythm roadie demo" ;;
+		sightread) echo "rhythm sightread all ./your-site" ;;
 		*) echo "rhythm $1 --help" ;;
 		esac
 	}
@@ -273,6 +275,8 @@ main() {
 		t) echo tuner ;;
 		sc) echo soundcheck ;;
 		e) echo echo ;;
+		ro) echo roadie ;;
+		sr) echo sightread ;;
 		*) echo "${1#rhythm-}" ;;
 		esac
 	}
