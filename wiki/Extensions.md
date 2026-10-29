@@ -28,7 +28,7 @@ After that the extension behaves like one of rhythm's tools:
 
 ### What gets refused
 
-rhythm's own names can't be taken, so an extension can never stand in for Tuner, Soundcheck or Echo. Each of these exits 2 before any request:
+rhythm's own names can't be taken, so an extension can never stand in for Tuner, Soundcheck, Echo, Roadie or Sightread. Each of these exits 2 before any request:
 
 ```text
 rhythm: can't install someone/rhythm-tuner as an extension: tuner is one of rhythm's own tools (RhythmShahriar/tuner)

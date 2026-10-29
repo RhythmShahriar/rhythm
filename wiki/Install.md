@@ -1,4 +1,4 @@
-Install `rhythm`, Tuner, Soundcheck and Echo with one command on macOS, Linux or Windows. This page also covers the installer's options and messages, mirrors and tokens, Linux packages, GitHub Actions, `go install`, manual downloads and how to add a single tool later.
+Install `rhythm`, Tuner, Soundcheck, Echo, Roadie and Sightread with one command on macOS, Linux or Windows. This page also covers the installer's options and messages, mirrors and tokens, Linux packages, GitHub Actions, `go install`, manual downloads and how to add a single tool later.
 
 ## Quick install
 
@@ -14,7 +14,7 @@ curl -fsSL https://rythm.sh/install | sh
 irm https://rythm.sh/install.ps1 | iex
 ```
 
-Both installers put `rhythm`, `rhythm-tuner`, `rhythm-soundcheck` and `rhythm-echo` in the same folder. Every download is checked against the release's `checksums.txt` before anything is written. The signature over `checksums.txt` is checked too when it can be (see [Signature checks](#signature-checks)). The installer ends with your first steps:
+Both installers put `rhythm` and every default tool (`rhythm-tuner`, `rhythm-soundcheck`, `rhythm-echo`, `rhythm-roadie`, `rhythm-sightread`) in the same folder. Every download is checked against the release's `checksums.txt` before anything is written. The signature over `checksums.txt` is checked too when it can be (see [Signature checks](#signature-checks)). The installer ends with your first steps:
 
 ```console
 $ curl -fsSL https://rythm.sh/install | sh
@@ -31,7 +31,7 @@ Get started:
 Rhythm tools are for sites you own or have permission to test: https://github.com/RhythmShahriar/rhythm/wiki/Responsible-Use
 ```
 
-That run installed rhythm 0.6.0, the latest release while this was written, on a machine without cosign or gh. From rhythm 0.7.0 the new `rhythm` also checks itself with `rhythm verify rhythm` and each tool's lines are followed by its `Signature ok` and `Checksum ok` lines.
+That run installed rhythm 0.6.0, the latest release while this was written, on a machine without cosign or gh. From rhythm 0.7.0 the new `rhythm` also checks itself with `rhythm verify rhythm` and each tool's lines are followed by its `Signature ok` and `Checksum ok` lines. From rhythm 0.9.0 it also installs Roadie and Sightread, with `rhythm roadie demo` and `rhythm sightread all ./your-site` as their first steps.
 
 Soundcheck drives a real browser. It uses Chrome or Chromium if you have one; otherwise it downloads Chromium once, the first time it needs it (see [Chromium on first use](#chromium-on-first-use)).
 
@@ -54,7 +54,7 @@ Soundcheck drives a real browser. It uses Chrome or Chromium if you have one; ot
 5. Checks the signature with cosign or the GitHub CLI when one of them is installed.
 6. Compares the archive's SHA-256 with its line in `checksums.txt`. If the release has no `checksums.txt`, or the hash doesn't match, it stops and installs nothing.
 7. Copies `rhythm` into the install folder through a temporary file, so an existing `rhythm` is never left half-written. Then it runs `rhythm verify rhythm`, which checks the new binary against its signed release; if that fails, the previous `rhythm` is put back (or the new one removed) and nothing else is installed.
-8. Asks `rhythm` which tools a fresh setup gets (`rhythm install --defaults --dry-run`, today Echo, Soundcheck and Tuner) unless you set `RHYTHM_TOOLS`. Every name is checked in one go before any tool is downloaded.
+8. Asks `rhythm` which tools a fresh setup gets (`rhythm install --defaults --dry-run`, today Echo, Roadie, Sightread, Soundcheck and Tuner) unless you set `RHYTHM_TOOLS`. Every name is checked in one go before any tool is downloaded.
 9. Runs `rhythm install <tool> --dir <install folder>` for each tool. That download is checked the same way, signature included. A tool that fails doesn't stop the others.
 10. Prints the first steps for each tool it installed and checks your `PATH`.
 
@@ -113,7 +113,7 @@ Set these environment variables to change what the installer does. Both scripts 
 |---|---|---|
 | `RHYTHM_INSTALL_DIR` | see [Where it installs](#where-it-installs) | Install somewhere else. The folder is created if needed. |
 | `RHYTHM_VERSION` | latest | Install a specific `rhythm` version, e.g. `0.5.0` (one leading `v` is fine). Anything that isn't a version is refused before a request. |
-| `RHYTHM_TOOLS` | the tools rhythm installs on a fresh setup (`tuner soundcheck echo` for a rhythm older than 0.7.0) | Tools to install alongside, separated by spaces or commas. `none` installs no tool. `tool@version` pins one: `tuner@0.3.1`, or `tuner@0.3` for the newest 0.3.x. |
+| `RHYTHM_TOOLS` | the tools rhythm installs on a fresh setup (`tuner soundcheck echo` for a rhythm older than 0.7.0). rhythm 0.9.0 or later also installs roadie and sightread by default | Tools to install alongside, separated by spaces or commas. `none` installs no tool. `tool@version` pins one: `tuner@0.3.1`, or `tuner@0.3` for the newest 0.3.x. |
 | `RHYTHM_LOCKED` | off | `1` installs the tools and versions in `rhythm.lock` in the current folder (`rhythm install --locked`) instead of `RHYTHM_TOOLS`. |
 | `RHYTHM_SKIP_SIGNATURE` | off | `1` skips the installer's signature checks of `rhythm` and passes `--skip-signature` to each `rhythm install` it runs for the tools, with a warning. For a mirror you trust that can't serve the signatures. |
 | `GITHUB_TOKEN` | none | Sent to `api.github.com` only, to lift GitHub's limit of 60 anonymous requests an hour (shared CI runners hit it). |
@@ -131,6 +131,9 @@ curl -fsSL https://rythm.sh/install | RHYTHM_INSTALL_DIR=/opt/bin RHYTHM_TOOLS=n
 
 # Tuner pinned to 0.3.1 plus Soundcheck
 curl -fsSL https://rythm.sh/install | RHYTHM_TOOLS='tuner@0.3.1,soundcheck' sh
+
+# rhythm with Sightread and Roadie only
+curl -fsSL https://rythm.sh/install | RHYTHM_TOOLS='sightread roadie' sh
 
 # rhythm pinned to a version
 curl -fsSL https://rythm.sh/install | RHYTHM_VERSION=0.5.0 sh
@@ -228,7 +231,7 @@ Installed rhythm-echo 1.0.0 to /home/me/.local/bin/rhythm-echo
   Checksum ok   sha256:419130487999167ce27cf0d67c519bd36f35b8b270d307b32a3cee314cc3a5f2
 ```
 
-Short names work too: `rhythm install t` installs Tuner, `sc` Soundcheck and `e` Echo. Name several (`rhythm install tuner,echo soundcheck`), pin one (`rhythm install tuner@0.3.1`) or check names first with `--dry-run`. The download is checked against the release's signature and `checksums.txt` and swapped into place atomically, exactly like an update. Every flag and message is in the [Command reference](Command-Reference#install).
+Short names work too: `rhythm install t` installs Tuner, `sc` Soundcheck, `e` Echo, `ro` Roadie and `sr` Sightread. Name several (`rhythm install tuner,echo soundcheck`), pin one (`rhythm install tuner@0.3.1`) or check names first with `--dry-run`. The download is checked against the release's signature and `checksums.txt` and swapped into place atomically, exactly like an update. Every flag and message is in the [Command reference](Command-Reference#install).
 
 After installing, `rhythm` warns you if the tool won't be found:
 
@@ -244,6 +247,8 @@ go install github.com/RhythmShahriar/rhythm/cmd/rhythm@latest
 go install github.com/RhythmShahriar/tuner/cmd/rhythm-tuner@latest
 go install github.com/RhythmShahriar/soundcheck/cmd/rhythm-soundcheck@latest
 go install github.com/RhythmShahriar/echo/cmd/rhythm-echo@latest
+go install github.com/RhythmShahriar/roadie/cmd/rhythm-roadie@latest
+go install github.com/RhythmShahriar/sightread/cmd/rhythm-sightread@latest
 ```
 
 Binaries go to `$(go env GOPATH)/bin`.
@@ -259,18 +264,26 @@ Every release has archives for Linux, macOS and Windows on `amd64` and `arm64`, 
 - Tuner: https://github.com/RhythmShahriar/tuner/releases/latest
 - Soundcheck: https://github.com/RhythmShahriar/soundcheck/releases/latest
 - Echo: https://github.com/RhythmShahriar/echo/releases/latest
+- Roadie: https://github.com/RhythmShahriar/roadie/releases/latest
+- Sightread: https://github.com/RhythmShahriar/sightread/releases/latest
 
 Download the archive for your platform (for example `rhythm-tuner_linux_arm64.tar.gz` or `rhythm-tuner_windows_amd64.zip`) together with `checksums.txt` and `checksums.txt.sigstore.json`, check them as described in [Verifying Releases](Verifying-Releases), then extract the binary into a folder on your `PATH`. Keep `rhythm` and its tools in the same folder so `rhythm update` and `rhythm install` find them.
 
 ## Chromium on first use
 
-Soundcheck needs Chrome or Chromium; Tuner and Echo don't. Soundcheck uses an installed Chrome or Chromium when it finds one. Otherwise, the first time it needs a browser, it downloads the Chromium build it's pinned to into your cache folder (`~/.cache/rhythm/soundcheck/browser` on Linux) and says so with `Downloading Chromium once, into <folder> …`.
+Soundcheck and Echo's cookie consent checks (`rhythm echo consent`) need Chrome or Chromium; the rest of Echo, Tuner, Roadie and Sightread don't (Sightread's `--soundcheck` uses Soundcheck's browser). Soundcheck's EAA mode (`--eaa`) needs Chrome itself: the keyboard walk and axe-core run through the Chrome DevTools protocol, so it refuses `--browser firefox` and `webkit`. Soundcheck uses an installed Chrome or Chromium when it finds one. Otherwise, the first time it needs a browser, it downloads the Chromium build it's pinned to into your cache folder (`~/.cache/rhythm/soundcheck/browser` on Linux) and says so with `Downloading Chromium once, into <folder> …`.
+
+Echo's consent checks use an installed Chrome too, or else download Chrome for Testing 156.0.8078.47 once into the same folder (`~/.cache/rhythm/soundcheck/browser`), so one download serves both tools. They print `Downloading Chrome for Testing 156.0.8078.47 (191 MB) once, into <folder> …` on stderr. `rhythm echo doctor` says which browser they'll use. See [Cookie consent](Echo-Consent#install).
 
 To do it ahead of time, for example while building a Docker image, run `rhythm soundcheck update`. To use a specific browser, pass `--browser /path/to/chrome`; to forbid the download, `--no-download`. See [Soundcheck FAQ](Soundcheck-FAQ#chromium-download-and-update).
 
 ## Echo's connectors
 
 Echo's binary is all you need on the machine that runs it. The sites it watches get a connector, installed separately: the WordPress mu-plugin comes with the binary (`rhythm echo install wordpress`), the Laravel package from Packagist (`rhythmsh/echo-laravel`) and the Next.js and Node package from npm (`@rhythmsh/echo`). See [Connectors](Echo-Install-Connectors).
+
+## Roadie's needs
+
+Roadie needs nothing else on your machine: it reads and writes MySQL, MariaDB, PostgreSQL and SQLite through built-in drivers. For an `ssh://` site it uses your own `ssh`; the host needs WP-CLI (or `mysqldump`/`pg_dump`) and GNU `find`. The staging copy's mail goes to Echo, so run `rhythm echo up` on the staging host. See [Roadie: Getting started](Roadie-Getting-Started).
 
 ## Check it worked
 

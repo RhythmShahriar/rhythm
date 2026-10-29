@@ -9,8 +9,8 @@ rhythm update
 It works in this order:
 
 1. **`rhythm` itself.**
-2. **Every installed tool**, found as `rhythm-<tool>` on your `PATH` (today: `rhythm-tuner`, `rhythm-soundcheck` and `rhythm-echo`), then the [extensions](Extensions) you installed with `rhythm ext`.
-3. **Each tool's data**, by running `rhythm-<tool> update`. For Tuner that refreshes the [check pack](Tuner-Check-Packs) and the cached vulnerability data; for Soundcheck, the browser it uses (see [Soundcheck's browser](#soundchecks-browser)). Echo has nothing to refresh (see [Echo](#echo)).
+2. **Every installed tool**, found as `rhythm-<tool>` on your `PATH` (today: `rhythm-tuner`, `rhythm-soundcheck`, `rhythm-echo`, `rhythm-roadie` and `rhythm-sightread`), then the [extensions](Extensions) you installed with `rhythm ext`.
+3. **Each tool's data**, by running `rhythm-<tool> update`. For Tuner that refreshes the [check pack](Tuner-Check-Packs) and the cached vulnerability data; for Soundcheck, the browser it uses (see [Soundcheck's browser](#soundchecks-browser)). Echo has nothing to refresh (see [Echo](#echo)). For Roadie, the profile pack, checked against the signed release (see [Roadie's profile pack](Release-Process#roadies-profile-pack-and-action)). For Sightread, the signal and popular-name data packs, checked against the signed release (see [Sightread's data packs](Release-Process#sightreads-data-packs-and-action)); Sightread never updates a package.
 
 ```console
 $ rhythm update
@@ -305,6 +305,8 @@ Soundcheck uses an installed Chrome or Chromium when there is one; those update 
 - Without Chrome, it downloads the pinned Chromium if it's missing (progress on stderr) and ends with `Browser: Chromium at <path>`.
 
 A new Soundcheck release may pin a newer Chromium. `rhythm update` then downloads it and removes the old one in the same step; if a check downloads it first, the old revision stays until the next `update`.
+
+Echo's consent checks use the same folder: an installed Chrome, or Chrome for Testing downloaded once on the first check. `rhythm echo update` doesn't download it; the first `rhythm echo consent` without a Chrome does. Deleting the folder removes it for both tools.
 
 To delete the downloaded Chromium:
 

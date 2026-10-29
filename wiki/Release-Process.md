@@ -51,7 +51,7 @@ GoReleaser reads the repository's [`.goreleaser.yaml`](https://github.com/Rhythm
 |---|---|
 | Build | `linux`, `darwin`, `windows` × `amd64`, `arm64`; `CGO_ENABLED=0`, `-trimpath`; version stamped with `-X main.version` |
 | Archive | `<binary>_<os>_<arch>.tar.gz`, `.zip` on Windows, with README and LICENSE |
-| SBOM | `<archive>.sbom.json`, SPDX 2.3 JSON written by syft for every archive |
+| SBOM | `<archive>.sbom.json`, SPDX 2.3 JSON written by syft for every archive; Soundcheck also ships `axe-core.cdx.json`, the committed CycloneDX SBOM of the axe-core it embeds |
 | Packages | `rhythm` only: `.deb`, `.rpm` and `.apk` for `amd64` and `arm64`, with the binary in `/usr/bin` and the license and README in `/usr/share/doc/rhythm` |
 | Checksums | `checksums.txt`, SHA-256 of every archive, SBOM and package |
 | Sign | `cosign sign-blob` over `checksums.txt`, keyless, written to `checksums.txt.sigstore.json` (the Sigstore bundle format cosign v3 writes) |
@@ -105,7 +105,7 @@ The `rhythm` config also generates a Homebrew cask (`RhythmShahriar/homebrew-tap
 
 A change to `release-go.yml` or `ci-go.yml` can break every caller at once, since they all use `@master`. Merge in this order and say so in the release notes:
 
-1. **The callers first.** When the workflow will ask for a new permission (as `attestations: write` did), add it to `release.yml` in tuner, soundcheck, echo and rhythm. GitHub refuses to start a release that asks for more than its caller grants.
+1. **The callers first.** When the workflow will ask for a new permission (as `attestations: write` did), add it to `release.yml` in tuner, soundcheck, echo, roadie, sightread and rhythm. GitHub refuses to start a release that asks for more than its caller grants.
 2. **Tools behind on the kit.** `kit-pin-check` is on by default, so bump each tool's kit requirement (or set `kit-pin-check: false` as a stopgap) before the check lands, or its CI goes red.
 3. **Then `RhythmShahriar/.github`.**
 4. **Then the callers that use the new inputs.** `rhythm`'s `ci.yml` passes `os`, `pin-check`, `bench` and `bench-packages`, which a `ci-go.yml` without them rejects.
@@ -182,6 +182,8 @@ rhythm (kit the tool needs)  →  the tool's first release  →  rhythm (registe
 2. **The tool**, requiring that `rhythm` version. For Echo, the one `v1.0.0` tag releases the binary and the npm package. `split-laravel.sh v1.0.0` then publishes the Laravel package (see [Echo's packages](#echos-packages)). A tool that others build on releases before them: Soundcheck `v1.1.0`, which imports Echo's `client` and `compare`, comes after Echo `v1.0.0`.
 3. **`rhythm` again**, registering the tool and installing it by default. For Echo, `v0.5.0` registers `echo` with the alias `e` and makes the installers default to `tuner soundcheck echo`.
 
+For Roadie it's kit `v0.8.0` and Echo `v1.1.2` (both already released), then Roadie `v1.0.0`, then rhythm `v0.9.0` registering `roadie` with the alias `ro` and `min_rhythm: "0.9.0"`, installed by default. For Sightread it's kit `v0.8.0` (already released), then Sightread `v1.0.0`, then rhythm `v0.9.0` registering `sightread` with the alias `sr` and `min_rhythm: "0.9.0"`, installed by default.
+
 Registering a tool as a default before it has a release breaks every fresh install: the installer installs the other tools, then ends with `Installed: tuner, soundcheck. Failed: echo (see above).` and exits 1 for everyone using the default `RHYTHM_TOOLS`.
 
 ## Echo's packages
@@ -214,7 +216,30 @@ No workflow runs the split: the Echo repository's workflows are `ci.yml`, `relea
 
 - `make check` in the Echo repository, plus the connectors' own tests: `make -C connectors/laravel check` (Docker) and `cd connectors/node && npm test`.
 - The `version` in `connectors/node/package.json` doesn't matter: the workflow sets it from the tag.
+- For the consent checks: `make test-browser` (the consent tests that start Chrome) and `make test-integrated` (every consent stage required, as the nightly CI runs it), `make fuzz-consent` and the consent benchmark: `make -C testbed/consent up && make bench-consent && make -C testbed/consent reproduce` (sealed Docker mode, the benchmark of record), which rewrites `docs/benchmark-consent.md`. Its targets must all be met.
+- The JSON Schemas in `report/schema/` (four of them for consent: `consent`, `consent-detect`, `consent-verify`, `consent-catalog`) are regenerated and the goldens updated in the same commit as any change to an output.
+- `ci.yml`'s `consent-browser` job (the consent tests that start Chrome, on the hosted runners) is green.
 - The mu-plugin's `Version:` header and `VERSION` constant in `connectors/wordpress/echo.php` should match the release.
+
+## Soundcheck's axe-core
+
+Soundcheck's archives carry axe-core's license and source under `THIRD_PARTY/axe-core/`; each release also ships `axe-core.cdx.json`, the CycloneDX SBOM of the axe-core it embeds. Updating axe-core is a reviewed change, not a Dependabot bump: `scripts/update-axe.sh <version>` in the Soundcheck repository checks the npm integrity and registry signatures, refreshes the SBOM and the rule table (`node scripts/gen-axe-rules.mjs`); it refuses to run for Dependabot.
+
+## Roadie's profile pack and Action
+
+A Roadie release carries, next to the binaries, `rhythm-roadie_profiles.tar.gz`: the stack profiles, so the pack can be read and checked without the binary. It is listed in the release's `checksums.txt`, so the release signature covers it. `rhythm-roadie update` (and `rhythm update`) downloads the newest pack, checks its Sigstore signature and checksum with `kit/sigverify` (the same trust path as the binary) and uses it only when it is newer than the profiles built in; `--pin profiles=<version>` picks one. Reports record the pack version.
+
+The GitHub Action is `action.yml` in the Roadie repository. After `v1.0.0` is tagged, move the `v1` tag to it, so `uses: RhythmShahriar/roadie@v1` gets the release. The Action installs the release that matches its tag and checks it with cosign (`scripts/verify-release.sh`) before it runs.
+
+Before tagging, run the speed benchmarks on an idle machine (`go test -run '^$' -bench . ./engine/ ./verify/ ./keys/ ./dump/mysql/`) and the sealed testbed (`make -C testbed up bench reproduce`), then commit the generated `docs/benchmark.md`. CI's `goreleaser-snapshot` job checks the archive names on every push.
+
+## Sightread's data packs and Action
+
+A Sightread release carries, next to the binaries, its data packs: the signal rules and the popular-name list it checks typosquats against. They're listed in the release's `checksums.txt`, so the release signature covers them. `rhythm-sightread update` (and `rhythm update`) downloads the newest pack, checks its Sigstore signature (the shared release workflow at `refs/heads/master`, repository `RhythmShahriar/sightread`, tag `v<version>`) and its checksum before using it; `--pin` picks a version. It never updates a package.
+
+The GitHub Action is `action.yml` in the Sightread repository. After `v1.0.0` is tagged, move the `v1` tag to it, so `uses: RhythmShahriar/sightread@v1` gets the release. The Action installs the release that matches its tag and checks it with cosign before it runs; `rhythm sightread init ci` writes a workflow pinned by commit with the matching `version` input.
+
+Before tagging, run `make perf` on an idle machine (the analyzer and lexer speed targets) and `make -C testbed bench` with the Docker WordPress up. Then commit the regenerated `docs/benchmark.md`.
 
 ## Check packs
 
@@ -240,6 +265,8 @@ After the workflow finishes:
    ```sh
    gh release view v0.3.2 -R RhythmShahriar/tuner --json assets --jq '.assets[].name'
    ```
+
+   A Soundcheck release also has `axe-core.cdx.json`, listed in `checksums.txt`. A Roadie release also has `rhythm-roadie_profiles.tar.gz` and a Sightread release its data packs, each listed in `checksums.txt`.
 
 2. **Latest.** The new version is marked *Latest* while `checks-latest` is still a *Pre-release*:
 

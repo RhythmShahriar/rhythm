@@ -101,6 +101,8 @@ Download the archive, `checksums.txt` and `checksums.txt.sigstore.json` from the
 - https://github.com/RhythmShahriar/tuner/releases/latest
 - https://github.com/RhythmShahriar/soundcheck/releases/latest
 - https://github.com/RhythmShahriar/echo/releases/latest
+- https://github.com/RhythmShahriar/roadie/releases/latest
+- https://github.com/RhythmShahriar/sightread/releases/latest
 
 ### With cosign
 
@@ -115,7 +117,7 @@ cosign verify-blob --bundle checksums.txt.sigstore.json \
   checksums.txt
 ```
 
-`Verified OK` means `checksums.txt` was signed by the shared release workflow, run for that repository at that tag. Use `RhythmShahriar/rhythm`, `RhythmShahriar/soundcheck` or `RhythmShahriar/echo` for the others. All four flags matter: without the repository and ref flags the command would accept a signature made by any project that calls the same public workflow. Releases signed before the release workflow moved to cosign v3 carry the older cosign bundle format; rhythm reads both.
+`Verified OK` means `checksums.txt` was signed by the shared release workflow, run for that repository at that tag. Use `RhythmShahriar/rhythm`, `RhythmShahriar/soundcheck`, `RhythmShahriar/echo`, `RhythmShahriar/roadie` or `RhythmShahriar/sightread` for the others. All four flags matter: without the repository and ref flags the command would accept a signature made by any project that calls the same public workflow. Releases signed before the release workflow moved to cosign v3 carry the older cosign bundle format; rhythm reads both.
 
 Then check the archive against `checksums.txt`:
 
@@ -173,12 +175,22 @@ It checks the registry signature of every installed package and the provenance a
 
 On a project that has `@rhythmsh/echo` installed, the output counts verified registry signatures and verified attestations; any package listed as invalid or missing a signature is worth a look before you deploy.
 
+### Echo's consent evidence
+
+Not a release artifact, though signed the same way when you ask: the GitHub Action's `sign: true` signs a consent check's `consent.json` with keyless cosign. Check it with `cosign verify-blob --bundle consent.json.sigstore.json --certificate-identity-regexp '^https://github.com/<owner>/<repo>/' --certificate-oidc-issuer https://token.actions.githubusercontent.com consent.json`. Locally, `rhythm echo consent verify <folder> --key <public key>` checks the hashes and an ed25519 signature. See [Evidence](Echo-Consent-Evidence#signing).
+
+## Roadie's profile pack and Sightread's data packs
+
+Roadie's profile pack, `rhythm-roadie_profiles.tar.gz`, is listed in each release's `checksums.txt`, so the same cosign check covers it; `rhythm roadie update` checks it before use. The GitHub Action checks the release with cosign before it runs. Roadie's own reports are signed separately, with the user's key: `rhythm roadie report check` checks them ([Verify and reports](Roadie-Verify-And-Reports#signed-reports)).
+
+Sightread's data packs are listed in each release's `checksums.txt`, so the same cosign check covers them; `rhythm sightread update` checks them before use. The GitHub Action checks the release with cosign before it runs (`verify-signature: true`).
+
 ## What is signed and what isn't
 
 | Item | Checksummed | Signed |
 |---|---|---|
 | `rhythm` release archives, SBOMs and Linux packages | Yes, `checksums.txt` | Yes, `checksums.txt` is signed with Sigstore and attested; rhythm checks it on every install and update |
-| Tool release archives (`rhythm-tuner`, `rhythm-soundcheck`, `rhythm-echo`) | Yes, `checksums.txt` | Yes, the same way |
+| Tool release archives (`rhythm-tuner`, `rhythm-soundcheck`, `rhythm-echo`, `rhythm-roadie`, `rhythm-sightread`), Soundcheck's `axe-core.cdx.json`, Roadie's profile pack and Sightread's data packs | Yes, `checksums.txt` | Yes, the same way |
 | [Extension](Extensions) release archives | Yes, `checksums.txt` | Yes, by a workflow of the extension's own repository; rhythm refuses one that isn't, or that changes workflow |
 | Echo's npm package, `@rhythmsh/echo` | Yes, by npm (the `integrity` hash in your lockfile) | Yes: published with [npm provenance](#echos-npm-package), tying it to the Echo repository's `npm` workflow |
 | Echo's Laravel package, `rhythmsh/echo-laravel` | Composer records the commit it installed | No: Packagist serves a tag of the [`echo-laravel`](https://github.com/RhythmShahriar/echo-laravel) repository, split from the Echo repository |

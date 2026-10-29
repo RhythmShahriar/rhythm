@@ -14,6 +14,7 @@ From the outside, Tuner has to guess versions. Many servers hide PHP's. On the m
 - **You suspect a compromise.** `--integrity` finds changed core and plugin files; the malware signatures find common backdoors.
 - **You want configuration review**: keys and salts, debug mode, file permissions, the dashboard file editor.
 - **The site sits behind a firewall** or isn't public yet.
+- **You made a staging copy with Roadie.** `rhythm tuner scan <staging dir>` covers the file-level leaks Roadie's reports list as not covered (see [Roadie: Security and limits](Roadie-Security-And-Limits#what-roadie-cant-see)).
 
 It doesn't replace a remote scan. A local scan can't tell whether the web server actually serves a stray file. It doesn't check headers, cookies or TLS either. Run both when you can. See [Remote and local scans](Tuner#remote-and-local-scans).
 
