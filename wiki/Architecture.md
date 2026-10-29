@@ -1,19 +1,25 @@
-How Rhythm fits together: a small router CLI, a shared kit and tools that live in their own repositories and release on their own. The second half walks through the internals of three tools: Tuner, from the first request of a scan to the report; Soundcheck, from discovery to a comparison; Echo, from a capture to a comparison.
+How Rhythm fits together: a small router CLI, a shared kit and tools that live in their own repositories and release on their own. The second half walks through the internals of three tools: Tuner, from the first request of a scan to the report; Soundcheck, from discovery to a comparison; Echo, from a capture to a comparison; Echo's cookie consent check, from a URL to a verdict. Roadie's design (what it reads, the dump allowlist, the spool, every network request) is on its own page: [Security and limits](Roadie-Security-And-Limits). Sightread's design (what it fetches, verifies and analyses) is on its own page: [Security model](Sightread-Security-Model).
 
 ## The big picture
 
 ```mermaid
 flowchart LR
-  user(["rhythm tuner scan yoursite.com<br/>rhythm soundcheck compare<br/>rhythm echo up"]) --> router["rhythm<br/>(router)"]
+  user(["rhythm tuner scan yoursite.com<br/>rhythm soundcheck compare<br/>rhythm echo up<br/>rhythm roadie copy<br/>rhythm sightread all"]) --> router["rhythm<br/>(router)"]
   router -- "exec rhythm-tuner …" --> tuner["rhythm-tuner"]
   router -- "exec rhythm-soundcheck …" --> sc["rhythm-soundcheck"]
   router -- "exec rhythm-echo …" --> echo["rhythm-echo"]
+  router -- "exec rhythm-roadie …" --> roadie["rhythm-roadie"]
+  router -- "exec rhythm-sightread …" --> sr["rhythm-sightread"]
   router -- "exec rhythm-&lt;name&gt; …" --> ext["extensions"]
   router -. "install / update / verify / lock" .-> gh[("GitHub Releases")]
   router -. "signature root (TUF)" .-> sigstore[("Sigstore")]
   tuner -. "check packs, update notice" .-> gh
   sc -. "update notice" .-> gh
   echo -. "update notice" .-> gh
+  roadie -. "profile pack, update notice" .-> gh
+  roadie -- "echo/connectors/wordpress, echo/client" --> echo
+  roadie -. "--soundcheck" .-> sc
+  sr -. "--soundcheck" .-> sc
   sc --> chrome["headless Chrome"]
   sc -- "echo/client, echo/compare" --> echo
   subgraph kit ["rhythm/kit (Go module)"]
@@ -37,6 +43,8 @@ flowchart LR
   tuner --- update
   sc --- kit
   echo --- kit
+  roadie --- kit
+  sr --- kit
 ```
 
 | Piece | Repository | Role |
@@ -46,6 +54,8 @@ flowchart LR
 | `rhythm-tuner` | [`RhythmShahriar/tuner`](https://github.com/RhythmShahriar/tuner) | WordPress & PHP security scanner |
 | `rhythm-soundcheck` | [`RhythmShahriar/soundcheck`](https://github.com/RhythmShahriar/soundcheck) | Whole-site before/after checks in a real browser |
 | `rhythm-echo` | [`RhythmShahriar/echo`](https://github.com/RhythmShahriar/echo) | Captures and compares what a site sends; seals staging. Also publishes the npm connector `@rhythmsh/echo` |
+| `rhythm-roadie` | [`RhythmShahriar/roadie`](https://github.com/RhythmShahriar/roadie) | Makes pseudonymised staging copies of production with live keys swapped and side effects off, verifies them and signs the report. Also the `RhythmShahriar/roadie@v1` GitHub Action |
+| `rhythm-sightread` | [`RhythmShahriar/sightread`](https://github.com/RhythmShahriar/sightread) | Reads plugin, theme, Composer and npm updates before they're installed: diffs each against its official source and ranks what is new. Also the `RhythmShahriar/sightread@v1` GitHub Action |
 | `rhythmsh/echo-laravel` | [`RhythmShahriar/echo-laravel`](https://github.com/RhythmShahriar/echo-laravel) | Echo's Laravel connector, split from `connectors/laravel` in the Echo repository for Packagist |
 | Shared workflows | [`RhythmShahriar/.github`](https://github.com/RhythmShahriar/.github) | Reusable CI, commit lint and release workflows, the writing-style, header and kit-pin scripts, community files |
 
@@ -54,7 +64,7 @@ flowchart LR
 `rhythm` follows the same extension model as `git` and `gh`: it runs tools it doesn't contain.
 
 - `rhythm <tool> [args]` looks up `rhythm-<tool>` on your `PATH` and runs it with the remaining arguments. On Linux and macOS it replaces itself with the tool (exec), so signals reach the tool directly and its exit code is rhythm's; on Windows it runs the tool as a child and waits. It sets `RHYTHM_INVOKED_AS` (`rhythm sc`) so the tool's help shows what you typed.
-- **Aliases** are short names: `t` → `tuner`, `sc` → `soundcheck`, `e` → `echo`. They work wherever a tool name does.
+- **Aliases** are short names: `t` → `tuner`, `sc` → `soundcheck`, `e` → `echo`, `ro` → `roadie`, `sr` → `sightread`. They work wherever a tool name does.
 - A name is checked before any lookup (`^[a-z0-9][a-z0-9-]{0,63}$`), so `rhythm /../evil` never reaches the file system. An unknown name gets a did-you-mean, a known tool that isn't installed exits 3 with the install command. See [Command reference](Command-Reference#running-a-tool).
 - Any other executable `rhythm-<name>` on the `PATH` runs too. [Extensions](Extensions) installed with `rhythm ext` are also updated, locked and verified.
 
@@ -69,7 +79,7 @@ The tools rhythm knows are data, in [`cmd/rhythm/tools.json`](https://github.com
   "name": "echo",
   "repo": "RhythmShahriar/echo",
   "aliases": ["e"],
-  "description": "is my site still saying what it should? every email, SMS and webhook",
+  "description": "is my site still saying what it should? email, SMS, webhooks and cookie consent",
   "default_install": true,
   "min_rhythm": ""
 }
@@ -125,7 +135,7 @@ Three internal packages hold the router's own formats:
 | `kit/secrets` | Finding and masking credentials in text with 96 rules: cloud, payment, messaging, source-control and AI provider keys, JWTs, cookies, authorization and `x-*-token` headers, URLs with passwords, reset and magic-link tokens, form fields, env, YAML, JSON and PHP-serialized values, PEM private keys. `Redact` keeps at most four leading characters; `Rules` lists every rule. |
 | `kit/term` | Safe text from untrusted sources: control and bidi characters made visible or replaced for terminals, Markdown escaping, inline code and links for http(s) URLs only. |
 
-`kit/ui` also has the shared report pieces: severity badges, section rules and the summary panel. Soundcheck uses `kit/crawl`, `kit/ratelimit`, `kit/cache` and `kit/cli`; Echo uses `kit/ui`, `kit/cli`, `kit/cache`, `kit/config`, `kit/update` and `kit/secrets`. The tools adopt `kit/cli.Main`, `kit/httpx` and `kit/term` as they move to the newer kit. The kit's changes reach users only once a kit version is tagged and each tool moves to it.
+`kit/ui` also has the shared report pieces: severity badges, section rules and the summary panel. Soundcheck uses `kit/crawl`, `kit/ratelimit`, `kit/cache` and `kit/cli`; Echo uses `kit/ui`, `kit/cli`, `kit/cache`, `kit/config`, `kit/update` and `kit/secrets`. Roadie uses `kit/cli`, `kit/cache`, `kit/config`, `kit/httpx`, `kit/ratelimit`, `kit/secrets`, `kit/sigverify`, `kit/term`, `kit/ui` and `kit/update`, plus Echo's `connectors/wordpress`, `client`, `model`, `wire` and `codes` at Echo v1.1.2. Sightread uses `kit/cli` (it is the first tool built on `cli.Main`), `kit/httpx`, `kit/cache`, `kit/config`, `kit/ratelimit`, `kit/secrets`, `kit/sigverify`, `kit/term`, `kit/ui` and `kit/update`. The tools adopt `kit/cli.Main`, `kit/httpx` and `kit/term` as they move to the newer kit. The kit's changes reach users only once a kit version is tagged and each tool moves to it.
 
 `kit/update` relies on a naming contract with every repository's GoReleaser config; see [Release Process](Release-Process#the-naming-contract).
 
@@ -229,12 +239,23 @@ soundcheck/
 ├── browser                 find, download and launch Chrome; private sessions
 ├── capture                 one page visit: events, metrics, links, text, screenshots
 ├── check                   the module interface: hooks and the run context
-├── checks/                 the five modules
+├── checks/                 the modules
 │   ├── health              status, PHP and JS errors, failed requests, links, indexing
 │   ├── visual              pixel diff, dynamic regions, bands, grouping
 │   ├── interact            inspect, click, submit, flows
 │   ├── cache               layers, double fetch, private pages, nonces, staleness, leak test
-│   └── speed               lab metrics, regressions, site-wide suggestions, plugin cost
+│   ├── speed               lab metrics, regressions, site-wide suggestions, plugin cost
+│   ├── a11y                axe-core (embedded), placeholder labels, reflow at 320 px, overlays
+│   ├── keyboard            the Tab walk, widgets, focus rings, traps; runs key flows
+│   ├── keyflows            key flows: flows played by keyboard only, dry or send
+│   ├── seo                 what search engines read, compared between runs
+│   ├── echo                what form submits send, through Echo
+│   └── exec                your own programs on every page
+├── wcag                    every WCAG 2.0, 2.1 and 2.2 A and AA criterion, EN 301 549 clauses, axe rule table
+├── statement               the accessibility statement draft: Markdown, HTML, JSON, EARL
+├── evidence                the evidence pack of an --eaa run: hashes, chain, ed25519 signatures
+├── internal/focus          presses keys like a visitor and reads where focus goes
+├── internal/pii            masks emails, phone, card and IBAN numbers and credentials
 ├── flow                    the YAML flow format, its runner and fake data
 ├── login                   WordPress or flow login from SOUNDCHECK_USER/PASSWORD
 ├── compare                 two runs → ranked changes (BROKE, NEW, CHANGED, SLOWER, FIXED)
@@ -270,7 +291,7 @@ The runner knows nothing about what modules check. A module is a Go type with a 
 | Hook | When it runs | Used by |
 |---|---|---|
 | `Prepare` | on a fresh tab, before it navigates | speed (starts CSS and JS coverage) |
-| `Live` | while the page is open at desktop size, after the screenshot, before the mobile reload; interact runs last, since it changes the page | speed, interact |
+| `Live` | while the page is open at desktop size, after the screenshot, before the mobile reload; interact and then keyboard run last, since they change the page | speed, a11y, seo, interact, keyboard |
 | `CheckPage` | after the visit, on the recorded page, without the browser | health, visual (learns dynamic regions in snapshots), speed |
 | `CheckSite` | once, after every page | health (links), cache, speed (suggestions), interact (flows) |
 | `Compare` | in a comparison, on both runs | health (titles, content, redirects), visual, cache, speed |
@@ -280,7 +301,7 @@ Each issue gets a key from its check, title and source, so `compare` can match t
 
 ### The browser layer
 
-`browser` drives Chrome through the DevTools protocol with [go-rod](https://github.com/go-rod/rod). It uses `--browser`, or an installed Chrome or Chromium, or downloads a pinned Chromium into `<cache>/rhythm/soundcheck/browser` (progress on stderr). Chrome runs headless with GPU, audio and background networking off and background-tab throttling disabled. It drops its sandbox only when running as root. Each page gets its own window with focus emulated, so pages in parallel paint and animate like the front one. The HTTP cache is off so every page loads cold. The crawl runs in one private (incognito) session; the leak test and each flow get their own, so a logged-in user never shares cookies with the anonymous crawl. The login is tried once at the start of a run.
+`browser` drives Chrome through the DevTools protocol with [go-rod](https://github.com/go-rod/rod). It uses `--browser`, or an installed Chrome or Chromium, or downloads a pinned Chromium into `<cache>/rhythm/soundcheck/browser` (progress on stderr). Chrome runs headless with GPU, audio and background networking off and background-tab throttling disabled. It drops its sandbox only when running as root. Each page gets its own window with focus emulated, so pages in parallel paint and animate like the front one. The HTTP cache is off so every page loads cold. The crawl runs in one private (incognito) session; the leak test, each flow and each key flow get their own, so a logged-in user never shares cookies with the anonymous crawl. Every tab is kept in the run's network scope: on a public site no tab loads loopback, private or link-local addresses or cloud metadata names unless `--allow-host` names them. The login is tried once at the start of a run.
 
 `capture` records each visit from DevTools events: the document's status, headers and redirect chain; every request with its type, status, size, protocol and cache headers; console errors, uncaught exceptions and browser log errors; Web Vitals from a `PerformanceObserver` injected before any page script; the visible text, title, robots directives and same-site links. Screenshots pause animations first. The visual module learns dynamic regions from a second capture in snapshots.
 
@@ -288,7 +309,7 @@ Discovery itself fetches only `robots.txt`, sitemaps and the start page (`kit/cr
 
 ### Storage and reports
 
-`store` writes each run as `run.json` (schema `rhythm-soundcheck/v1`) with its screenshots, into `.soundcheck/snapshots/<name>/` or `.soundcheck/runs/<date-time>/`. A snapshot is written to `.incoming/` and moved into place only when complete. Runs are pruned to the newest 20. The folders are added to `.git/info/exclude`. `report` renders one result model as the live terminal view, plain text, JSON, Markdown, JUnit and a standalone HTML page with embedded scaled screenshots and the before/after slider. See [Reading results](Soundcheck-Reading-Results).
+`store` writes each run as `run.json` (schema `rhythm-soundcheck/v1`) with its screenshots, into `.soundcheck/snapshots/<name>/` or `.soundcheck/runs/<date-time>/`. A snapshot is written to `.incoming/` and moved into place only when complete. Runs are pruned to the newest 20, except runs with an evidence pack: each `--eaa` run's `eaa/evidence.json` is chained to the one before it, so those are kept. Folders are private to the user (0700) and files 0600. The folders are added to `.git/info/exclude`. `report` renders one result model as the live terminal view, plain text, JSON, Markdown, JUnit and a standalone HTML page with embedded scaled screenshots and the before/after slider. See [Reading results](Soundcheck-Reading-Results).
 
 ## Inside Echo
 
@@ -309,6 +330,15 @@ echo/
 ├── store               the .echo folder: snapshots, runs, LATEST, pruning, git exclude
 ├── report              terminal view, plain, JSON, Markdown, JUnit, standalone HTML
 ├── client              Go client for the API (used by Soundcheck)
+├── consent             cookie consent checks: plan, results, masking, IDs, the check registry
+│   ├── cli             the consent command, its subcommands, flags and help
+│   ├── browse          one Chrome per command, a fresh context per run, request-stage holding, events
+│   ├── cmp             banner rules (rules/*.yaml), detection, clicking, confirming, the generic rule
+│   ├── tracker         the tracker catalogue (catalog/*.yaml with fixtures) and matching
+│   ├── signal          Consent Mode commands, gcs, gcd, TCF and GPP decoding, CMP state
+│   ├── verdict         the checks, the policies, comparisons with a baseline
+│   └── evidence        the evidence folder, manifest, hashes, ed25519 signing and verify
+├── internal/browser    Soundcheck's browser layer, copied at v1.2.2 with Echo's launch flags
 ├── model               messages, actions, issues, changes (schema rhythm-echo/v1)
 ├── connectors/         wordpress (the mu-plugin, embedded), laravel (Composer), node (npm)
 └── action.yml          the GitHub Action
@@ -348,6 +378,23 @@ flowchart TD
 6. **Compare.** `compare` matches actions by ID and messages by identity (channel and recipients for email and SMS; channel, provider, method, host, path pattern and event for the rest). It normalizes test data, numbers and dates and diffs recipients, subject, text and payload fields. Issues are diffed by key as in Soundcheck. The same change across actions is one line. `report` renders the result. Soundcheck's `echo` module calls `compare.Messages` directly for its forms and flows.
 
 The WordPress connector is embedded in the binary (`connectors/wordpress/echo.php`) and written by `install`. The Laravel and Node connectors are packages of their own, released with Echo; see [Release process](Release-Process#echos-packages).
+
+### From a URL to a consent verdict
+
+```mermaid
+flowchart LR
+  U["rhythm echo consent &lt;url&gt;"] --> P["plan<br/>flags + consent: config"]
+  P --> B["browse<br/>one Chrome, fresh context per run<br/>none · accept · reject"]
+  B -- "hits held at request stage" --> E[("events/*.ndjson")]
+  B --> C["cmp<br/>find, click, confirm"]
+  B --> S["signal<br/>Consent Mode, gcs, gcd, TCF"]
+  E --> V["verdict<br/>checks, policy, baseline"]
+  C --> V
+  S --> V
+  V --> R["report + evidence<br/>consent.json, manifest, report.html"]
+```
+
+Each run gets its own incognito context and its own egress guard proxy; Chrome's own traffic goes to a listener that refuses everything. Each page, frame and worker has one Fetch owner at request stage, which answers tracker hits itself (held) and lets everything else through. Requests and clicks share one clock, the run's first navigation, so "before the choice" is exact to the millisecond. The verdict reads only what the network, cookies and storage show; `dataLayer` and CMP globals explain it. Echo doesn't import Soundcheck: `internal/browser` is a copy pinned to Soundcheck v1.2.2, with a test that keeps the Chrome for Testing pin in step.
 
 ---
 <sub>← [Release process](Release-Process) · [Home](Home)</sub>

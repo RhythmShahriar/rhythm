@@ -1,4 +1,4 @@
-Contributions are welcome. New Tuner checks, Soundcheck testbed scenarios and Echo recognizers are the most welcome of all. This page covers setting up the code, the commit message rules the hooks enforce, how pull requests are reviewed and merged and where to start with a check.
+Contributions are welcome. New Tuner checks, Soundcheck testbed scenarios, Echo recognizers, Roadie profiles and Sightread signals with their fixtures are the most welcome of all. This page covers setting up the code, the commit message rules the hooks enforce, how pull requests are reviewed and merged and where to start with a check.
 
 For big changes, open an issue first so the approach can be agreed before you write the code. Keep each pull request focused on one thing.
 
@@ -11,6 +11,8 @@ For big changes, open an issue first so the approach can be agreed before you wr
 | [`RhythmShahriar/soundcheck`](https://github.com/RhythmShahriar/soundcheck) | Soundcheck (`rhythm-soundcheck`), its modules in `checks/`, the GitHub Action (`action.yml`) and the testbed in `testbed/` |
 | [`RhythmShahriar/echo`](https://github.com/RhythmShahriar/echo) | Echo (`rhythm-echo`), its recognizers in `recognize/`, the connectors in `connectors/` (WordPress, Laravel, Node), the hard-seal recipes in `docs/seal/` and the GitHub Action |
 | [`RhythmShahriar/echo-laravel`](https://github.com/RhythmShahriar/echo-laravel) | Read-only: Echo's `connectors/laravel`, split out for Packagist. Send changes to the `echo` repository. |
+| [`RhythmShahriar/roadie`](https://github.com/RhythmShahriar/roadie) | Roadie (`rhythm-roadie`), its profiles in `profile/`, detectors in `detect/`, the GitHub Action and the Docker testbed in `testbed/` |
+| [`RhythmShahriar/sightread`](https://github.com/RhythmShahriar/sightread) | Sightread (`rhythm-sightread`), its detectors in `detect/` with fixture pairs in `detect/pairs/testdata/pairs/<signal-id>/`, the GitHub Action and the testbed in `testbed/` |
 | [`RhythmShahriar/.github`](https://github.com/RhythmShahriar/.github) | Shared community files, the reusable CI and release workflows and the scripts they run (`check-style.py`, `add-headers.py`, `check-kit-pin.sh`) |
 
 ## Set up
@@ -55,6 +57,34 @@ go test -tags docker ./connectors/wordpress ./proxy ./sendmail   # the mu-plugin
 ```
 
 The Docker tests use their own containers and ports and remove them afterwards.
+
+### Working on Roadie only
+
+Roadie builds against released kit and Echo versions, with `GOWORK=off`:
+
+```sh
+git clone https://github.com/RhythmShahriar/roadie && cd roadie
+make hooks     # Conventional Commits check
+make check     # lint + tests (includes the dump-level testbed scenarios)
+make fuzz      # every fuzz target, briefly
+make -C testbed up bench   # the sealed Docker testbed and its scoreboard
+```
+
+Every profile rule and detector needs a positive and a negative fixture. Fake keys in tests are assembled at run time. See the repository's `CONTRIBUTING.md`.
+
+### Working on Sightread only
+
+Sightread builds against released kit versions, with `GOWORK=off`:
+
+```sh
+git clone https://github.com/RhythmShahriar/sightread && cd sightread
+make hooks     # Conventional Commits check
+make check     # lint + tests
+make testbed   # the fixture registries on 127.0.0.1, for end-to-end tests and the benchmark
+make perf      # the speed targets (run it on an idle machine)
+```
+
+Every signal needs at least three positive and three negative fixture pairs, one of them a benign look-alike; `TestEverySignalHasFixtures` fails the build otherwise. See the repository's `CONTRIBUTING.md`.
 
 ### Working on rhythm, or on the kit and a tool together
 
@@ -261,7 +291,7 @@ Checks in `checks/` are MIT licensed so anyone can reuse them; the rest of Tuner
 
 Soundcheck's modules are Go code in `checks/<module>/`, each implementing the hooks in `check/check.go` (see [Architecture](Architecture#inside-soundcheck)). A change to what Soundcheck reports needs a test with a page that shows the problem and one that doesn't, the same rule as Tuner's positive and negative fixtures; most module tests serve small HTML pages from `httptest` and drive a real browser.
 
-End to end, Soundcheck is tested against the **testbed**: a WordPress site and a plain-PHP site in Docker with 20 scenarios, each with a good and a broken state. It's also the [benchmark](Soundcheck-Benchmark).
+End to end, Soundcheck is tested against the **testbed**: a WordPress site and a plain-PHP site in Docker with 89 scenarios, each with a good and a broken state; s49 to s89 test EAA mode (`make -C testbed bench-eaa`). It's also the [benchmark](Soundcheck-Benchmark).
 
 ```sh
 make testbed                       # WordPress on 127.0.0.1:18800, plain PHP on :18810

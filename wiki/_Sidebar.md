@@ -52,6 +52,9 @@
 - [Cache](Soundcheck-Cache)
 - [Speed](Soundcheck-Speed)
 - [Accessibility and SEO](Soundcheck-Accessibility-And-SEO)
+- [EAA mode](Soundcheck-EAA)
+- [Keyboard walkthrough](Soundcheck-Keyboard-Walkthrough)
+- [Accessibility statement](Soundcheck-Accessibility-Statement)
 
 **Soundcheck in depth**
 - [CI](Soundcheck-CI)
@@ -81,6 +84,14 @@
 - [Replay](Echo-Replay)
 - [Deliverability](Echo-Deliverability)
 
+**Echo cookie consent**
+- [Cookie consent](Echo-Consent)
+- [Consent checks](Echo-Consent-Checks)
+- [Consent Mode](Echo-Consent-Mode)
+- [Banners (CMPs)](Echo-Consent-CMPs)
+- [Consent in CI](Echo-Consent-CI)
+- [Evidence](Echo-Consent-Evidence)
+
 **Echo in depth**
 - [Docker and DDEV](Echo-Docker-And-DDEV)
 - [Agency hub and reports](Echo-Hub-And-Reports)
@@ -93,6 +104,47 @@
 - [CLI reference](Echo-CLI-Reference)
 - [FAQ and troubleshooting](Echo-FAQ)
 - [Benchmark](Echo-Benchmark)
+
+**Roadie**
+- [Overview](Roadie)
+- [Getting started](Roadie-Getting-Started)
+- [Copy and prepare](Roadie-Copy-And-Prepare)
+- [Sources and targets](Roadie-Sources-And-Targets)
+- [Profiles](Roadie-Profiles)
+- [Pseudonymisation](Roadie-Pseudonymisation)
+- [Live keys](Roadie-Live-Keys)
+- [Kill switch](Roadie-Kill-Switch)
+- [Verify and reports](Roadie-Verify-And-Reports)
+
+**Roadie in depth**
+- [Laravel](Roadie-Laravel)
+- [Generic SQL and Postgres](Roadie-Generic-SQL-And-Postgres)
+- [Multisite](Roadie-Multisite)
+- [CI and the GitHub Action](Roadie-CI)
+- [Configuration](Roadie-Configuration)
+- [Security and limits](Roadie-Security-And-Limits)
+- [CLI reference](Roadie-CLI-Reference)
+- [Troubleshooting](Roadie-Troubleshooting)
+- [FAQ and honest limits](Roadie-FAQ)
+- [Benchmark](Roadie-Benchmark)
+
+**Sightread**
+- [Overview](Sightread)
+- [Your first review](Sightread-First-Review)
+- [Signal reference](Sightread-Signal-Reference)
+- [Allow and baseline](Sightread-Allow-And-Baseline)
+- [Sources and integrity](Sightread-Sources-And-Integrity)
+- [With Soundcheck and Roadie](Sightread-With-Soundcheck)
+- [Watch](Sightread-Watch)
+
+**Sightread in depth**
+- [CI and the GitHub Action](Sightread-CI)
+- [Configuration](Sightread-Configuration)
+- [Output and reports](Sightread-Output)
+- [Security model](Sightread-Security-Model)
+- [CLI reference](Sightread-CLI-Reference)
+- [FAQ and honest limits](Sightread-FAQ)
+- [Benchmark](Sightread-Benchmark)
 
 **Project**
 - [Responsible use](Responsible-Use)

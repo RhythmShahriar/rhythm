@@ -1,4 +1,4 @@
-How to get `rhythm` and its tools onto a CI runner: the `setup-rhythm` GitHub Action for GitHub, the installer for everything else and how to keep both fast, pinned and verified. What to run once the tools are there is on each tool's CI page: [Tuner](Tuner-CI), [Soundcheck](Soundcheck-CI) and [Echo](Echo-CI).
+How to get `rhythm` and its tools onto a CI runner: the `setup-rhythm` GitHub Action for GitHub, the installer for everything else and how to keep both fast, pinned and verified. What to run once the tools are there is on each tool's CI page: [Tuner](Tuner-CI), [Soundcheck](Soundcheck-CI), [Echo](Echo-CI), [Roadie](Roadie-CI) and [Sightread](Sightread-CI).
 
 ## GitHub Actions
 
@@ -18,6 +18,8 @@ The action ships in the `rhythm` repository (in `setup/`) and is versioned with 
 3. installs `rhythm` with the repository's own installer from the same tag (`install.sh`, or `install.ps1` on Windows), with no tools;
 4. runs `rhythm install --dir <folder> <tools>` (or `--locked`) with the download cache on and signatures checked;
 5. puts the folder on `PATH` for the steps that follow.
+
+Roadie and Sightread also have their own Actions, which install and verify the release themselves: `RhythmShahriar/roadie@v1` refreshes staging or verifies a copy (see [Roadie CI](Roadie-CI)) and `RhythmShahriar/sightread@v1` reviews lockfile changes (see [Sightread CI](Sightread-CI)).
 
 The install step prints rhythm's own lines, so the log shows what was checked. It leaves out rhythm's `Note: <dir> isn't on your PATH.`, since the step puts the folder on `PATH` itself. From a run of the step's script, with a runner's paths:
 

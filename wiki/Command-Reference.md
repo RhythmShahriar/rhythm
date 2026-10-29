@@ -1,6 +1,6 @@
-Every `rhythm` command and flag, the exit codes, the JSON documents, the environment variables and the files rhythm keeps. The tools' own commands are on their pages: [Tuner](Tuner-CLI-Reference), [Soundcheck](Soundcheck-CLI-Reference) and [Echo](Echo-CLI-Reference).
+Every `rhythm` command and flag, the exit codes, the JSON documents, the environment variables and the files rhythm keeps. The tools' own commands are on their pages: [Tuner](Tuner-CLI-Reference), [Soundcheck](Soundcheck-CLI-Reference), [Echo](Echo-CLI-Reference), [Roadie](Roadie-CLI-Reference) and [Sightread](Sightread-CLI-Reference).
 
-The samples on this page come from a build of rhythm's `master` (soon v0.7.0) with Tuner 0.3.2, Soundcheck 1.1.0 and Echo 1.0.0 installed in `/home/me/.local/bin`. A build from source calls itself `dev`, so its own line says `development build` where a release says its version.
+The samples on this page come from a build of rhythm's `master` (soon v0.7.0) with Tuner 0.3.2, Soundcheck 1.1.0 and Echo 1.0.0 installed in `/home/me/.local/bin`; the `Tools:` lists and the unknown-tool messages are from the 0.9.0 build, which adds Roadie and Sightread. A build from source calls itself `dev`, so its own line says `development build` where a release says its version.
 
 ## Usage
 
@@ -14,8 +14,10 @@ Usage:
 
 Tools:
   tuner (t)        WordPress & PHP security scanner
-  soundcheck (sc)  did my change break anything? whole-site before/after checks
-  echo (e)         is my site still saying what it should? every email, SMS and webhook
+  soundcheck (sc)  did my change break anything? whole-site before/after checks, accessibility (EAA)
+  echo (e)         is my site still saying what it should? email, SMS, webhooks and cookie consent
+  roadie (ro)      is my staging a safe copy of production? pseudonymised copies, keys and side effects off
+  sightread (sr)   what will this update really change? diff and rank before you update
 
 Commands:
   rhythm bundle --locked -o <file> [--platform os/arch,...]   pack what rhythm.lock pins into one file for offline installs
@@ -64,7 +66,7 @@ Flags go before or after names (`rhythm update tuner --no-data`). Everything aft
 
 ## Running a tool
 
-`rhythm <tool> [args]` runs `rhythm-<tool>` from your `PATH` with the rest of the arguments. Short names work: `t` is `tuner`, `sc` is `soundcheck` and `e` is `echo`. Any other `rhythm-<name>` program on your `PATH` runs as `rhythm <name>` too. `rhythm help` lists it under **Other tools**. With a small `rhythm-zap` script on the `PATH` that prints what it was given:
+`rhythm <tool> [args]` runs `rhythm-<tool>` from your `PATH` with the rest of the arguments. Short names work: `t` is `tuner`, `sc` is `soundcheck`, `e` is `echo`, `ro` is `roadie` and `sr` is `sightread`. Any other `rhythm-<name>` program on your `PATH` runs as `rhythm <name>` too. `rhythm help` lists it under **Other tools**. With a small `rhythm-zap` script on the `PATH` that prints what it was given:
 
 ```console
 $ rhythm zap hello
@@ -73,8 +75,10 @@ $ rhythm --help
 ...
 Tools:
   tuner (t)        WordPress & PHP security scanner
-  soundcheck (sc)  did my change break anything? whole-site before/after checks
-  echo (e)         is my site still saying what it should? every email, SMS and webhook
+  soundcheck (sc)  did my change break anything? whole-site before/after checks, accessibility (EAA)
+  echo (e)         is my site still saying what it should? email, SMS, webhooks and cookie consent
+  roadie (ro)      is my staging a safe copy of production? pseudonymised copies, keys and side effects off
+  sightread (sr)   what will this update really change? diff and rank before you update
 
 Other tools:
   zap
@@ -123,7 +127,7 @@ Downloads the latest release of each tool and installs it next to rhythm. Every 
 | Flag | Effect |
 |---|---|
 | `tool@version` | `tuner@0.3.1` installs exactly 0.3.1, `tuner@0.3` the newest 0.3.x, `tuner@latest` the latest. See [Pinning and locking](Pinning-And-Locking#pin-a-version). |
-| `--defaults` | also install the tools a fresh setup gets (today Echo, Soundcheck and Tuner) |
+| `--defaults` | also install the tools a fresh setup gets (today Echo, Roadie, Sightread, Soundcheck and Tuner) |
 | `--dir dir` | install into `dir`, created if missing (default: the folder rhythm is in) |
 | `--dry-run` | check the names and print the tools one per line, without a network request |
 | `--force` | reinstall a tool that is already on the release asked for |
@@ -161,7 +165,7 @@ Messages you may see, all before anything is downloaded:
 
 | Message | Exit |
 |---|---|
-| `rhythm: unknown tool "sondcheck"`<br>`  did you mean: rhythm install soundcheck`<br>`rhythm: unknown tool "nope"`<br>`  known: echo, soundcheck, tuner` | 2 |
+| `rhythm: unknown tool "sondcheck"`<br>`  did you mean: rhythm install soundcheck`<br>`rhythm: unknown tool "nope"`<br>`  known: echo, roadie, sightread, soundcheck, tuner` | 2 |
 | `rhythm: rhythm installs tools, not itself; update it with: rhythm update --self-only` | 2 |
 | `usage: rhythm install <tool>[@version]... [flags]; name a tool, or use --defaults` | 2 |
 | `rhythm: tuner: invalid version "0.3.x"; use latest, an exact version such as 0.3.1, or 0.3 for the newest 0.3.x` | 2 |
@@ -200,7 +204,7 @@ Usage errors exit 2 before any request:
 
 | Message |
 |---|
-| `rhythm: unknown tool "tunr"`<br>`  did you mean: rhythm update tuner`<br>`  known: rhythm, echo, soundcheck, tuner` |
+| `rhythm: unknown tool "tunr"`<br>`  did you mean: rhythm update tuner`<br>`  known: rhythm, echo, roadie, sightread, soundcheck, tuner` |
 | `rhythm: --self-only updates rhythm alone; drop the tool names or the flag` |
 | `rhythm: --json works with --check only` |
 | `rhythm: --json doesn't work with --lock; the lock is JSON already` |
@@ -357,7 +361,7 @@ rhythm completion powershell | Out-String | Invoke-Expression      # in $PROFILE
 
 Tab completes rhythm's commands, the tools, their short names, other `rhythm-*` programs, every command's flags (`rhythm update --<Tab>` offers `--cache --check --help --json --lock --min-age --no-data --quiet --rollback --self-only --skip-signature --to`), tool names after `install`, `update`, `uninstall`, `verify` and `help`, extension names after `update` and `verify` and the four `ext` subcommands. After a flag that takes a value, such as `--dir`, the shell completes file names.
 
-The script holds no names: each Tab runs `rhythm __complete`, so tools you install later complete without a new script. For `rhythm <tool> …` rhythm asks the tool itself. It does so only for a registry tool or an installed extension built on the shared kit (`kit/cli`); other programs are never run by completion. Today's Tuner, Soundcheck and Echo complete their own words once they move to that kit.
+The script holds no names: each Tab runs `rhythm __complete`, so tools you install later complete without a new script. For `rhythm <tool> …` rhythm asks the tool itself. It does so only for a registry tool or an installed extension built on the shared kit (`kit/cli`); other programs are never run by completion. Sightread, the first tool built on `cli.Main`, completes its own words today; Tuner, Soundcheck and Echo do once they move to that kit.
 
 `rhythm completion zhs` exits 2 with `rhythm: unknown shell "zhs"; want bash, zsh, fish or powershell` and `  did you mean: rhythm completion zsh`.
 

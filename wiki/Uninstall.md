@@ -21,7 +21,7 @@ rhythm-tuner       isn't installed
 | Flag | Effect |
 |---|---|
 | `--all` | remove every installed tool; add `rhythm` to remove rhythm itself too (last) |
-| `--purge` | also remove each tool's cache folder (Tuner's vulnerability data and check pack, Soundcheck's Chromium, Echo's CA) and its saved update check, even for a tool that is already gone |
+| `--purge` | also remove each tool's cache folder (Tuner's vulnerability data and check pack, Soundcheck's Chromium (and the Chrome for Testing Echo's consent checks share with it), Echo's CA, Roadie's profile pack, signing key and spool, Sightread's archive cache) and its saved update check, even for a tool that is already gone |
 
 For each tool it removes the copy that runs (the first on your `PATH`, plus the file a link points to), plus the `.prev`, `.prev.json` and `.old` files updates leave next to it. If another copy is still on your `PATH` afterwards it says `Note: another rhythm-tuner is still on your PATH at /usr/local/bin/rhythm-tuner`. A tool that isn't installed is not an error.
 
@@ -79,7 +79,7 @@ Remove-Item -Recurse -Force "$env:LOCALAPPDATA\rhythm", "$env:APPDATA\rhythm" -E
 ### Installed with Go
 
 ```sh
-rm "$(go env GOPATH)/bin/rhythm" "$(go env GOPATH)/bin/rhythm-tuner" "$(go env GOPATH)/bin/rhythm-soundcheck" "$(go env GOPATH)/bin/rhythm-echo"
+rm "$(go env GOPATH)/bin/rhythm" "$(go env GOPATH)/bin/rhythm-tuner" "$(go env GOPATH)/bin/rhythm-soundcheck" "$(go env GOPATH)/bin/rhythm-echo" "$(go env GOPATH)/bin/rhythm-roadie" "$(go env GOPATH)/bin/rhythm-sightread"
 ```
 
 Then remove the cache and settings folders for your platform as above.
@@ -99,8 +99,12 @@ Both are safe to delete at any time. Tuner downloads what it needs again on the 
 | cache `tuner/checks/` | The latest verified [check pack](Tuner-Check-Packs) |
 | cache `soundcheck/browser/` | The Chromium Soundcheck downloaded, when no Chrome is installed; often the largest item |
 | cache `echo/ca/` | Echo's certificate authority for its HTTPS proxy: `ca.pem` and its private key `ca-key.pem` |
+| cache `roadie/profiles/`, `roadie/spool/`, `roadie/locks/` | Roadie's downloaded profile pack; the encrypted spool of a streamed source (removed when a run ends); one lock per target |
+| settings `roadie/signing.key` | the key Roadie signs reports with; delete it and the next run makes a new one (reports signed before can still be checked against their own public key) |
+| cache `sightread/` | Sightread's downloaded archives (by hash), registry answers and its last reports, plus `watch/<name>/` for each watch |
+| settings `sightread/report-key`, `report-key.pub` | the key pair `rhythm sightread ... --sign` signs reports with |
 | settings `update-check/` | When each tool last looked for a new release, for the [once-a-day notice](Updating#the-new-release-notice) |
-| settings `seen/` | Markers for notices shown once, such as the tools' responsible-use notes and `New tool available` |
+| settings `seen/` | Markers for notices shown once, such as the tools' responsible-use notes and `New tool available`, plus Echo's `echo-consent-notice` and `echo-consent-tip-save` (the consent checks' once-only note and the `--save` tip) |
 | settings `extensions.json`, `verified.json` | The extensions `rhythm ext` installed and the signature checks behind the SIGNED column |
 | cache `rhythm/tuf/`, `rhythm/downloads/` | The Sigstore trusted root and the archives `--cache` keeps |
 
@@ -123,15 +127,34 @@ find ~ -type d -name .soundcheck 2>/dev/null
 
 ## Echo folders in your projects
 
-Echo keeps snapshots, runs and reports in a `.echo/` folder in each project where you ran it. They contain the messages your sites sent, with their personal data, so delete them when you no longer need them:
+Echo keeps snapshots, runs and reports in a `.echo/` folder in each project where you ran it. They contain the messages your sites sent with their personal data; consent results in `.echo/consent/` hold screenshots of the sites you checked. Delete them when you no longer need them:
 
 ```sh
 rm -rf .echo/snapshots .echo/runs .echo/.incoming   # keeps config.yaml
+rm -rf .echo/consent                                 # consent results, baselines and detect screenshots
 rm -r .echo                                        # everything
 find ~ -type d -name .echo 2>/dev/null             # to find them
 ```
 
 Echo added a `# Echo snapshots and reports` block to `.git/info/exclude`, which you can delete too.
+
+## Roadie files in your projects
+
+`rhythm roadie config init` writes `.roadie/config.yaml`, meant to be committed: it holds settings, never a secret. Everything else in `.roadie/` is git-excluded and holds data about production: `reports/` (signed reports naming tables, columns and masked examples), `backups/` (`prepare`'s backups of the staging database, real data if the staging held any), `key` (the consistency key, which can link fakes back to people) and `basic-auth/`. Delete them when you're done:
+
+```sh
+rm -r .roadie/reports .roadie/backups .roadie/key .roadie/basic-auth
+```
+
+On ssh staging hosts, `prepare` keeps its backups in `~/.roadie-backups/` on that host.
+
+## Sightread files in your projects
+
+`rhythm sightread init` writes `.sightread/config.yaml` and `allow` writes `.sightread/allowed.yaml`. They're meant to be committed: they hold your settings and your review record, no personal data. Reports you saved with `-o` hold your inventory; delete them when you're done.
+
+```sh
+rm -r .sightread    # the config and the review record
+```
 
 ## Echo's certificate authority
 
