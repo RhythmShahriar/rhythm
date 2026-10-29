@@ -54,13 +54,13 @@ func TestCompleteWords(t *testing.T) {
 		want  []string
 	}{
 		{[]string{"tu"}, []string{"tuner"}},
-		{[]string{"s"}, []string{"sc", "soundcheck"}},
+		{[]string{"s"}, []string{"sc", "sightread", "soundcheck", "sr"}},
 		{[]string{"__"}, nil}, // hidden
 		{[]string{"help", "so"}, []string{"soundcheck"}},
 		{[]string{"help", "i"}, []string{"install"}},
 		{[]string{"help", "tuner", ""}, nil},
-		{[]string{"install", ""}, []string{"echo", "soundcheck", "tuner"}},
-		{[]string{"install", "tuner", "s"}, []string{"soundcheck"}}, // install takes several
+		{[]string{"install", ""}, []string{"echo", "roadie", "sightread", "soundcheck", "tuner"}},
+		{[]string{"install", "tuner", "s"}, []string{"sightread", "soundcheck"}}, // install takes several
 		{[]string{"install", "--"}, []string{"--dir", "--help", "--locked"}},
 		{[]string{"install", "--l"}, []string{"--locked"}},
 		{[]string{"install", "--dir", ""}, nil}, // the shell completes the folder

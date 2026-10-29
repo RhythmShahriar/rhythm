@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 
 name: setup-rhythm
-description: Install rhythm and Rhythm tools (Tuner, Soundcheck, Echo), signature checked, with the downloads cached
+description: Install rhythm and Rhythm tools (Tuner, Soundcheck, Echo, Roadie, Sightread), signature checked, with the downloads cached
 author: Rhythm Shahriar
 branding:
   icon: shield

@@ -484,7 +484,7 @@ func TestUpdateReportsDataFailure(t *testing.T) {
 	if !strings.Contains(errs, "rhythm-tuner  data refresh failed (exit 3)\n") {
 		t.Errorf("no failure line:\n%s", errs)
 	}
-	if !strings.HasSuffix(errs, "Updated 2, up to date 1, failed 1: rhythm-tuner data\n") {
+	if !strings.HasSuffix(errs, "Updated 4, up to date 1, failed 1: rhythm-tuner data\n") {
 		t.Errorf("no closing summary:\n%s", errs)
 	}
 	if !strings.Contains(errs, "checks: fetch failed") || !strings.Contains(out, "rhythm-tuner       0.1.0 (up to date)") {
@@ -497,7 +497,7 @@ func TestUpdateSummaryNamesFailedBinaries(t *testing.T) {
 	delete(latest, repoOf("echo")) // echo has no release: the binary update fails
 	newSandbox(t, installed, latest)
 	code, _, errs := runCmd("update", "--check")
-	if code != 1 || !strings.HasSuffix(errs, "Available 2, up to date 0, failed 1: rhythm-echo\n") {
+	if code != 1 || !strings.HasSuffix(errs, "Available 4, up to date 0, failed 1: rhythm-echo\n") {
 		t.Errorf("exit %d:\n%s", code, errs)
 	}
 	code, _, errs = runCmd("update", "echo", "soundcheck")
@@ -615,8 +615,8 @@ func TestUpdateUnreachableSaidOnce(t *testing.T) {
 
 	code, _, errs := runCmd("update", "--no-data")
 	want := "can't reach " + strings.TrimPrefix(api, "http://") +
-		" for rhythm, rhythm-echo, rhythm-soundcheck, rhythm-tuner; check network, proxy or RHYTHM_GITHUB_API\n" +
-		"Updated 0, up to date 0, failed 4: rhythm, rhythm-echo, rhythm-soundcheck, rhythm-tuner\n"
+		" for rhythm, rhythm-echo, rhythm-roadie, rhythm-sightread, rhythm-soundcheck, rhythm-tuner; check network, proxy or RHYTHM_GITHUB_API\n" +
+		"Updated 0, up to date 0, failed 6: rhythm, rhythm-echo, rhythm-roadie, rhythm-sightread, rhythm-soundcheck, rhythm-tuner\n"
 	if code != 1 || errs != want {
 		t.Errorf("exit %d\n%s\nwant\n%s", code, errs, want)
 	}
@@ -629,8 +629,8 @@ func TestOfflineSaidOnce(t *testing.T) {
 	t.Setenv("RHYTHM_OFFLINE", "1")
 
 	code, _, errs := runCmd("update", "--no-data")
-	want := "RHYTHM_OFFLINE is set, so nothing was downloaded for rhythm, rhythm-echo, rhythm-soundcheck, rhythm-tuner; unset it to reach the release API\n" +
-		"Updated 0, up to date 0, failed 4: rhythm, rhythm-echo, rhythm-soundcheck, rhythm-tuner\n"
+	want := "RHYTHM_OFFLINE is set, so nothing was downloaded for rhythm, rhythm-echo, rhythm-roadie, rhythm-sightread, rhythm-soundcheck, rhythm-tuner; unset it to reach the release API\n" +
+		"Updated 0, up to date 0, failed 6: rhythm, rhythm-echo, rhythm-roadie, rhythm-sightread, rhythm-soundcheck, rhythm-tuner\n"
 	if code != 1 || errs != want {
 		t.Errorf("update: exit %d\n%s\nwant\n%s", code, errs, want)
 	}
@@ -654,9 +654,9 @@ func TestOfflineSkipsData(t *testing.T) {
 	t.Setenv("RHYTHM_OFFLINE", "1")
 
 	code, out, errs := runCmd("update")
-	want := "RHYTHM_OFFLINE is set, so nothing was downloaded for rhythm, rhythm-echo, rhythm-soundcheck, rhythm-tuner; unset it to reach the release API\n" +
+	want := "RHYTHM_OFFLINE is set, so nothing was downloaded for rhythm, rhythm-echo, rhythm-roadie, rhythm-sightread, rhythm-soundcheck, rhythm-tuner; unset it to reach the release API\n" +
 		"RHYTHM_OFFLINE is set, so no tool's data was refreshed either; unset it to refresh it\n" +
-		"Updated 0, up to date 0, failed 4: rhythm, rhythm-echo, rhythm-soundcheck, rhythm-tuner\n"
+		"Updated 0, up to date 0, failed 6: rhythm, rhythm-echo, rhythm-roadie, rhythm-sightread, rhythm-soundcheck, rhythm-tuner\n"
 	if code != 1 || errs != want {
 		t.Errorf("exit %d\n%s\nwant\n%s", code, errs, want)
 	}
@@ -696,7 +696,7 @@ func TestUpdateRateLimitSaidOnce(t *testing.T) {
 	t.Setenv("RHYTHM_GITHUB_API", srv.URL)
 
 	code, _, errs := runCmd("update", "--check")
-	want := "rate limit reached at " + srv.URL + " for rhythm-echo, rhythm-soundcheck, rhythm-tuner; set RHYTHM_GITHUB_TOKEN\n"
+	want := "rate limit reached at " + srv.URL + " for rhythm-echo, rhythm-roadie, rhythm-sightread, rhythm-soundcheck, rhythm-tuner; set RHYTHM_GITHUB_TOKEN\n"
 	if code != 1 || !strings.HasPrefix(errs, want) || strings.Count(errs, "\n") != 2 {
 		t.Errorf("exit %d\n%s", code, errs)
 	}
@@ -1452,7 +1452,7 @@ func TestUpdateCheckJSON(t *testing.T) {
 
 	var rep updateReportJSON
 	objs := decodeStrict(t, out, &rep, "targets")
-	if rep.Schema != "rhythm-update/v1" || len(rep.Targets) != 4 {
+	if rep.Schema != "rhythm-update/v1" || len(rep.Targets) != len(installed)+1 {
 		t.Errorf("%+v", rep)
 	}
 	requireKeys(t, objs, "name", "current", "latest", "path", "outdated", "signed", "managed_by", "error")

@@ -51,7 +51,7 @@ func TestUninstallRemovesExactlyTheTool(t *testing.T) {
 	if code != 0 || errs != "" {
 		t.Fatalf("exit %d\n%s%s", code, out, errs)
 	}
-	want := []string{"rhythm-echo", "rhythm-soundcheck", "rhythm-tuner-notes"}
+	want := []string{"rhythm-echo", "rhythm-roadie", "rhythm-sightread", "rhythm-soundcheck", "rhythm-tuner-notes"}
 	if got := files(t, s.bin); strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Errorf("left %v, want %v", got, want)
 	}
@@ -268,7 +268,7 @@ func TestUninstallUsage(t *testing.T) {
 		!strings.Contains(errs, "unknown tool \"tunr\"\n  did you mean: rhythm uninstall tuner\n") || !strings.Contains(errs, `unknown tool "nope"`) {
 		t.Errorf("bad names: exit %d: %s", code, errs)
 	}
-	if len(files(t, s.bin)) != 3 {
+	if len(files(t, s.bin)) != len(installed) {
 		t.Error("a usage error removed something")
 	}
 	if code, out, _ := runCmd("uninstall", "--help"); code != 0 || !strings.Contains(out, "--purge") || !strings.Contains(out, "--all") {

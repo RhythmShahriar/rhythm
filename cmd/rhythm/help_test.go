@@ -48,8 +48,10 @@ Usage:
 
 Tools:
   tuner (t)        WordPress & PHP security scanner
-  soundcheck (sc)  did my change break anything? whole-site before/after checks
-  echo (e)         is my site still saying what it should? every email, SMS and webhook
+  soundcheck (sc)  did my change break anything? whole-site before/after checks, accessibility (EAA)
+  echo (e)         is my site still saying what it should? email, SMS, webhooks and cookie consent
+  roadie (ro)      is my staging a safe copy of production? pseudonymised copies, keys and side effects off
+  sightread (sr)   what will this update really change? diff and rank before you update
 
 Commands:
   rhythm help [tool|command]            show help for rhythm, a tool or a command
@@ -196,7 +198,7 @@ func TestSuggestionsOrder(t *testing.T) {
 	fixedCommands(t)
 	t.Setenv("PATH", t.TempDir())
 	got := strings.Join(suggestions(), " ")
-	want := "echo soundcheck tuner help install version t sc e"
+	want := "echo roadie sightread soundcheck tuner help install version t sc e ro sr"
 	if got != want {
 		t.Errorf("suggestions() = %q, want %q", got, want)
 	}
